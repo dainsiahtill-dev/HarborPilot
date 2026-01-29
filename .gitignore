@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+
+# State outputs
+state/ollama/*.md
+state/ollama/*.json
+state/ollama/*.jsonl
+state/ollama/memory/
+state/ollama/runs/
+
+# Desktop app
+/desktop/node_modules/
+/desktop/frontend/dist/
+/desktop/frontend/.vite/
+/desktop/*.log

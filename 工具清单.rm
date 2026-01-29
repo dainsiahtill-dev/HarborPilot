@@ -1,0 +1,118 @@
+﻿# HarborPilot 工具清单
+
+目的：为 Director 自动化提供“已安装工具”的统一说明，便于规划/执行/QA 使用。
+说明：这些工具已预装在本机环境中，无需 Director 自行 pip 安装。
+
+## 1. 代码质量与格式化
+- ruff
+  - 功能：超快 lint/format，支持自动修复
+  - 特点：速度快、规则覆盖广、适合批量改动后快速回归
+  - 目的：提升改动一致性，减少风格类问题
+  - 示例：
+    - ruff check .
+    - ruff format .
+
+## 2. 测试与覆盖率
+- pytest
+  - 功能：主流 Python 测试框架
+  - 特点：生态完善、断言清晰
+  - 目的：验证变更正确性
+  - 示例：pytest
+- coverage
+  - 功能：统计测试覆盖率
+  - 特点：可生成文本/HTML 报告
+  - 目的：评估测试质量
+  - 示例：coverage run -m pytest && coverage report -m
+
+## 3. 静态类型检查
+- mypy
+  - 功能：Python 静态类型检查
+  - 特点：在运行前发现类型问题
+  - 目的：减少运行时错误
+  - 示例：mypy .
+
+## 4. 结构化数据校验
+- pydantic
+  - 功能：数据模型与校验
+  - 特点：强类型、错误可追踪
+  - 目的：校验 JSON 输出（PM_TASKS / DIRECTOR_RESULT 等）
+- jsonschema
+  - 功能：JSON Schema 校验
+  - 特点：规范化输入/输出结构
+  - 目的：确保模型输出契约一致
+
+## 5. 语法解析与安全改写
+- tree_sitter
+- tree_sitter_languages
+  - 功能：多语言语法树解析（TS/JS/Py 等）
+  - 特点：结构级分析，避免字符串误改
+  - 目的：自动化改代码时更可靠
+  - 相关 tools.py 包装：
+    - treesitter_outline / treesitter_find_symbol
+    - treesitter_replace_node / treesitter_insert_method / treesitter_rename_symbol
+
+## 6. 日志与可读性
+- rich
+  - 功能：更友好的终端输出
+  - 特点：高亮、表格、进度条
+  - 目的：提升日志可读性与调试效率
+
+## 7. 使用建议（面向 Director）
+- 当需要快速修复风格问题时：优先 ruff
+- 当需要验证改动时：pytest / coverage / mypy
+- 当处理结构化数据时：pydantic / jsonschema
+- 当需要解析复杂文件结构时：tree_sitter 系列
+- 当需要安全改函数/类时：优先 tree-sitter 结构化改写工具
+
+## 8. 注意
+- Director 在 Tool Planner 阶段会自动执行 repo_* 工具（repo_tree/rg/read_* / diff）用于定位与切片读取。
+- 其他 Python 工具仍需通过 tool_commands 提出，或由人工执行。
+  - 若 Patch Planner 未给出 tool_commands，Director 将默认执行 ruff → mypy → pytest（可用 `--no-default-tools` 关闭）。
+
+## 9. 统一工具入口（tools.py）
+
+为了便于 Director/脚本调用，新增 `tools.py` 统一入口：
+- `python tools.py list` 查看可用工具
+- `python tools.py <tool_name> -- <args>` 执行工具
+
+支持工具：ruff / pytest / coverage / mypy / jsonschema / pydantic / tree_sitter  
+补充：tools.py 还内置 repo_*、tree-sitter 结构化改写、repo 索引、lancedb 检索等能力。
+补充：`python tools.py policy_validate -- director_policy.json` 可校验 policy 文件合法性。
+
+补充：Planner 会在需要时输出 tool_commands（可选），Director 若检测到该字段就会自动执行对应的 tools.py 命令。
+
+## 10. Repo-IO 工具（定位/切片读取）
+
+新增 tools.py 内置能力：
+- repo_tree：输出目录树（支持 depth 限制）
+- repo_rg：全文检索（带行号）
+- repo_read_around：按行号窗口读取
+- repo_read_slice：按起止行读取
+- repo_read_head / repo_read_tail：读取头/尾
+- repo_diff：git diff / diff --stat
+
+目标：让 Director 具备“先定位 → 再切片读”的高效信息获取能力。
+
+## 11. 取证包（Evidence）
+
+- 每轮 ToolPlanner 取证会生成摘要包：
+  `state/ollama/evidence/EVIDENCE_<task_id>_<iter>.json`
+- 包含读过的文件、行范围、hash、truncated 等信息，便于回放与纠偏。
+
+## 12. 运行期取证工具（tools.py 内置）
+
+- pytest_target：只跑指定测试用例（更快）
+- python_run：运行最小复现脚本，采集 stdout/stderr
+- node_run：运行 Node/TS 复现脚本（适合前端/工具链）
+
+## 13. Repo 索引 / 本地 RAG（tools.py 内置）
+
+- repo_symbols_index：快速建立符号 → 文件映射
+- repo_import_graph：粗粒度 import 依赖图
+- repo_api_surface：列出公开 API（函数/类/导出）
+- lancedb_index_code / lancedb_query_code：本地代码向量索引与检索（可选依赖 lancedb）
+
+## 14. Policy 校验（tools.py 内置）
+
+- policy_validate：校验 director_policy.json 的字段与范围是否合法
+- 示例：`python tools.py policy_validate -- state/ollama/director_policy.json`

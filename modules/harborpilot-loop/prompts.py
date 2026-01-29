@@ -1,0 +1,286 @@
+import os
+from typing import Dict, List
+
+from prompt_loader import get_template, render_template
+from shared import normalize_path, unique_preserve
+from io_utils import ensure_parent_dir, read_file_safe
+
+
+def build_project_prompt(
+    plan_text: str,
+    memory_summary: str,
+    port_summary: str,
+    port_policy_note: str,
+    target_note: str,
+) -> str:
+    template = get_template("project_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "memory_summary": memory_summary,
+            "port_summary": port_summary,
+            "port_policy_note": port_policy_note,
+            "target_note": target_note,
+        },
+    )
+
+
+def build_continuation_prompt(
+    plan_text: str,
+    last_response: str,
+    decision_number: int,
+    memory_summary: str,
+    port_summary: str,
+    port_policy_note: str,
+    target_note: str,
+) -> str:
+    template = get_template("continuation_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "last_response": last_response,
+            "decision_number": decision_number,
+            "memory_summary": memory_summary,
+            "port_summary": port_summary,
+            "port_policy_note": port_policy_note,
+            "target_note": target_note,
+        },
+    )
+
+
+def build_repair_prompt(plan_text: str, last_response: str, reason: str) -> str:
+    template = get_template("repair_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "last_response": last_response,
+            "reason": reason,
+        },
+    )
+
+
+def build_planner_prompt(
+    plan_text: str,
+    memory_summary: str,
+    port_summary: str,
+    port_policy_note: str,
+    target_note: str,
+) -> str:
+    template = get_template("planner_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "memory_summary": memory_summary,
+            "port_summary": port_summary,
+            "port_policy_note": port_policy_note,
+            "target_note": target_note,
+        },
+    )
+
+
+def build_tool_planner_prompt(pm_tasks_json: str, known_files: str, last_result: str) -> str:
+    template = get_template("tool_planner_prompt")
+    return render_template(
+        template,
+        {
+            "pm_tasks_json": pm_tasks_json,
+            "known_files": known_files,
+            "last_result": last_result,
+        },
+    )
+
+
+def build_patch_planner_prompt(tool_output_json: str, pm_tasks_json: str) -> str:
+    template = get_template("patch_planner_prompt")
+    return render_template(
+        template,
+        {
+            "tool_output_json": tool_output_json,
+            "pm_tasks_json": pm_tasks_json,
+        },
+    )
+
+
+def build_qa_prompt(
+    plan_text: str,
+    memory_summary: str,
+    target_note: str,
+    changed_files: List[str],
+    planner_output: str,
+    ollama_output: str,
+    tool_results: str,
+    reviewer_summary: str,
+    patch_risk: str,
+) -> str:
+    files_list = "\n".join(f"- {path}" for path in changed_files) if changed_files else "- (none)"
+    template = get_template("qa_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "memory_summary": memory_summary,
+            "target_note": target_note,
+            "changed_files_list": files_list,
+            "planner_output": planner_output,
+            "ollama_output": ollama_output,
+            "tool_results": tool_results,
+            "reviewer_summary": reviewer_summary,
+            "patch_risk": patch_risk,
+        },
+    )
+
+
+def build_reviewer_prompt(
+    plan_text: str,
+    memory_summary: str,
+    target_note: str,
+    changed_files: List[str],
+    planner_output: str,
+    ollama_output: str,
+    tool_results: str,
+    patch_risk: str,
+) -> str:
+    files_list = "\n".join(f"- {path}" for path in changed_files) if changed_files else "- (none)"
+    template = get_template("reviewer_prompt")
+    return render_template(
+        template,
+        {
+            "plan_text": plan_text,
+            "memory_summary": memory_summary,
+            "target_note": target_note,
+            "changed_files_list": files_list,
+            "planner_output": planner_output,
+            "ollama_output": ollama_output,
+            "tool_results": tool_results,
+            "patch_risk": patch_risk,
+        },
+    )
+
+
+def build_ollama_prompt(brief: str, file_context: str) -> str:
+    template = get_template("ollama_prompt")
+    return render_template(template, {"brief": brief, "file_context": file_context})
+
+
+def extract_between(text: str, start_tag: str, end_tag: str) -> str:
+    if not text:
+        return ""
+    start_idx = text.find(start_tag)
+    end_idx = text.find(end_tag)
+    if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+        return ""
+    return text[start_idx + len(start_tag) : end_idx].strip()
+
+
+def parse_files_to_edit(text: str) -> List[str]:
+    if not text:
+        return []
+    lines = text.splitlines()
+    in_section = False
+    files: List[str] = []
+    import re
+
+    header_re = re.compile(r"^\s*(?:\d+[\).\]]\s*)?files to edit\b", re.IGNORECASE)
+    next_section_re = re.compile(r"^\s*\d+[\).\]]\s*\S")
+    for line in lines:
+        stripped = line.strip()
+        if not in_section:
+            if header_re.match(stripped):
+                in_section = True
+            continue
+        if not stripped:
+            continue
+        if stripped.startswith("##") or stripped.startswith("[OLLAMA_BEGIN]"):
+            break
+        if next_section_re.match(stripped):
+            break
+        match = re.match(r"^\s*[-*]\s+(.+)$", line)
+        if match:
+            path = normalize_path(match.group(1).strip("`"))
+            if path:
+                files.append(path)
+    return unique_preserve(files)
+
+
+def build_file_context(files: List[str], workspace: str) -> str:
+    blocks: List[str] = []
+    for path in files:
+        full_path = os.path.join(workspace, path)
+        content = read_file_safe(full_path)
+        header = f"FILE: {path}"
+        blocks.append(header)
+        blocks.append(content if content else "<EMPTY OR MISSING>")
+        blocks.append("END FILE")
+    return "\n".join(blocks)
+
+
+def parse_file_blocks(text: str) -> List[Dict[str, str]]:
+    blocks: List[Dict[str, str]] = []
+    if not text:
+        return blocks
+    if text.strip() == "NO_CHANGES":
+        return blocks
+    current_path = ""
+    current_lines: List[str] = []
+    for line in text.splitlines():
+        if line.startswith("FILE:"):
+            if current_path:
+                blocks.append({"path": current_path, "content": "\n".join(current_lines).rstrip("\n") + "\n"})
+            current_path = normalize_path(line[len("FILE:") :].strip())
+            current_lines = []
+            continue
+        if line.strip() == "END FILE" and current_path:
+            blocks.append({"path": current_path, "content": "\n".join(current_lines).rstrip("\n") + "\n"})
+            current_path = ""
+            current_lines = []
+            continue
+        if line.strip().startswith("```"):
+            continue
+        if current_path:
+            current_lines.append(line)
+    if current_path:
+        blocks.append({"path": current_path, "content": "\n".join(current_lines).rstrip("\n") + "\n"})
+    return blocks
+
+
+def strip_full_content_markers(content: str) -> str:
+    if not content:
+        return content
+    lines = content.splitlines()
+    if not lines:
+        return content
+    start = 0
+    end = len(lines) - 1
+    while start <= end and not lines[start].strip():
+        start += 1
+    while end >= start and not lines[end].strip():
+        end -= 1
+    if start <= end and lines[start].strip().lower() == "<full file content>":
+        lines.pop(start)
+        end -= 1
+    if start <= end and lines[end].strip().lower() in {"</full content>", "</full file content>"}:
+        lines.pop(end)
+    sanitized = "\n".join(lines)
+    if content.endswith("\n"):
+        sanitized += "\n"
+    return sanitized
+
+
+def apply_file_blocks(blocks: List[Dict[str, str]], workspace: str) -> List[str]:
+    changed: List[str] = []
+    for block in blocks:
+        path = block.get("path") or ""
+        content = block.get("content")
+        if not path or content is None:
+            continue
+        content = strip_full_content_markers(content)
+        full_path = os.path.join(workspace, path)
+        ensure_parent_dir(full_path)
+        with open(full_path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        changed.append(path)
+    return unique_preserve(changed)
