@@ -42,6 +42,7 @@ SCRIPT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 PROMPT_PROFILE_ENV = "HARBORPILOT_PROMPT_PROFILE"
 DEFAULT_DIRECTOR_SUBPROCESS_LOG = "state/ollama/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = "state/ollama/DIRECTOR_STATUS.json"
 REQUIRED_MODULE_FILES = (
     "decision.py",
     "codex_utils.py",
@@ -168,6 +169,16 @@ def append_director_log(log_path: str, text: str) -> None:
     ensure_parent_dir(log_path)
     with open(log_path, "a", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def write_director_status(path: str, payload: Dict[str, Any]) -> None:
+    if not path:
+        return
+    try:
+        ensure_parent_dir(path)
+        write_json_atomic(path, payload)
+    except Exception:
+        pass
 
 
 def run_director_once(args: argparse.Namespace, workspace_full: str, iteration: int, log_path: str = "") -> int:
@@ -341,6 +352,22 @@ def wait_for_director_result(path: str, expected_task_id: str, since_ts: float, 
     return {"status": "blocked", "error_code": "DIRECTOR_NO_RESULT"}
 
 
+def match_director_result(result: Any, expected_task_id: str, since_ts: float) -> Optional[Dict[str, Any]]:
+    if not isinstance(result, dict):
+        return None
+    task_id = str(result.get("task_id") or "")
+    if not task_id or not expected_task_id or task_id != expected_task_id:
+        return None
+    ts = result.get("timestamp") or ""
+    try:
+        ts_epoch = datetime.fromisoformat(ts).timestamp() if ts else 0
+    except Exception:
+        ts_epoch = 0
+    if ts_epoch < since_ts:
+        return None
+    return result
+
+
 def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     backend = str(getattr(args, "pm_backend", "ollama") or "ollama").strip().lower()
     if backend == "codex":
@@ -364,6 +391,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     pm_last_full = os.path.join(workspace_full, args.pm_last_message_path)
     pm_history_full = resolve_artifact_path(workspace_full, cache_root_full, args.task_history_path)
     director_log_full = ""
+    director_status_full = resolve_artifact_path(workspace_full, cache_root_full, DEFAULT_DIRECTOR_STATUS)
     if getattr(args, "director_log_path", None):
         director_log_full = resolve_artifact_path(workspace_full, cache_root_full, args.director_log_path)
 
@@ -526,6 +554,17 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     if args.run_director:
         director_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         director_start_epoch = time.time()
+        write_director_status(
+            director_status_full,
+            {
+                "running": True,
+                "started_at": director_start_epoch,
+                "updated_at": time.time(),
+                "mode": "pm",
+                "pm_iteration": iteration,
+                "log_path": director_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+            },
+        )
         if primary_task:
             task_id = str(primary_task.get("id") or "")
             emit_dialogue(
@@ -544,12 +583,29 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         run_dir = build_run_dir(workspace_full, iteration)
         archive_if_exists(pm_out_full, os.path.join(run_dir, "PM_TASKS.json"))
         archive_if_exists(pm_report_full, os.path.join(run_dir, "PM_REPORT.md"))
-        director_exit = run_director_once(args, workspace_full, iteration, director_log_full)
+        director_exit: Optional[int] = None
+        try:
+            director_exit = run_director_once(args, workspace_full, iteration, director_log_full)
+        finally:
+            write_director_status(
+                director_status_full,
+                {
+                    "running": False,
+                    "started_at": director_start_epoch,
+                    "ended_at": time.time(),
+                    "updated_at": time.time(),
+                    "mode": "pm",
+                    "pm_iteration": iteration,
+                    "exit_code": director_exit,
+                    "log_path": director_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                },
+            )
         expected_task_id = ""
         tasks_for_director = normalized.get("tasks") if isinstance(normalized, dict) else []
         if isinstance(tasks_for_director, list) and tasks_for_director:
             primary = tasks_for_director[0] if isinstance(tasks_for_director[0], dict) else {}
             expected_task_id = str(primary.get("id") or "")
+        matched_result: Optional[Dict[str, Any]] = None
         if expected_task_id:
             director_check = wait_for_director_result(
                 director_result_full,
@@ -557,22 +613,26 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                 director_start_epoch,
                 args.director_result_timeout,
             )
-            if director_check.get("error_code") == "DIRECTOR_NO_RESULT":
-                pm_state["last_director_status"] = "blocked"
-                pm_state["last_director_error_code"] = "DIRECTOR_NO_RESULT"
-                write_json_atomic(pm_state_full, pm_state)
-                emit_dialogue(
-                    dialogue_full,
-                    speaker="PM",
-                    type="warning",
-                    text="Director result missing. Marked as blocked.",
-                    summary="Director result missing",
-                    run_id=run_id,
-                    pm_iteration=iteration,
-                    refs={"task_id": expected_task_id or None, "files": ["DIRECTOR_RESULT.json"]},
-                    meta={"error_code": "DIRECTOR_NO_RESULT"},
-                )
+            matched_result = match_director_result(director_check, expected_task_id, director_start_epoch)
         latest_result = read_json_file(director_result_full)
+        latest_match = match_director_result(latest_result, expected_task_id, director_start_epoch)
+        if latest_match is not None:
+            matched_result = latest_match
+        if expected_task_id and matched_result is None:
+            pm_state["last_director_status"] = "blocked"
+            pm_state["last_director_error_code"] = "DIRECTOR_NO_RESULT"
+            write_json_atomic(pm_state_full, pm_state)
+            emit_dialogue(
+                dialogue_full,
+                speaker="PM",
+                type="warning",
+                text="Director result missing. Marked as blocked.",
+                summary="Director result missing",
+                run_id=run_id,
+                pm_iteration=iteration,
+                refs={"task_id": expected_task_id or None, "files": ["DIRECTOR_RESULT.json"]},
+                meta={"error_code": "DIRECTOR_NO_RESULT"},
+            )
         if isinstance(latest_result, dict):
             status = str(latest_result.get("status") or "").upper()
             error_code = latest_result.get("error_code")
@@ -591,6 +651,13 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                     "changed_files_count": len(changed_files) if isinstance(changed_files, list) else 0,
                 },
             )
+            if matched_result is not None:
+                pm_state["last_director_status"] = str(latest_result.get("status") or "").strip().lower()
+                pm_state["last_director_task_id"] = str(latest_result.get("task_id") or "").strip()
+                pm_state["last_director_task_title"] = str(latest_result.get("task_title") or "").strip()
+                pm_state["last_director_task_fingerprint"] = str(latest_result.get("task_fingerprint") or "").strip()
+                pm_state.pop("last_director_error_code", None)
+                write_json_atomic(pm_state_full, pm_state)
         archive_if_exists(director_result_full, os.path.join(run_dir, "DIRECTOR_RESULT.json"))
         archive_if_exists(os.path.join(workspace_full, "scripts", "state", "ollama", "PLANNER_RESPONSE.md"), os.path.join(run_dir, "PLANNER_RESPONSE.md"))
         archive_if_exists(os.path.join(workspace_full, "scripts", "state", "ollama", "OLLAMA_RESPONSE.md"), os.path.join(run_dir, "OLLAMA_RESPONSE.md"))

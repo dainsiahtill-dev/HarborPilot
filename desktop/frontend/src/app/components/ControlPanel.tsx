@@ -5,6 +5,9 @@ interface ControlPanelProps {
   workspace: string;
   pmRunning: boolean;
   directorRunning: boolean;
+  pmToggleDisabled?: boolean;
+  directorToggleDisabled?: boolean;
+  runOnceDisabled?: boolean;
   onOpenSettings: () => void;
   onWorkspaceCommit: (value: string) => void;
   onPickWorkspace?: () => void;
@@ -20,6 +23,9 @@ export function ControlPanel({
   workspace,
   pmRunning,
   directorRunning,
+  pmToggleDisabled,
+  directorToggleDisabled,
+  runOnceDisabled,
   onOpenSettings,
   onWorkspaceCommit,
   onPickWorkspace,
@@ -31,6 +37,9 @@ export function ControlPanel({
   workspaceError,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
+  const pmDisabled = !!pmToggleDisabled;
+  const directorDisabled = !!directorToggleDisabled;
+  const runOnceBlocked = !!runOnceDisabled;
 
   useEffect(() => {
     setWorkspaceInput(workspace);
@@ -110,11 +119,12 @@ export function ControlPanel({
           <span className="text-xs text-gray-400">PM</span>
           <button
             onClick={onTogglePm}
+            disabled={pmDisabled}
             className={`p-1.5 rounded transition-colors ${
               pmRunning
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-            }`}
+            } ${pmDisabled ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
             title={pmRunning ? 'Stop loop' : 'Start loop'}
           >
             {pmRunning ? <Square className="size-4" /> : <Play className="size-4" />}
@@ -122,9 +132,11 @@ export function ControlPanel({
           {onRunPmOnce ? (
             <button
               onClick={onRunPmOnce}
-              className="p-1.5 rounded transition-colors bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+              disabled={runOnceBlocked}
+              className={`p-1.5 rounded transition-colors bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 ${
+                runOnceBlocked ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''
+              }`}
               title="Run once"
-              disabled={pmRunning}
             >
               <Zap className="size-4" />
             </button>
@@ -136,11 +148,12 @@ export function ControlPanel({
           <span className="text-xs text-gray-400">Director</span>
           <button
             onClick={onToggleDirector}
+            disabled={directorDisabled}
             className={`p-1.5 rounded transition-colors ${
               directorRunning
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-            }`}
+            } ${directorDisabled ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
           >
             {directorRunning ? <Square className="size-4" /> : <Play className="size-4" />}
           </button>

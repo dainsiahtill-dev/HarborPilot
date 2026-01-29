@@ -21,6 +21,8 @@ interface StatusBarProps {
   rate?: number | null;
   onPingHealth?: () => void;
   healthStatus?: string | null;
+  lancedbOk?: boolean | null;
+  lancedbError?: string | null;
 }
 
 function formatDuration(startedAt: number | null) {
@@ -52,6 +54,8 @@ export function StatusBar({
   rate,
   onPingHealth,
   healthStatus,
+  lancedbOk,
+  lancedbError,
 }: StatusBarProps) {
   const pmDuration = pmRunning ? formatDuration(pmStartedAt) : '-';
   const directorDuration = directorRunning ? formatDuration(directorStartedAt) : '-';
@@ -61,6 +65,14 @@ export function StatusBar({
   const gitState = gitPresent === null ? 'Unknown' : gitPresent ? 'OK' : 'Missing';
   const gitClass =
     gitPresent === null ? 'text-gray-500' : gitPresent ? 'text-green-400' : 'text-yellow-400';
+  const lancedbState =
+    lancedbOk === null || lancedbOk === undefined ? 'Unknown' : lancedbOk ? 'OK' : 'Missing';
+  const lancedbClass =
+    lancedbOk === null || lancedbOk === undefined
+      ? 'text-gray-500'
+      : lancedbOk
+        ? 'text-green-400'
+        : 'text-red-400';
   const successLabel =
     typeof successes === 'number' && typeof total === 'number'
       ? `${successes}/${total}${typeof rate === 'number' ? ` (${Math.round(rate * 100)}%)` : ''}`
@@ -134,6 +146,9 @@ export function StatusBar({
         <span className="text-gray-500">Director: {directorModel || '-'}</span>
         <span className="text-gray-500">|</span>
         <span className="text-gray-500">Memory: LanceDB</span>
+        <span className={lancedbClass} title={lancedbError || undefined}>
+          {lancedbState}
+        </span>
         <span className="text-gray-500">|</span>
         <span className={backendClass}>Backend: {backendState}</span>
         <span className="text-gray-500">|</span>

@@ -33,6 +33,7 @@ DEFAULT_PM_REPORT = "state/ollama/PM_REPORT.md"
 DEFAULT_PM_LOG = "state/ollama/PM_LOG.jsonl"
 DEFAULT_PM_SUBPROCESS_LOG = "state/ollama/PM_SUBPROCESS.log"
 DEFAULT_DIRECTOR_SUBPROCESS_LOG = "state/ollama/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = "state/ollama/DIRECTOR_STATUS.json"
 DEFAULT_PLANNER = "state/ollama/PLANNER_RESPONSE.md"
 DEFAULT_OLLAMA = "state/ollama/OLLAMA_RESPONSE.md"
 DEFAULT_RUNLOG = "state/ollama/RUNLOG.md"
@@ -78,6 +79,34 @@ def build_utf8_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
 
 enforce_utf8()
+
+
+def get_lancedb_status() -> Dict[str, Any]:
+    try:
+        import lancedb  # type: ignore
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "python": sys.executable,
+        }
+    version = getattr(lancedb, "__version__", None)
+    return {
+        "ok": True,
+        "error": None,
+        "python": sys.executable,
+        "version": version,
+    }
+
+
+def require_lancedb() -> None:
+    status = get_lancedb_status()
+    if not status.get("ok"):
+        detail = f"lancedb not available (python={status.get('python')})"
+        error = status.get("error")
+        if error:
+            detail = f"{detail}: {error}"
+        raise HTTPException(status_code=503, detail=detail)
 
 
 def log_backend_error(event: str, detail: str, **extra: Any) -> None:
@@ -270,6 +299,7 @@ class ConnectionState:
         self.channels: Set[str] = set()
         self.tail_state: Dict[str, Dict[str, Any]] = {}
         self.last_sizes: Dict[str, int] = {}
+        self.want_status: bool = False
 
 
 def normalize_ramdisk_root(value: str) -> str:
@@ -353,6 +383,81 @@ def read_json(path: str) -> Optional[Dict[str, Any]]:
             return json.load(handle)
     except Exception:
         return None
+
+
+def read_director_status(workspace: str, cache_root: str) -> Optional[Dict[str, Any]]:
+    candidates = []
+    cache_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_STATUS)
+    workspace_path = os.path.join(workspace, DEFAULT_DIRECTOR_STATUS)
+    for path in (cache_path, workspace_path):
+        if not path:
+            continue
+        if path in candidates:
+            continue
+        if os.path.isfile(path):
+            try:
+                mtime = os.path.getmtime(path)
+            except Exception:
+                mtime = 0.0
+            candidates.append((mtime, path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    _, best_path = candidates[0]
+    data = read_json(best_path)
+    if isinstance(data, dict):
+        data.setdefault("path", best_path)
+    return data
+
+
+def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> Optional[str]:
+    candidates: List[tuple[float, str]] = []
+    cache_path = resolve_artifact_path(workspace, cache_root, rel_path)
+    workspace_path = os.path.join(workspace, rel_path)
+    for path in (cache_path, workspace_path):
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            mtime = 0.0
+        candidates.append((mtime, path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def compute_success_stats(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"successes": None, "total": None, "rate": None}
+    if isinstance(result.get("results"), list):
+        total = len(result["results"])
+        successes = len([r for r in result["results"] if str(r.get("status") or "").lower() == "success"])
+        rate = successes / total if total > 0 else None
+        return {"successes": successes, "total": total, "rate": rate}
+    if isinstance(result.get("successes"), (int, float)) and isinstance(result.get("total"), (int, float)):
+        total_val = int(result["total"])
+        successes_val = int(result["successes"])
+        rate_val = result.get("success_rate")
+        if not isinstance(rate_val, (int, float)) and total_val > 0:
+            rate_val = successes_val / total_val
+        return {"successes": successes_val, "total": total_val, "rate": rate_val}
+    return {"successes": None, "total": None, "rate": None}
+
+
+def build_memory_payload(workspace: str, cache_root: str) -> Optional[Dict[str, Any]]:
+    path = select_latest_artifact(workspace, cache_root, "state/ollama/memory/last_state.json")
+    if not path:
+        return None
+    content = read_file_tail(path, max_lines=200, max_chars=20000)
+    return {"content": content, "mtime": format_mtime(path)}
+
+
+def build_success_stats_payload(workspace: str, cache_root: str) -> Dict[str, Any]:
+    path = select_latest_artifact(workspace, cache_root, "state/ollama/DIRECTOR_RESULT.json")
+    result = read_json(path) if path else None
+    return compute_success_stats(result)
 
 
 def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> str:
@@ -684,12 +789,98 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         if not auth.check(request.headers.get("authorization", "")):
             raise HTTPException(status_code=401, detail="unauthorized")
 
+    def build_pm_status() -> Dict[str, Any]:
+        handle = state.pm
+        return {
+            "running": handle.process is not None and handle.process.poll() is None,
+            "pid": handle.process.pid if handle.process else None,
+            "started_at": handle.started_at,
+            "mode": handle.mode,
+            "log_path": handle.log_path,
+        }
+
+    def build_director_status() -> Dict[str, Any]:
+        handle = state.director
+        backend_running = handle.process is not None and handle.process.poll() is None
+        backend_pid = handle.process.pid if handle.process else None
+        if backend_running:
+            return {
+                "running": True,
+                "pid": backend_pid,
+                "started_at": handle.started_at,
+                "mode": handle.mode,
+                "log_path": handle.log_path,
+            }
+
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        pm_status = read_director_status(workspace, cache_root)
+        pm_director_running = False
+        pm_started_at: Optional[float] = None
+        pm_pid: Optional[int] = None
+        pm_mode: Optional[str] = None
+        pm_log_path: Optional[str] = None
+        if isinstance(pm_status, dict):
+            pm_director_running = bool(pm_status.get("running"))
+            started_at = pm_status.get("started_at")
+            if isinstance(started_at, (int, float)):
+                pm_started_at = float(started_at)
+            else:
+                try:
+                    pm_started_at = float(started_at)
+                except Exception:
+                    pm_started_at = None
+            pid_value = pm_status.get("pid")
+            if isinstance(pid_value, int):
+                pm_pid = pid_value
+            pm_mode = str(pm_status.get("mode") or "pm").strip() if pm_status.get("mode") else "pm"
+            pm_log_path = pm_status.get("log_path") if isinstance(pm_status.get("log_path"), str) else None
+
+        if pm_director_running:
+            return {
+                "running": True,
+                "pid": pm_pid,
+                "started_at": pm_started_at,
+                "mode": pm_mode,
+                "log_path": pm_log_path
+                or resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG),
+            }
+
+        return {
+            "running": False,
+            "pid": None,
+            "started_at": None,
+            "mode": handle.mode or None,
+            "log_path": handle.log_path
+            or resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG),
+        }
+
+    def build_status_payload() -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        memory_payload: Optional[Dict[str, Any]] = None
+        if state.settings.show_memory:
+            memory_payload = build_memory_payload(workspace, cache_root)
+        return {
+            "pm_status": build_pm_status(),
+            "director_status": build_director_status(),
+            "snapshot": build_snapshot(state),
+            "lancedb": get_lancedb_status(),
+            "memory": memory_payload,
+            "success_stats": build_success_stats_payload(workspace, cache_root),
+            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+
     @app.get("/health")
     def health(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+        lancedb_status = get_lancedb_status()
         return {
-            "ok": True,
+            "ok": bool(lancedb_status.get("ok")),
             "version": "0.1",
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "lancedb_ok": bool(lancedb_status.get("ok")),
+            "lancedb_error": lancedb_status.get("error"),
+            "python": lancedb_status.get("python"),
         }
 
     @app.get("/settings")
@@ -728,25 +919,11 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
 
     @app.get("/pm/status")
     def pm_status(_: Any = Depends(require_auth)) -> Dict[str, Any]:
-        handle = state.pm
-        return {
-            "running": handle.process is not None and handle.process.poll() is None,
-            "pid": handle.process.pid if handle.process else None,
-            "started_at": handle.started_at,
-            "mode": handle.mode,
-            "log_path": handle.log_path,
-        }
+        return build_pm_status()
 
     @app.get("/director/status")
     def director_status(_: Any = Depends(require_auth)) -> Dict[str, Any]:
-        handle = state.director
-        return {
-            "running": handle.process is not None and handle.process.poll() is None,
-            "pid": handle.process.pid if handle.process else None,
-            "started_at": handle.started_at,
-            "mode": handle.mode,
-            "log_path": handle.log_path,
-        }
+        return build_director_status()
 
     def list_ollama_models() -> List[str]:
         if not shutil.which("ollama"):
@@ -812,10 +989,15 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 failed.append({"model": name, "error": msg})
         return {"ok": True, "stopped": stopped, "failed": failed, "models": models}
 
+    @app.get("/lancedb/status")
+    def lancedb_status(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+        return get_lancedb_status()
+
     @app.post("/pm/run_once")
     def pm_run_once(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.pm.process is not None and state.pm.process.poll() is None:
             raise HTTPException(status_code=409, detail="pm already running")
+        require_lancedb()
         precheck_error = check_backend_available(state.settings)
         if precheck_error:
             workspace = state.settings.workspace or DEFAULT_WORKSPACE
@@ -886,6 +1068,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def pm_start_loop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.pm.process is not None and state.pm.process.poll() is None:
             raise HTTPException(status_code=409, detail="pm already running")
+        require_lancedb()
         precheck_error = check_backend_available(state.settings)
         if precheck_error:
             workspace = state.settings.workspace or DEFAULT_WORKSPACE
@@ -972,6 +1155,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def director_start(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.director.process is not None and state.director.process.poll() is None:
             raise HTTPException(status_code=409, detail="director already running")
+        require_lancedb()
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         director_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
@@ -998,6 +1182,15 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         async def poll_loop() -> None:
             while True:
                 await asyncio.sleep(poll_interval)
+                if connection.want_status:
+                    payload = {
+                        "type": "status",
+                        **build_status_payload(),
+                    }
+                    try:
+                        await websocket.send_text(json.dumps(payload))
+                    except Exception:
+                        return
                 if not connection.channels:
                     continue
                 workspace = state.settings.workspace or DEFAULT_WORKSPACE
@@ -1035,6 +1228,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                     channels = payload.get("channels") or []
                     if isinstance(channels, list):
                         connection.channels = {c for c in channels if c in CHANNEL_FILES}
+                        connection.want_status = "status" in channels
                     if payload.get("tail_lines"):
                         tail_lines = int(payload.get("tail_lines") or 200)
                         workspace = state.settings.workspace or DEFAULT_WORKSPACE

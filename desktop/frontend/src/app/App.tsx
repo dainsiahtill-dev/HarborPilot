@@ -52,6 +52,13 @@ interface BackendStatus {
   log_path?: string;
 }
 
+interface LanceDbStatus {
+  ok: boolean;
+  error?: string | null;
+  python?: string | null;
+  version?: string | null;
+}
+
 interface SnapshotPayload {
   timestamp: string;
   focus?: string;
@@ -73,6 +80,7 @@ interface FilePayload {
 }
 
 const LIVE_CHANNELS = [
+  'status',
   'dialogue',
   'pm_report',
   'pm_log',
@@ -181,6 +189,7 @@ export default function App() {
   const [settings, setSettings] = useState<BackendSettings | null>(null);
   const [pmStatus, setPmStatus] = useState<BackendStatus | null>(null);
   const [directorStatus, setDirectorStatus] = useState<BackendStatus | null>(null);
+  const [lancedbStatus, setLancedbStatus] = useState<LanceDbStatus | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotPayload | null>(null);
   const [fileData, setFileData] = useState<FilePayload>({ content: '', mtime: '' });
   const [fileLoading, setFileLoading] = useState(false);
@@ -212,11 +221,22 @@ export default function App() {
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
   const [errorDialogTitle, setErrorDialogTitle] = useState<string>('');
   const [errorDialogContent, setErrorDialogContent] = useState<string>('');
+  const [isLanceDbDialogOpen, setIsLanceDbDialogOpen] = useState(false);
   const pmStopRequestedRef = useRef(false);
   const pmRunOnceRequestedRef = useRef(false);
   const lastPmRunningRef = useRef<boolean | null>(null);
   const lastPmModeRef = useRef<string | null>(null);
   const lastPmStopShownAtRef = useRef(0);
+  const lancedbBlocked = lancedbStatus ? lancedbStatus.ok === false : true;
+  const lancedbBlockMessage = useMemo(() => {
+    if (!lancedbBlocked) return '';
+    if (!lancedbStatus) {
+      return 'Checking LanceDB status...';
+    }
+    const error = lancedbStatus?.error || 'lancedb not installed';
+    const python = lancedbStatus?.python || 'unknown';
+    return `LanceDB is required to run PM/Director.\n\nError: ${error}\nPython: ${python}`;
+  }, [lancedbBlocked, lancedbStatus]);
 
   const markBackendError = (err: unknown) => {
     if (err instanceof Error && err.message) {
@@ -291,6 +311,20 @@ export default function App() {
     }
   };
 
+  const refreshLanceDbStatus = async () => {
+    try {
+      const res = await apiFetch('/lancedb/status');
+      if (!res.ok) {
+        throw new Error('Failed to load LanceDB status');
+      }
+      const data = (await res.json()) as LanceDbStatus;
+      setLancedbStatus(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'LanceDB unavailable';
+      setLancedbStatus({ ok: false, error: message });
+    }
+  };
+
   const refreshSuccessStats = async () => {
     try {
       const res = await apiFetch('/files/read?path=state/ollama/DIRECTOR_RESULT.json&tail_lines=200');
@@ -346,12 +380,26 @@ export default function App() {
   };
 
   const refreshAll = async () => {
-    await Promise.all([refreshSettings(), refreshStatus(), refreshSnapshot(), refreshMemory()]);
+    await Promise.all([
+      refreshSettings(),
+      refreshStatus(),
+      refreshSnapshot(),
+      refreshMemory(),
+      refreshLanceDbStatus(),
+    ]);
   };
 
   useEffect(() => {
     refreshAll().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (lancedbBlocked) {
+      setIsLanceDbDialogOpen(true);
+    } else {
+      setIsLanceDbDialogOpen(false);
+    }
+  }, [lancedbBlocked]);
 
   useEffect(() => {
     selectedFileRef.current = selectedFile;
@@ -363,13 +411,16 @@ export default function App() {
     }
     const intervalMs = Math.max(1, settings?.refresh_interval ?? 3) * 1000;
     const timer = window.setInterval(() => {
-      refreshStatus().catch(() => undefined);
-      refreshSnapshot().catch(() => undefined);
-      refreshMemory().catch(() => undefined);
-      refreshSuccessStats().catch(() => undefined);
+      if (!wsLive) {
+        refreshStatus().catch(() => undefined);
+        refreshSnapshot().catch(() => undefined);
+        refreshLanceDbStatus().catch(() => undefined);
+        refreshMemory().catch(() => undefined);
+        refreshSuccessStats().catch(() => undefined);
+      }
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [settings?.refresh_interval, settings?.auto_refresh]);
+  }, [settings?.refresh_interval, settings?.auto_refresh, wsLive]);
 
   useEffect(() => {
     if (!pmStatus) return;
@@ -441,6 +492,32 @@ export default function App() {
         try {
           const payload = JSON.parse(event.data);
           const channel = String(payload.channel || '');
+          if (payload.type === 'status') {
+            if (payload.pm_status) {
+              setPmStatus(payload.pm_status as BackendStatus);
+            }
+            if (payload.director_status) {
+              setDirectorStatus(payload.director_status as BackendStatus);
+            }
+            if (payload.snapshot) {
+              setSnapshot(payload.snapshot as SnapshotPayload);
+            }
+            if (payload.lancedb) {
+              setLancedbStatus(payload.lancedb as LanceDbStatus);
+            }
+            if (payload.memory) {
+              const memory = payload.memory as { content?: string; mtime?: string };
+              setMemoryData({
+                content: memory.content ?? '',
+                mtime: memory.mtime ?? '',
+              });
+              setMemoryError(null);
+            }
+            if (payload.success_stats) {
+              setSuccessStats(payload.success_stats as { successes?: number; total?: number; rate?: number });
+            }
+            return;
+          }
           if (payload.type === 'snapshot' && Array.isArray(payload.lines)) {
             if (channel === 'dialogue') {
               const nextEvents: DialogueEvent[] = [];
@@ -673,6 +750,12 @@ export default function App() {
           throw new Error(detail);
         }
       } else {
+        if (lancedbBlocked) {
+          setErrorDialogTitle('LanceDB required');
+          setErrorDialogContent(lancedbBlockMessage || 'LanceDB is required to start PM.');
+          setIsErrorDialogOpen(true);
+          return;
+        }
         pmRunOnceRequestedRef.current = false;
         pmStopRequestedRef.current = false;
         const res = await apiFetch('/pm/start_loop', { method: 'POST' });
@@ -725,6 +808,12 @@ export default function App() {
   const runPmOnce = async () => {
     try {
       setPmActionError(null);
+      if (lancedbBlocked) {
+        setErrorDialogTitle('LanceDB required');
+        setErrorDialogContent(lancedbBlockMessage || 'LanceDB is required to run PM.');
+        setIsErrorDialogOpen(true);
+        return;
+      }
       pmRunOnceRequestedRef.current = true;
       pmStopRequestedRef.current = false;
       const res = await apiFetch('/pm/run_once', { method: 'POST' });
@@ -789,6 +878,12 @@ export default function App() {
           throw new Error(detail);
         }
       } else {
+        if (lancedbBlocked) {
+          setErrorDialogTitle('LanceDB required');
+          setErrorDialogContent(lancedbBlockMessage || 'LanceDB is required to start Director.');
+          setIsErrorDialogOpen(true);
+          return;
+        }
         const res = await apiFetch('/director/start', { method: 'POST' });
         if (!res.ok) {
           let detail = 'Failed to start Director';
@@ -999,6 +1094,9 @@ export default function App() {
         workspace={settings?.workspace || ''}
         pmRunning={!!pmStatus?.running}
         directorRunning={!!directorStatus?.running}
+        pmToggleDisabled={lancedbBlocked && !pmStatus?.running}
+        directorToggleDisabled={lancedbBlocked && !directorStatus?.running}
+        runOnceDisabled={lancedbBlocked || !!pmStatus?.running}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onWorkspaceCommit={handleWorkspaceCommit}
         onPickWorkspace={handlePickWorkspace}
@@ -1106,6 +1204,8 @@ export default function App() {
           }
         }}
         healthStatus={healthStatus}
+        lancedbOk={lancedbStatus?.ok ?? null}
+        lancedbError={lancedbStatus?.error ?? null}
       />
 
       {/* 设置弹窗 */}
@@ -1126,12 +1226,28 @@ export default function App() {
         banner={logsBanner}
         onDismissBanner={() => setLogsBanner(null)}
       />
+      <AlertDialog open={isLanceDbDialogOpen} onOpenChange={setIsLanceDbDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>LanceDB required</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
+              {lancedbBlockMessage || 'LanceDB is required to continue.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsLanceDbDialogOpen(false)}>Close</AlertDialogCancel>
+            <AlertDialogAction onClick={() => refreshLanceDbStatus().catch(() => undefined)}>
+              Check again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{errorDialogTitle || 'Action failed'}</AlertDialogTitle>
-            <AlertDialogDescription>
-              <div className="whitespace-pre-wrap break-words text-left">{errorDialogContent}</div>
+            <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
+              {errorDialogContent}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

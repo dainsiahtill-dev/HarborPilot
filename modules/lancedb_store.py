@@ -30,8 +30,9 @@ def main():
 
     try:
         import lancedb  # type: ignore
-    except Exception:
-        print("lancedb not installed; skipping", file=sys.stderr)
+    except Exception as exc:
+        print(f"lancedb not installed; skipping (python={sys.executable})", file=sys.stderr)
+        print(f"lancedb import error: {exc}", file=sys.stderr)
         return 0
 
     if not os.path.exists(args.json):
