@@ -1,0 +1,94 @@
+{
+  "status": "success",
+  "response": {
+    "schema_version": 1,
+    "run_id": "test_pm_run_12345",
+    "timestamp": "2024-01-01T12:00:00Z",
+    "pm_iteration": 1,
+    "focus": "Initial Project Setup",
+    "overall_goal": "Set up basic project structure with documentation and tests",
+    "policy_overrides": {},
+    "tasks": [
+      {
+        "id": "task_1",
+        "fingerprint": "abc123def456",
+        "title": "Create project structure",
+        "goal": "Create basic directory structure for Python project",
+        "constraints": [
+          "Follow Python project best practices",
+          "Include proper __init__.py files",
+          "Separate source and test directories"
+        ],
+        "target_files": [
+          "src/__init__.py",
+          "src/main.py",
+          "tests/__init__.py",
+          "tests/test_main.py"
+        ],
+        "acceptance": [
+          "All directories created",
+          "All files exist with proper content",
+          "Project structure follows conventions"
+        ],
+        "required_evidence": [
+          "Directory listing",
+          "File content verification",
+          "Structure validation"
+        ],
+        "policy_overrides": {}
+      },
+      {
+        "id": "task_2",
+        "fingerprint": "def456ghi789",
+        "title": "Implement main functionality",
+        "goal": "Create main application logic with basic features",
+        "constraints": [
+          "Include proper error handling",
+          "Add logging functionality",
+          "Follow PEP 8 style guidelines"
+        ],
+        "target_files": [
+          "src/main.py",
+          "src/utils.py"
+        ],
+        "acceptance": [
+          "Main function works correctly",
+          "Error handling is implemented",
+          "Code follows style guidelines"
+        ],
+        "required_evidence": [
+          "Unit test results",
+          "Code quality check results",
+          "Functional testing output"
+        ],
+        "policy_overrides": {}
+      },
+      {
+        "id": "task_3",
+        "fingerprint": "ghi789jkl012",
+        "title": "Add comprehensive tests",
+        "goal": "Create unit tests with good coverage",
+        "constraints": [
+          "Achieve at least 80% code coverage",
+          "Test edge cases and error conditions",
+          "Use pytest framework"
+        ],
+        "target_files": [
+          "tests/test_main.py",
+          "tests/test_utils.py"
+        ],
+        "acceptance": [
+          "All tests pass",
+          "Coverage meets requirements",
+          "Tests are well-structured"
+        ],
+        "required_evidence": [
+          "Test coverage report",
+          "Test execution results",
+          "Coverage analysis"
+        ],
+        "policy_overrides": {}
+      }
+    ]
+  }
+}

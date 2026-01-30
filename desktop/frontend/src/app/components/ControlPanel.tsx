@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2 } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface ControlPanelProps {
@@ -14,6 +14,7 @@ interface ControlPanelProps {
   onPickWorkspace?: () => void;
   onTogglePm: () => void;
   onRunPmOnce?: () => void;
+  onResumePm?: () => void;
   onToggleDirector: () => void;
   onStopOllama?: () => void;
   onRefresh: () => void;
@@ -38,6 +39,7 @@ export function ControlPanel({
   onPickWorkspace,
   onTogglePm,
   onRunPmOnce,
+  onResumePm,
   onToggleDirector,
   onStopOllama,
   onRefresh,
@@ -159,6 +161,18 @@ export function ControlPanel({
               {isStartingPM ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
             </button>
           ) : null}
+          {onResumePm && !pmRunning ? (
+            <button
+              onClick={onResumePm}
+              disabled={pmDisabled || isStartingPM || isStoppingPM}
+              className={`p-1.5 rounded transition-colors bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 relative ${
+                pmDisabled || isStartingPM || isStoppingPM ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''
+              }`}
+              title="Resume last run"
+            >
+              <FastForward className="size-4" />
+            </button>
+          ) : null}
         </div>
 
         {/* Director 控制 */}
@@ -220,7 +234,41 @@ export function ControlPanel({
         >
           <Settings className="size-4" />
         </button>
+        
+        <div className="w-px h-8 bg-gray-700 mx-2" />
+        
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-intervention-center'))}
+          className="relative p-2 text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded transition-colors"
+          title="Intervention Hub"
+        >
+          <ShieldAlert className="size-4 text-emerald-500" />
+          {/* Badge for pending interventions - this would ideally be prop-driven */}
+          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-[#252526]"></span>
+        </button>
       </div>
     </header>
+  );
+}
+
+// Helper icon component for ShieldAlert since it might not be imported
+function ShieldAlert({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
   );
 }

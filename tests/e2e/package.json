@@ -1,0 +1,30 @@
+{
+  "name": "harborpilot-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E tests for HarborPilot using Playwright",
+  "scripts": {
+    "test": "pytest",
+    "test:smoke": "pytest -m smoke",
+    "test:dashboard": "pytest -m dashboard",
+    "test:workflow": "pytest -m workflow",
+    "test:integration": "pytest -m integration",
+    "test:headed": "pytest --headed",
+    "test:debug": "pytest --headed --browser-channel chrome",
+    "install": "python -m pip install -r requirements.txt && python -m playwright install",
+    "report": "pytest --html=reports/report.html --self-contained-html",
+    "clean": "rm -rf reports/* test-results/* .pytest_cache/*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "e2e",
+    "testing",
+    "playwright",
+    "harborpilot"
+  ],
+  "author": "HarborPilot Team",
+  "license": "MIT"
+}

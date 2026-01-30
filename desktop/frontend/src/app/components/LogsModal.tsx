@@ -6,12 +6,14 @@ import { CodexCliStreamParser, parseCodexCliLines, type LogEvent } from '@/app/c
 interface LogsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  workspace?: string; // Add workspace prop
   initialSourceId?: string | null;
+  runId?: string | null; // Support viewing logs for a specific run
   banner?: string | null;
   onDismissBanner?: () => void;
 }
 
-const LOG_SOURCES = [
+const DEFAULT_LOG_SOURCES = [
   { id: 'pm-subprocess', label: 'PM Subprocess', path: 'state/ollama/PM_SUBPROCESS.log', channel: 'pm_subprocess' },
   { id: 'pm-report', label: 'PM Report', path: 'state/ollama/PM_REPORT.md', channel: 'pm_report' },
   { id: 'pm-log', label: 'PM Log (jsonl)', path: 'state/ollama/PM_LOG.jsonl', channel: 'pm_log' },
@@ -310,10 +312,27 @@ export function LogsModal({
   isOpen,
   onClose,
   initialSourceId,
+  runId,
   banner,
   onDismissBanner,
 }: LogsModalProps) {
-  const [active, setActive] = useState(LOG_SOURCES[0].id);
+  // If runId is provided, we map sources to the run directory
+  const sources = useMemo(() => {
+    if (!runId) return DEFAULT_LOG_SOURCES;
+    return DEFAULT_LOG_SOURCES.map((s) => ({
+      ...s,
+      // PM logs are global, so we might want to keep them or point them to run specific if available
+      // But typically run specific logs are:
+      // - DIRECTOR_SUBPROCESS.log -> state/ollama/runs/<runId>/DIRECTOR_SUBPROCESS.log (if archived? or RUNLOG.md)
+      // Actually loop-pm.py:1053 says: run_director_log = os.path.join(run_dir, "RUNLOG.md")
+      // And director_subprocess_log is usually global but can be per-run if we want.
+      // Let's look at loop-pm.py resolve logic.
+      // For now, let's just map the ones we know exist in run dir.
+      path: `state/ollama/runs/${runId}/${s.path.split('/').pop()}`,
+    }));
+  }, [runId]);
+
+  const [active, setActive] = useState(sources[0].id);
   const [lines, setLines] = useState<string[]>([]);
   const [mtime, setMtime] = useState('');
   const [loading, setLoading] = useState(false);
@@ -327,8 +346,8 @@ export function LogsModal({
   const parserRef = useRef<CodexCliStreamParser | null>(null);
 
   const activeSource = useMemo(
-    () => LOG_SOURCES.find((item) => item.id === active) || LOG_SOURCES[0],
-    [active]
+    () => sources.find((item) => item.id === active) || sources[0],
+    [active, sources]
   );
 
   const allowSmart = active === 'pm-subprocess';
@@ -363,10 +382,10 @@ export function LogsModal({
   useEffect(() => {
     if (!isOpen) return;
     if (initialSourceId) {
-      const exists = LOG_SOURCES.some((item) => item.id === initialSourceId);
-      setActive(exists ? initialSourceId : LOG_SOURCES[0].id);
+      const exists = sources.some((item) => item.id === initialSourceId);
+      setActive(exists ? initialSourceId : sources[0].id);
     }
-  }, [isOpen, initialSourceId]);
+  }, [isOpen, initialSourceId, sources]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -477,41 +496,65 @@ export function LogsModal({
 
   const filteredEvents = useMemo(() => {
     return smartEvents.filter((event) => {
+      // 1. First apply type filter (Tabs: All/Errors/Exec/Tool)
       if (filter !== 'all' && event.kind !== filter) {
         return false;
       }
+      
+      // 2. Then apply search query (Global Search)
       if (!query.trim()) return true;
-      const haystack =
-        event.kind === 'json'
-          ? event.raw
-          : event.kind === 'error'
-            ? event.raw
-            : event.kind === 'section'
-              ? `${event.title}\n${event.body}`
-              : event.kind === 'exec'
-                ? `${event.cmd} ${event.cwd ?? ''}`
-                : event.kind === 'tool'
-                  ? `${event.tool} ${event.message ?? ''}`
-                    : event.kind === 'thinking'
-                      ? `${event.title}\n${event.body}`
-                    : event.kind === 'runStart'
-                      ? `${event.version} ${Object.values(event.meta).join(' ')}`
-                      : event.kind === 'role'
-                        ? event.role
-                        : event.kind === 'command'
-                          ? `${event.shell} ${event.cmd}`
-                          : event.kind === 'commandResult'
-                            ? `${event.status} ${event.cwd ?? ''} ${event.ms ?? ''}`
-                            : event.kind === 'table'
-                              ? `${event.title ?? ''} ${event.columns.join(' ')}`
-                              : event.kind === 'fileContent'
-                                ? `${event.pathHint ?? ''} ${event.content.slice(0, 100)}`
-                                : event.kind === 'metric'
-                                  ? `${event.label} ${event.value}`
-                                  : event.kind === 'text'
-                                    ? event.text
-                                    : '';
-      return haystack.toLowerCase().includes(query.toLowerCase());
+      const lowerQuery = query.toLowerCase();
+      
+      // Helper to check content based on event type
+      const checkContent = () => {
+        switch (event.kind) {
+          case 'json':
+            return (event.raw || '').toLowerCase().includes(lowerQuery) || 
+                   JSON.stringify(event.value).toLowerCase().includes(lowerQuery);
+          case 'error':
+            return (event.raw || '').toLowerCase().includes(lowerQuery) || 
+                   (event.errorType || '').toLowerCase().includes(lowerQuery);
+          case 'section':
+            return (event.title || '').toLowerCase().includes(lowerQuery) || 
+                   (event.body || '').toLowerCase().includes(lowerQuery);
+          case 'exec':
+            return (event.cmd || '').toLowerCase().includes(lowerQuery) || 
+                   (event.cwd || '').toLowerCase().includes(lowerQuery);
+          case 'tool':
+            return (event.tool || '').toLowerCase().includes(lowerQuery) || 
+                   (event.message || '').toLowerCase().includes(lowerQuery);
+          case 'thinking':
+            return (event.title || '').toLowerCase().includes(lowerQuery) || 
+                   (event.body || '').toLowerCase().includes(lowerQuery);
+          case 'runStart':
+            return (event.version || '').toLowerCase().includes(lowerQuery) || 
+                   Object.values(event.meta).join(' ').toLowerCase().includes(lowerQuery);
+          case 'role':
+            return (event.role || '').toLowerCase().includes(lowerQuery);
+          case 'command':
+            return (event.cmd || '').toLowerCase().includes(lowerQuery) || 
+                   (event.shell || '').toLowerCase().includes(lowerQuery);
+          case 'commandResult':
+            return (event.status || '').toLowerCase().includes(lowerQuery) || 
+                   (event.cwd || '').toLowerCase().includes(lowerQuery);
+          case 'table':
+            return (event.title || '').toLowerCase().includes(lowerQuery) || 
+                   event.columns.join(' ').toLowerCase().includes(lowerQuery) ||
+                   event.rows.flat().join(' ').toLowerCase().includes(lowerQuery);
+          case 'fileContent':
+            return (event.pathHint || '').toLowerCase().includes(lowerQuery) || 
+                   (event.content || '').toLowerCase().includes(lowerQuery);
+          case 'metric':
+            return (event.label || '').toLowerCase().includes(lowerQuery) || 
+                   String(event.value).toLowerCase().includes(lowerQuery);
+          case 'text':
+            return (event.text || '').toLowerCase().includes(lowerQuery);
+          default:
+            return false;
+        }
+      };
+
+      return checkContent();
     });
   }, [smartEvents, filter, query]);
 
@@ -572,12 +615,12 @@ export function LogsModal({
         ) : null}
 
         <div className="px-4 pt-3">
-          <div className="flex items-center gap-2">
-            {LOG_SOURCES.map((item) => (
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            {sources.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setActive(item.id)}
-                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
                   active === item.id
                     ? 'bg-blue-500/20 text-blue-300'
                     : 'bg-gray-800 text-gray-400 hover:bg-gray-700'

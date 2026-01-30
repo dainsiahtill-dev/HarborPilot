@@ -1810,6 +1810,7 @@ def main() -> int:
     parser.add_argument("--codex-profile", default="")
     parser.add_argument("--codex-full-auto", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--codex-dangerous", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--resume", action="store_true", help="Resume from the last iteration instead of incrementing.")
     args = parser.parse_args()
 
     try:
@@ -1834,6 +1835,14 @@ def main() -> int:
                     iterations = int(last_iter) if last_iter is not None else 0
                 except Exception:
                     iterations = 0
+        
+        # If resuming, we want to start AT the last iteration, so we decrement by 1
+        # because the loop immediately increments.
+        # But wait, if iterations=5, loop does +1 -> 6.
+        # If resume=True, we want next to be 5. So we set iterations=4.
+        if args.resume and iterations > 0:
+            iterations -= 1
+
         if not args.loop and args.max_iterations <= 1:
             return run_once(args, 1)
 

@@ -1,0 +1,82 @@
+{
+  "status": "success",
+  "response": {
+    "schema_version": 1,
+    "run_id": "test_director_run_12345",
+    "timestamp": "2024-01-01T12:05:00Z",
+    "status": "success",
+    "failure_code": null,
+    "patch_risk": {
+      "score": 15,
+      "factors": {
+        "files_changed_count": 4,
+        "lines_added": 85,
+        "lines_removed": 0,
+        "touches_build_system": false,
+        "touches_security_sensitive": false,
+        "touches_runtime_entry": true
+      }
+    },
+    "execution_summary": {
+      "total_duration_ms": 12500,
+      "tool_rounds": 3,
+      "files_modified": 4,
+      "tests_run": 12,
+      "tests_passed": 12,
+      "errors": []
+    },
+    "artifacts": [
+      "state/ollama/RUNLOG.md",
+      "state/ollama/QA_RESPONSE.md",
+      "state/ollama/events.jsonl",
+      "state/ollama/trajectory.json"
+    ],
+    "metrics": {
+      "cpu_usage_percent": 25.5,
+      "memory_usage_mb": 256,
+      "disk_io_mb": 12,
+      "network_requests": 3
+    },
+    "changes": [
+      {
+        "file": "src/__init__.py",
+        "action": "created",
+        "lines_added": 3,
+        "lines_removed": 0
+      },
+      {
+        "file": "src/main.py",
+        "action": "created",
+        "lines_added": 45,
+        "lines_removed": 0
+      },
+      {
+        "file": "src/utils.py",
+        "action": "created",
+        "lines_added": 25,
+        "lines_removed": 0
+      },
+      {
+        "file": "tests/test_main.py",
+        "action": "created",
+        "lines_added": 12,
+        "lines_removed": 0
+      }
+    ],
+    "qa_results": {
+      "passed": true,
+      "summary": "All tests passed successfully",
+      "coverage": {
+        "percentage": 85,
+        "lines_covered": 85,
+        "total_lines": 100
+      },
+      "issues": [],
+      "recommendations": [
+        "Code quality is good",
+        "Consider adding more edge case tests",
+        "Documentation is comprehensive"
+      ]
+    }
+  }
+}

@@ -12,6 +12,8 @@ import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
+import { InterventionCenter } from '@/app/components/InterventionCenter';
+import { RunHistoryModal } from '@/app/components/RunHistoryModal';
 import { ErrorBoundaryClass } from '@/app/components/ErrorBoundary';
 import { EnhancedNotificationManager } from '@/app/components/EnhancedNotificationManager';
 import {
@@ -236,6 +238,9 @@ export default function App() {
     path: string;
   } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isInterventionOpen, setIsInterventionOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [settings, setSettings] = useState<BackendSettings | null>(null);
   const [pmStatus, setPmStatus] = useState<BackendStatus | null>(null);
   const [directorStatus, setDirectorStatus] = useState<BackendStatus | null>(null);
@@ -658,6 +663,10 @@ export default function App() {
   }, [pmStatus, pmUserAction]);
 
   useEffect(() => {
+    // Listen for custom event to open Intervention Hub
+    const handleOpenIntervention = () => setIsInterventionOpen(true);
+    window.addEventListener('open-intervention-center', handleOpenIntervention);
+
     let active = true;
     let socket: WebSocket | null = null;
     let retryDelay = 1000;
@@ -823,6 +832,7 @@ export default function App() {
       active = false;
       cleanupTimer();
       socket?.close();
+      window.removeEventListener('open-intervention-center', handleOpenIntervention);
     };
   }, [settings?.workspace]);
 
@@ -983,6 +993,64 @@ export default function App() {
     }
   };
 
+  const startPmLoop = async (resume = false) => {
+    try {
+      setPmActionError(null);
+      setIsStartingPM(true);
+      if (lancedbBlocked) {
+        toast.warning(lancedbBlockMessage || 'LanceDB is required to start PM.');
+        return;
+      }
+      setPmUserAction('start');
+      const url = resume ? '/pm/start_loop?resume=true' : '/pm/start_loop';
+      const res = await apiFetch(url, { method: 'POST' });
+      if (!res.ok) {
+        let detail = 'Failed to start PM';
+        try {
+          const payload = (await res.json()) as { detail?: string };
+          if (payload.detail) detail = payload.detail;
+        } catch {
+          // ignore parse errors
+        }
+        let combined = detail;
+        console.error('PM start failed:', detail);
+        try {
+          const statusRes = await apiFetch('/pm/status');
+          if (statusRes.ok) {
+            const status = (await statusRes.json()) as BackendStatus;
+            const logPath = status.log_path || 'state/ollama/PM_SUBPROCESS.log';
+            const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
+            if (tailRes.ok) {
+              const tailPayload = (await tailRes.json()) as FilePayload;
+              if (tailPayload.content) {
+                const tailText = tailPayload.content;
+                console.error('PM log tail:\n' + tailText);
+                const lines = tailText.split('\n');
+                const preview = lines.slice(-20).join('\n');
+                combined = `${detail}\n\n${preview}`;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+        setLogsSourceId('pm-subprocess');
+        setIsLogsOpen(true);
+        openPmLogsWithBanner(combined);
+        toast.error('Failed to start PM');
+        throw new Error(combined);
+      }
+      refreshStatus();
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : 'PM action failed';
+      openPmLogsWithBanner(message);
+      toast.error(message);
+    } finally {
+      setIsStartingPM(false);
+    }
+  };
+
   const togglePm = async () => {
     try {
       setPmActionError(null);
@@ -1001,59 +1069,16 @@ export default function App() {
           console.error('PM stop failed:', detail);
           throw new Error(detail);
         }
+        refreshStatus();
       } else {
-        setIsStartingPM(true);
-        if (lancedbBlocked) {
-          toast.warning(lancedbBlockMessage || 'LanceDB is required to start PM.');
-          return;
-        }
-        setPmUserAction('start');
-        const res = await apiFetch('/pm/start_loop', { method: 'POST' });
-        if (!res.ok) {
-          let detail = 'Failed to start PM';
-          try {
-            const payload = (await res.json()) as { detail?: string };
-            if (payload.detail) detail = payload.detail;
-          } catch {
-            // ignore parse errors
-          }
-          let combined = detail;
-          console.error('PM start failed:', detail);
-          try {
-            const statusRes = await apiFetch('/pm/status');
-            if (statusRes.ok) {
-              const status = (await statusRes.json()) as BackendStatus;
-              const logPath = status.log_path || 'state/ollama/PM_SUBPROCESS.log';
-              const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
-              if (tailRes.ok) {
-                const tailPayload = (await tailRes.json()) as FilePayload;
-                if (tailPayload.content) {
-                  const tailText = tailPayload.content;
-                  console.error('PM log tail:\n' + tailText);
-                  const lines = tailText.split('\n');
-                  const preview = lines.slice(-20).join('\n');
-                  combined = `${detail}\n\n${preview}`;
-                }
-              }
-            }
-          } catch {
-            // ignore
-          }
-          setLogsSourceId('pm-subprocess');
-          setIsLogsOpen(true);
-          openPmLogsWithBanner(combined);
-          toast.error('Failed to start PM');
-          throw new Error(combined);
-        }
+        await startPmLoop(false);
       }
-      refreshStatus();
     } catch (err) {
       console.error(err);
       const message = err instanceof Error ? err.message : 'PM action failed';
       openPmLogsWithBanner(message);
       toast.error(message);
     } finally {
-      setIsStartingPM(false);
       setIsStoppingPM(false);
     }
   };
@@ -1580,6 +1605,7 @@ export default function App() {
         onPickWorkspace={handlePickWorkspace}
         onTogglePm={togglePm}
         onRunPmOnce={runPmOnce}
+        onResumePm={() => startPmLoop(true)}
         onToggleDirector={toggleDirector}
         onStopOllama={stopOllamaModels}
         onRefresh={handleRefresh}
@@ -1615,6 +1641,7 @@ export default function App() {
             }
             selectedFileId={selectedFile?.id || null}
             onOpenWorkspace={handleOpenWorkspace}
+            onOpenHistory={() => setIsHistoryOpen(true)}
             fileStatusLines={snapshot?.file_status ?? null}
           />
         </div>
@@ -1934,6 +1961,18 @@ export default function App() {
         </AlertDialogContent>
       </AlertDialog>
       </div>
+
+      <LogsModal isOpen={showLogs} onClose={() => setShowLogs(false)} workspace={settings?.workspace} />
+
+      <InterventionCenter
+        isOpen={isInterventionOpen}
+        onClose={() => setIsInterventionOpen(false)}
+      />
+
+      <RunHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+      />
     </ErrorBoundaryClass>
   );
 }

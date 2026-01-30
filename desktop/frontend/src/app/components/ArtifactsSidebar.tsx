@@ -1,4 +1,4 @@
-import { FileJson, FileText, MessageSquare, Activity, Folder, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileJson, FileText, MessageSquare, Activity, Folder, ChevronDown, ChevronRight, History } from 'lucide-react';
 import { useState } from 'react';
 
 interface ArtifactItem {
@@ -63,10 +63,11 @@ interface ArtifactsSidebarProps {
   onFileSelect: (file: ArtifactItem) => void;
   selectedFileId: string | null;
   onOpenWorkspace?: () => void;
+  onOpenHistory?: () => void;
   fileStatusLines?: string[] | null;
 }
 
-export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace, fileStatusLines }: ArtifactsSidebarProps) {
+export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace, onOpenHistory, fileStatusLines }: ArtifactsSidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(artifactGroups.map((g) => g.name))
   );
@@ -156,7 +157,7 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
       </div>
 
       {/* 快速链接 */}
-      <div className="border-t border-gray-800 p-2">
+      <div className="border-t border-gray-800 p-2 space-y-1">
         <button
           type="button"
           onClick={onOpenWorkspace}
@@ -165,6 +166,16 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
           <Folder className="size-4" />
           <span>打开 Workspace</span>
         </button>
+        {onOpenHistory && (
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded transition-colors"
+          >
+            <History className="size-4" />
+            <span>运行历史</span>
+          </button>
+        )}
       </div>
     </div>
   );

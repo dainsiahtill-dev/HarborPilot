@@ -686,7 +686,7 @@ def parse_int(value: Optional[str], fallback: int) -> int:
         return fallback
 
 
-def pm_command(settings: Settings, loop_mode: bool) -> List[str]:
+def pm_command(settings: Settings, loop_mode: bool, resume: bool = False) -> List[str]:
     cmd = [
         sys.executable,
         get_abs_path(PROJECT_ROOT, LOOP_PM_PATH),
@@ -719,6 +719,8 @@ def pm_command(settings: Settings, loop_mode: bool) -> List[str]:
     )
     if loop_mode:
         cmd.extend(["--loop", "--interval", str(settings.interval or 20)])
+        if resume:
+            cmd.append("--resume")
     if settings.pm_runs_director:
         cmd.append("--run-director")
         if settings.pm_director_show_output:
@@ -1348,7 +1350,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         return {"ok": True, "pid": state.pm.process.pid}
 
     @app.post("/pm/start_loop")
-    def pm_start_loop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+    def pm_start_loop(resume: bool = False, _: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.pm.process is not None and state.pm.process.poll() is None:
             raise HTTPException(status_code=409, detail="pm already running")
         require_lancedb()
@@ -1374,7 +1376,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         clear_stop_flag(workspace)
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
-        cmd = pm_command(state.settings, loop_mode=True)
+        cmd = pm_command(state.settings, loop_mode=True, resume=resume)
         try:
             state.pm = spawn_process(cmd, PROJECT_ROOT, pm_log_path, build_process_env(state.settings))
         except Exception as exc:
@@ -1463,6 +1465,63 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def director_stop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         terminate_process(state.director)
         return {"ok": True}
+
+    @app.get("/history/runs")
+    def history_runs_list(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        base_root = cache_root or workspace
+        runs_root = os.path.join(base_root, "state", "ollama", "runs")
+        
+        runs = []
+        if os.path.isdir(runs_root):
+            for name in os.listdir(runs_root):
+                path = os.path.join(runs_root, name)
+                if not os.path.isdir(path) or name == "latest":
+                    continue
+                
+                run_data = {"id": name}
+                
+                # Try reading trajectory.json first
+                traj_path = os.path.join(path, "trajectory.json")
+                if os.path.isfile(traj_path):
+                    try:
+                        with open(traj_path, "r", encoding="utf-8") as f:
+                            meta = json.load(f)
+                            run_data["timestamp"] = meta.get("timestamp")
+                            if "summary" in meta:
+                                run_data.update(meta["summary"])
+                            if "task_id" in meta:
+                                run_data["task_id"] = meta["task_id"]
+                    except Exception:
+                        pass
+                
+                # Fallback to DIRECTOR_RESULT.json
+                if "status" not in run_data:
+                    result_path = os.path.join(path, "DIRECTOR_RESULT.json")
+                    if os.path.isfile(result_path):
+                        try:
+                            with open(result_path, "r", encoding="utf-8") as f:
+                                meta = json.load(f)
+                                run_data["status"] = meta.get("status")
+                                run_data["task_id"] = meta.get("task_id")
+                                run_data["duration"] = meta.get("duration")
+                        except Exception:
+                            pass
+                
+                # Get mtime if no timestamp
+                if "timestamp" not in run_data:
+                    try:
+                        mtime = os.path.getmtime(path)
+                        run_data["timestamp"] = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+                
+                runs.append(run_data)
+        
+        # Sort by ID desc
+        runs.sort(key=lambda x: x["id"], reverse=True)
+        return {"runs": runs}
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
