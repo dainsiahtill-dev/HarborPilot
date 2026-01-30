@@ -43,6 +43,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "max_total_lines_read": 1200,
     },
     "qa": {
+        "enabled": True,
         "default_tools": True,
     },
     "context": {
@@ -105,6 +106,8 @@ def _sanitize_policy(policy: Dict[str, Any]) -> Dict[str, Any]:
     risk = clean["risk"]
     risk["block_threshold"] = _coerce_int(risk.get("block_threshold"), 0, 0)
     risk["rollback_on_block"] = _coerce_bool(risk.get("rollback_on_block"), True)
+    if not isinstance(risk.get("relaxed_repos"), list):
+        risk["relaxed_repos"] = []
 
     evidence = clean["evidence"]
     evidence["verbosity"] = _coerce_enum(evidence.get("verbosity"), "summary", ("summary", "full"))
@@ -138,6 +141,7 @@ def _sanitize_policy(policy: Dict[str, Any]) -> Dict[str, Any]:
     budgets["max_total_lines_read"] = _coerce_int(budgets.get("max_total_lines_read"), 1200, 200)
 
     qa = clean["qa"]
+    qa["enabled"] = _coerce_bool(qa.get("enabled"), True)
     qa["default_tools"] = _coerce_bool(qa.get("default_tools"), True)
 
     context = clean["context"]
@@ -236,6 +240,8 @@ def build_env_overrides() -> Dict[str, Any]:
         overrides.setdefault("memory", {})["store_every"] = os.environ.get("HARBORPILOT_MEMORY_STORE_EVERY")
     if "HARBORPILOT_MEMORY_STORE_ON_ACCEPT" in os.environ:
         overrides.setdefault("memory", {})["store_on_accept"] = os.environ.get("HARBORPILOT_MEMORY_STORE_ON_ACCEPT")
+    if "HARBORPILOT_QA_ENABLED" in os.environ:
+        overrides.setdefault("qa", {})["enabled"] = os.environ.get("HARBORPILOT_QA_ENABLED")
     return overrides
 
 
@@ -262,6 +268,8 @@ def build_cli_overrides(argv: list[str]) -> Dict[str, Any]:
         "--no-reviewer": ("repair", "reviewer_enabled", False),
         "--rollback-on-fail": ("repair", "rollback_on_fail", True),
         "--no-rollback-on-fail": ("repair", "rollback_on_fail", False),
+        "--qa": ("qa", "enabled", True),
+        "--no-qa": ("qa", "enabled", False),
         "--default-tools": ("qa", "default_tools", True),
         "--no-default-tools": ("qa", "default_tools", False),
     }

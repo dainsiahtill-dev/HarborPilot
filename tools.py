@@ -148,6 +148,9 @@ def _error_result(tool: str, message: str, exit_code: int = 2) -> Result:
         "stdout": "",
         "stderr": message,
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": False,
+        "artifacts": [],
         "command": [tool],
     }
 
@@ -222,6 +225,9 @@ def _run_command(cmd: List[str], cwd: str, timeout: int) -> Result:
             "stdout": result.stdout or "",
             "stderr": result.stderr or "",
             "duration": duration,
+            "duration_ms": int(duration * 1000),
+            "truncated": False,
+            "artifacts": [],
             "command": cmd,
         }
     except subprocess.TimeoutExpired as exc:
@@ -232,6 +238,9 @@ def _run_command(cmd: List[str], cwd: str, timeout: int) -> Result:
             "stdout": exc.stdout or "",
             "stderr": "Timeout expired.",
             "duration": duration,
+            "duration_ms": int(duration * 1000),
+            "truncated": False,
+            "artifacts": [],
             "command": cmd,
         }
 
@@ -433,6 +442,9 @@ def treesitter_outline(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "",
             "stderr": str(exc),
             "duration": time.time() - start,
+            "duration_ms": int((time.time() - start) * 1000),
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_outline"] + args,
         }
     try:
@@ -449,7 +461,7 @@ def treesitter_outline(args: List[str], cwd: str, timeout: int) -> Result:
             if name:
                 label += f" {name}"
             lines.append(f"{label} {start_row + 1}:{start_col + 1}-{end_row + 1}:{end_col + 1}")
-        output = "\\n".join(lines) if lines else "(no top-level nodes)"
+        output = "\n".join(lines) if lines else "(no top-level nodes)"
         return {
             "ok": True,
             "tool": "treesitter_outline",
@@ -460,6 +472,9 @@ def treesitter_outline(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": output,
             "stderr": "",
             "duration": time.time() - start,
+            "duration_ms": int((time.time() - start) * 1000),
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_outline"] + args,
         }
     except Exception as exc:
@@ -469,6 +484,9 @@ def treesitter_outline(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "",
             "stderr": str(exc),
             "duration": time.time() - start,
+            "duration_ms": int((time.time() - start) * 1000),
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_outline"] + args,
         }
 
@@ -569,6 +587,9 @@ def treesitter_find_symbol(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": json.dumps(matches, ensure_ascii=False, indent=2),
             "stderr": "",
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": truncated,
+            "artifacts": [],
             "command": ["treesitter_find_symbol"] + args,
         }
     except Exception as exc:
@@ -668,6 +689,9 @@ def treesitter_replace_node(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "OK",
             "stderr": "",
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_replace_node"] + args,
         }
     except Exception as exc:
@@ -760,6 +784,9 @@ def treesitter_insert_method(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "OK",
             "stderr": "",
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_insert_method"] + args,
         }
     except Exception as exc:
@@ -823,6 +850,9 @@ def treesitter_rename_symbol(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "OK",
             "stderr": "",
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": False,
+            "artifacts": [],
             "command": ["treesitter_rename_symbol"] + args,
         }
     except Exception as exc:
@@ -870,6 +900,9 @@ def repo_tree(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "",
             "stderr": str(exc),
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": False,
+            "artifacts": [],
             "command": ["repo_tree"],
         }
     if not os.path.isdir(target):
@@ -885,6 +918,9 @@ def repo_tree(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "",
             "stderr": err,
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": False,
+            "artifacts": [],
             "command": ["repo_tree"],
         }
 
@@ -924,6 +960,9 @@ def repo_tree(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": output,
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": truncated,
+        "artifacts": [],
         "command": ["repo_tree"],
     }
 
@@ -1048,6 +1087,9 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": output,
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": truncated,
+        "artifacts": [],
         "command": ["repo_rg"],
     }
 
@@ -1126,6 +1168,9 @@ def repo_read_slice(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": output,
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": truncated,
+        "artifacts": [],
         "command": ["repo_read_slice"],
     }
 
@@ -1294,6 +1339,9 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Result:
             "stdout": "(empty)",
             "stderr": "",
             "duration": 0.0,
+            "duration_ms": 0,
+            "truncated": truncated,
+            "artifacts": [],
             "command": ["repo_read_tail"],
         }
 
@@ -1325,6 +1373,9 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": output,
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": truncated,
+        "artifacts": [],
         "command": ["repo_read_tail"],
     }
 
@@ -1457,6 +1508,9 @@ def repo_symbols_index(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": json.dumps(entries, ensure_ascii=False, indent=2),
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": truncated,
+        "artifacts": [],
         "command": ["repo_symbols_index"],
     }
 
@@ -1508,6 +1562,9 @@ def repo_import_graph(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": json.dumps(edges, ensure_ascii=False, indent=2),
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": False,
+        "artifacts": [],
         "command": ["repo_import_graph"],
     }
 
@@ -1556,6 +1613,9 @@ def repo_api_surface(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": json.dumps(exports, ensure_ascii=False, indent=2),
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": False,
+        "artifacts": [],
         "command": ["repo_api_surface"],
     }
 
@@ -1861,6 +1921,9 @@ def policy_validate(args: List[str], cwd: str, timeout: int) -> Result:
         "stdout": json.dumps({"ok": ok, "errors": errors}, ensure_ascii=False, indent=2),
         "stderr": "",
         "duration": 0.0,
+        "duration_ms": 0,
+        "truncated": False,
+        "artifacts": [],
         "command": ["policy_validate"],
     }
 

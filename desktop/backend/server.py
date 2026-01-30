@@ -38,6 +38,7 @@ DEFAULT_PLANNER = "state/ollama/PLANNER_RESPONSE.md"
 DEFAULT_OLLAMA = "state/ollama/OLLAMA_RESPONSE.md"
 DEFAULT_RUNLOG = "state/ollama/RUNLOG.md"
 DEFAULT_DIALOGUE = "state/ollama/DIALOGUE.jsonl"
+STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 
 CHANNEL_FILES = {
     "pm_report": DEFAULT_PM_REPORT,
@@ -225,12 +226,15 @@ class SettingsUpdate(BaseModel):
     pm_runs_director: Optional[bool] = None
     pm_director_show_output: Optional[bool] = None
     pm_director_timeout: Optional[int] = None
+    pm_director_iterations: Optional[int] = None
+    pm_director_match_mode: Optional[str] = None
     pm_max_failures: Optional[int] = None
     pm_max_blocked: Optional[int] = None
     pm_max_same: Optional[int] = None
     director_iterations: Optional[int] = None
     director_forever: Optional[bool] = None
     director_show_output: Optional[bool] = None
+    qa_enabled: Optional[bool] = None
 
 
 class Settings(BaseModel):
@@ -249,12 +253,15 @@ class Settings(BaseModel):
     pm_runs_director: bool = True
     pm_director_show_output: bool = True
     pm_director_timeout: int = 60
+    pm_director_iterations: int = 1
+    pm_director_match_mode: str = "latest"
     pm_max_failures: int = 5
     pm_max_blocked: int = 5
     pm_max_same: int = 3
     director_iterations: int = 1
     director_forever: bool = False
     director_show_output: bool = True
+    qa_enabled: bool = True
 
     def apply_update(self, update: SettingsUpdate) -> None:
         data = update.model_dump(exclude_unset=True)
@@ -333,15 +340,28 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
     return os.path.join(root, "HarborPilot", "cache", digest)
 
 
+def state_to_ramdisk_enabled() -> bool:
+    value = os.environ.get(STATE_TO_RAMDISK_ENV, "1").strip().lower()
+    return value not in ("0", "false", "no", "off")
+
+
 def is_hot_artifact_path(rel_path: str) -> bool:
     p = (rel_path or "").replace("\\", "/").lstrip("./")
+    if p.startswith("state/") and state_to_ramdisk_enabled():
+        return True
     if not p.startswith("state/ollama/"):
         return False
     if "/runs/" in p or p.startswith("state/ollama/runs/"):
         return True
     if "/memory/" in p or p.startswith("state/ollama/memory/"):
         return True
+    if "/evidence/" in p or p.startswith("state/ollama/evidence/"):
+        return True
     lowered = p.lower()
+    if lowered.endswith("director_result.json"):
+        return True
+    if lowered.endswith("director_status.json"):
+        return True
     if lowered.endswith(".jsonl") or lowered.endswith(".log") or lowered.endswith(".lock"):
         return True
     if lowered.endswith("/runlog.md") or lowered.endswith("runlog.md"):
@@ -354,6 +374,11 @@ def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: s
         return ""
     if os.path.isabs(rel_path):
         return rel_path
+    p = (rel_path or "").replace("\\", "/").lstrip("./")
+    if p.startswith("state/") and state_to_ramdisk_enabled():
+        if not cache_root_full:
+            raise HTTPException(status_code=500, detail="state/ is configured for ramdisk only, but no ramdisk cache root is available")
+        return os.path.join(cache_root_full, rel_path)
     base = cache_root_full if (cache_root_full and is_hot_artifact_path(rel_path)) else workspace_full
     return os.path.join(base, rel_path)
 
@@ -460,6 +485,21 @@ def build_success_stats_payload(workspace: str, cache_root: str) -> Dict[str, An
     return compute_success_stats(result)
 
 
+def decode_bytes(data: bytes) -> str:
+    if not data:
+        return ""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("utf-8", errors="replace")
+        if text.count("\ufffd") <= max(1, len(text) // 200):
+            return text
+        try:
+            return data.decode("gbk")
+        except Exception:
+            return text
+
+
 def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> str:
     if not path or not os.path.isfile(path):
         return ""
@@ -488,7 +528,7 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
                     target_lines is None or data.count(b"\n") >= target_lines + 1
                 ):
                     break
-        text = data.decode("utf-8", errors="ignore")
+        text = decode_bytes(data)
         lines = text.splitlines()
         if max_lines > 0 and len(lines) > max_lines:
             lines = lines[-max_lines:]
@@ -511,7 +551,7 @@ def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -
     if size < pos:
         pos = 0
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(path, "rb") as handle:
             handle.seek(pos)
             chunk = handle.read()
             state["pos"] = handle.tell()
@@ -519,9 +559,10 @@ def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -
         return []
     if not chunk:
         return []
-    if max_chars > 0 and len(chunk) > max_chars:
-        chunk = chunk[-max_chars:]
-    lines = chunk.splitlines()
+    text = decode_bytes(chunk)
+    if max_chars > 0 and len(text) > max_chars:
+        text = text[-max_chars:]
+    lines = text.splitlines()
     return lines
 
 
@@ -614,7 +655,16 @@ def pm_command(settings: Settings, loop_mode: bool) -> List[str]:
         if settings.pm_director_show_output:
             cmd.append("--director-show-output")
         cmd.extend(["--director-result-timeout", str(settings.pm_director_timeout or 60)])
+        cmd.extend(["--director-iterations", str(settings.pm_director_iterations or 1)])
+        if settings.pm_director_match_mode:
+            cmd.extend(["--director-match-mode", settings.pm_director_match_mode])
     return cmd
+
+
+def build_process_env(settings: Settings) -> Dict[str, str]:
+    env: Dict[str, str] = {}
+    env["HARBORPILOT_QA_ENABLED"] = "1" if settings.qa_enabled else "0"
+    return env
 
 
 def director_command(settings: Settings) -> List[str]:
@@ -672,9 +722,10 @@ def clear_stop_flag(workspace: str) -> None:
         pass
 
 
-def spawn_process(cmd: List[str], cwd: str, log_path: str) -> ProcessHandle:
+def spawn_process(cmd: List[str], cwd: str, log_path: str, extra_env: Optional[Dict[str, str]] = None) -> ProcessHandle:
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log_handle = open(log_path, "a", encoding="utf-8", errors="ignore")
+    env = build_utf8_env(extra_env)
     process = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -683,7 +734,7 @@ def spawn_process(cmd: List[str], cwd: str, log_path: str) -> ProcessHandle:
         text=True,
         encoding="utf-8",
         errors="replace",
-        env=build_utf8_env(),
+        env=env,
     )
     return ProcessHandle(process=process, log_handle=log_handle, log_path=log_path, started_at=time.time())
 
@@ -917,6 +968,81 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             "content": content,
         }
 
+    @app.get("/memos/list")
+    def list_memos(
+        limit: int = 200,
+        _: Any = Depends(require_auth),
+    ) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join("state", "ollama", "memos"))
+        index_path = resolve_artifact_path(workspace, cache_root, os.path.join("state", "ollama", "memos", "index.jsonl"))
+        records: List[Dict[str, Any]] = []
+        if os.path.isfile(index_path):
+            try:
+                with open(index_path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(record, dict):
+                            records.append(record)
+            except Exception:
+                records = []
+        if not records and os.path.isdir(memos_dir):
+            try:
+                for entry in os.scandir(memos_dir):
+                    if not entry.is_file():
+                        continue
+                    if not entry.name.lower().endswith(".md"):
+                        continue
+                    if entry.name.lower().startswith("pm_memo_summary"):
+                        continue
+                    rel_path = os.path.join("state", "ollama", "memos", entry.name).replace("\\", "/")
+                    records.append(
+                        {
+                            "timestamp": format_mtime(entry.path),
+                            "rel_path": rel_path,
+                            "task_id": "",
+                            "task_title": "",
+                            "summary": "",
+                        }
+                    )
+            except Exception:
+                records = []
+        def _record_ts(item: Dict[str, Any]) -> float:
+            raw = str(item.get("timestamp") or "")
+            try:
+                return datetime.fromisoformat(raw).timestamp()
+            except Exception:
+                return 0.0
+
+        records.sort(key=_record_ts, reverse=True)
+        trimmed = records[: max(1, limit)]
+        items: List[Dict[str, Any]] = []
+        for record in trimmed:
+            rel_path = str(record.get("rel_path") or "")
+            full_path = resolve_safe_path(workspace, cache_root, rel_path) if rel_path else ""
+            items.append(
+                {
+                    "name": os.path.basename(rel_path) if rel_path else "",
+                    "path": rel_path,
+                    "mtime": format_mtime(full_path) if full_path else "",
+                    "summary": record.get("summary") or "",
+                    "task_id": record.get("task_id") or "",
+                    "task_title": record.get("task_title") or "",
+                    "status": record.get("status") or "",
+                    "acceptance": record.get("acceptance"),
+                    "run_id": record.get("run_id") or "",
+                    "director_attempt": record.get("director_attempt") or None,
+                }
+            )
+        return {"items": items, "count": len(items)}
+
     @app.get("/pm/status")
     def pm_status(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         return build_pm_status()
@@ -1022,7 +1148,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=False)
         try:
-            state.pm = spawn_process(cmd, PROJECT_ROOT, pm_log_path)
+            state.pm = spawn_process(cmd, PROJECT_ROOT, pm_log_path, build_process_env(state.settings))
         except Exception as exc:
             detail = f"pm failed to spawn: {exc}"
             log_backend_error(
@@ -1093,7 +1219,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=True)
         try:
-            state.pm = spawn_process(cmd, PROJECT_ROOT, pm_log_path)
+            state.pm = spawn_process(cmd, PROJECT_ROOT, pm_log_path, build_process_env(state.settings))
         except Exception as exc:
             detail = f"pm failed to spawn: {exc}"
             log_backend_error(
@@ -1160,7 +1286,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         director_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
         cmd = director_command(state.settings)
-        state.director = spawn_process(cmd, PROJECT_ROOT, director_log_path)
+        state.director = spawn_process(cmd, PROJECT_ROOT, director_log_path, build_process_env(state.settings))
         state.director.mode = "direct"
         return {"ok": True, "pid": state.director.process.pid}
 

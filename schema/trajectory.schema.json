@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Director Trajectory",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "task",
+    "inputs",
+    "artifacts",
+    "event_span",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "task_fingerprint": {
+          "type": "string"
+        },
+        "pm_iteration": {
+          "type": ["integer", "null"]
+        },
+        "director_iteration": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_id"
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "pm_tasks_path": {
+          "type": "string"
+        },
+        "policy_path": {
+          "type": "string"
+        },
+        "policy_effective_hash": {
+          "type": "string"
+        },
+        "required_evidence_present": {
+          "type": "boolean"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "director_result_path": {
+          "type": "string"
+        },
+        "qa_response_path": {
+          "type": "string"
+        },
+        "planner_response_path": {
+          "type": "string"
+        },
+        "ollama_response_path": {
+          "type": "string"
+        },
+        "reviewer_response_path": {
+          "type": "string"
+        },
+        "evidence_path": {
+          "type": "string"
+        },
+        "events_path": {
+          "type": "string"
+        }
+      }
+    },
+    "event_span": {
+      "type": "object",
+      "properties": {
+        "seq_start": {
+          "type": "integer"
+        },
+        "seq_end": {
+          "type": "integer"
+        },
+        "count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq_start",
+        "seq_end"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "error_code": {
+          "type": ["string", "null"]
+        },
+        "tool_rounds": {
+          "type": ["integer", "null"]
+        },
+        "total_lines_read": {
+          "type": ["integer", "null"]
+        },
+        "repair_attempts": {
+          "type": ["integer", "null"]
+        },
+        "risk_score": {
+          "type": ["integer", "null"]
+        }
+      }
+    }
+  }
+}

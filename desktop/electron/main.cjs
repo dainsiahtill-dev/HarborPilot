@@ -4,6 +4,11 @@ const { randomBytes } = require("crypto");
 const net = require("net");
 const path = require("path");
 
+// Guard against Electron being forced into Node mode by an inherited env var.
+if (process.env.ELECTRON_RUN_AS_NODE) {
+  delete process.env.ELECTRON_RUN_AS_NODE;
+}
+
 const repoRoot = path.join(__dirname, "..", "..");
 const backendScript = path.join(__dirname, "..", "backend", "server.py");
 const frontendDist = path.join(__dirname, "..", "frontend", "dist", "index.html");

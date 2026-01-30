@@ -19,12 +19,15 @@ interface SettingsModalProps {
     pm_runs_director?: boolean;
     pm_director_show_output?: boolean;
     pm_director_timeout?: number;
+    pm_director_iterations?: number;
+    pm_director_match_mode?: string;
     pm_max_failures?: number;
     pm_max_blocked?: number;
     pm_max_same?: number;
     director_iterations?: number;
     director_forever?: boolean;
     director_show_output?: boolean;
+    qa_enabled?: boolean;
   } | null;
   onSave: (payload: {
     pm_backend?: string;
@@ -41,12 +44,15 @@ interface SettingsModalProps {
     pm_runs_director?: boolean;
     pm_director_show_output?: boolean;
     pm_director_timeout?: number;
+    pm_director_iterations?: number;
+    pm_director_match_mode?: string;
     pm_max_failures?: number;
     pm_max_blocked?: number;
     pm_max_same?: number;
     director_iterations?: number;
     director_forever?: boolean;
     director_show_output?: boolean;
+    qa_enabled?: boolean;
   }) => Promise<void>;
 }
 
@@ -63,6 +69,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [pmRunsDirector, setPmRunsDirector] = useState(true);
   const [pmDirectorShowOutput, setPmDirectorShowOutput] = useState(true);
   const [pmDirectorTimeout, setPmDirectorTimeout] = useState(60);
+  const [pmDirectorIterations, setPmDirectorIterations] = useState(1);
+  const [pmDirectorMatchMode, setPmDirectorMatchMode] = useState('latest');
   const [pmShowOutput, setPmShowOutput] = useState(true);
   const [pmMaxFailures, setPmMaxFailures] = useState(5);
   const [pmMaxBlocked, setPmMaxBlocked] = useState(5);
@@ -70,6 +78,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [directorIterations, setDirectorIterations] = useState(1);
   const [directorForever, setDirectorForever] = useState(false);
   const [directorShowOutput, setDirectorShowOutput] = useState(true);
+  const [qaEnabled, setQaEnabled] = useState(true);
   const [ramdiskRoot, setRamdiskRoot] = useState('');
   const [jsonLogPath, setJsonLogPath] = useState('state/ollama/PM_LOG.jsonl');
   const [showMemory, setShowMemory] = useState(false);
@@ -89,12 +98,15 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setPmRunsDirector(settings.pm_runs_director ?? true);
     setPmDirectorShowOutput(settings.pm_director_show_output ?? true);
     setPmDirectorTimeout(settings.pm_director_timeout ?? 60);
+    setPmDirectorIterations(settings.pm_director_iterations ?? 1);
+    setPmDirectorMatchMode(settings.pm_director_match_mode ?? 'latest');
     setPmMaxFailures(settings.pm_max_failures ?? 5);
     setPmMaxBlocked(settings.pm_max_blocked ?? 5);
     setPmMaxSame(settings.pm_max_same ?? 3);
     setDirectorIterations(settings.director_iterations ?? 1);
     setDirectorForever(settings.director_forever ?? false);
     setDirectorShowOutput(settings.director_show_output ?? true);
+    setQaEnabled(settings.qa_enabled ?? true);
     setRamdiskRoot(settings.ramdisk_root ?? '');
     setJsonLogPath(settings.json_log_path ?? 'state/ollama/PM_LOG.jsonl');
     setShowMemory(settings.show_memory ?? false);
@@ -118,12 +130,15 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         pm_runs_director: pmRunsDirector,
         pm_director_show_output: pmDirectorShowOutput,
         pm_director_timeout: pmDirectorTimeout,
+        pm_director_iterations: pmDirectorIterations,
+        pm_director_match_mode: pmDirectorMatchMode,
         pm_max_failures: pmMaxFailures,
         pm_max_blocked: pmMaxBlocked,
         pm_max_same: pmMaxSame,
         director_iterations: directorIterations,
         director_forever: directorForever,
         director_show_output: directorShowOutput,
+        qa_enabled: qaEnabled,
         ramdisk_root: ramdiskRoot || '',
         json_log_path: jsonLogPath || 'state/ollama/PM_LOG.jsonl',
         show_memory: showMemory,
@@ -318,6 +333,35 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 />
                 <p className="text-xs text-gray-500 mt-1">仅在 PM 触发 Director 时生效。</p>
               </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Director 尝试次数</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={pmDirectorIterations}
+                  onChange={(e) => setPmDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
+                  disabled={!pmRunsDirector}
+                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">同一任务允许 Director 重试次数。</p>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Director 结果匹配模式</label>
+                <select
+                  value={pmDirectorMatchMode}
+                  onChange={(e) => setPmDirectorMatchMode(e.target.value)}
+                  disabled={!pmRunsDirector}
+                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                >
+                  <option value="latest">latest（推荐）</option>
+                  <option value="run_id">run_id</option>
+                  <option value="any">any</option>
+                  <option value="strict">strict</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">控制 PM 如何确认 Director 结果。</p>
+              </div>
             </div>
           </div>
 
@@ -362,6 +406,19 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-3">Director 设置</h3>
             <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="director-qa"
+                  checked={qaEnabled}
+                  onChange={(e) => setQaEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                />
+                <label htmlFor="director-qa" className="text-sm text-gray-300">
+                  启用 QA 审核
+                </label>
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"

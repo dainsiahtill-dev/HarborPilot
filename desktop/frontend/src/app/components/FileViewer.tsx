@@ -25,7 +25,6 @@ export function FileViewer({ selectedFile, content, mtime, loading, error, badge
     );
   }
 
-  const displayContent = content || (loading ? '' : '// 文件内容加载中...');
   const isJsonl = selectedFile.name.endsWith('.jsonl');
 
   return (
@@ -67,47 +66,53 @@ export function FileViewer({ selectedFile, content, mtime, loading, error, badge
             <span>{error}</span>
           </div>
         ) : null}
-        {isJsonl ? (
+        {loading ? (
+          <div className="p-4 text-sm text-gray-300">加载中...</div>
+        ) : isJsonl ? (
           <div className="p-4 space-y-2">
-            {displayContent.split('\n').map((line, idx) => {
-              if (!line.trim()) return null;
-              try {
-                const event = JSON.parse(line);
-                return (
-                  <div key={idx} className="p-3 bg-gray-800/50 rounded border border-gray-700">
-                    <div className="flex items-center gap-2 mb-2">
-                      {event.seq !== undefined && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                          seq: {event.seq}
-                        </span>
-                      )}
-                      {event.speaker && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                          {event.speaker}
-                        </span>
-                      )}
-                      {event.kind && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-orange-500/20 text-orange-400">
-                          {event.kind}
-                        </span>
-                      )}
-                      {event.timestamp && (
-                        <span className="text-xs text-gray-500">{event.timestamp}</span>
-                      )}
+            {!content.trim() ? (
+              <div className="text-sm text-gray-400">(空)</div>
+            ) : (
+              content.split('\n').map((line, idx) => {
+                if (!line.trim()) return null;
+                try {
+                  const event = JSON.parse(line);
+                  return (
+                    <div key={idx} className="p-3 bg-gray-800/50 rounded border border-gray-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        {event.seq !== undefined && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                            seq: {event.seq}
+                          </span>
+                        )}
+                        {event.speaker && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                            {event.speaker}
+                          </span>
+                        )}
+                        {event.kind && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                            {event.kind}
+                          </span>
+                        )}
+                        {event.timestamp && (
+                          <span className="text-xs text-gray-500">{event.timestamp}</span>
+                        )}
+                      </div>
+                      <pre className="text-xs text-gray-300 font-mono overflow-x-auto">
+                        {JSON.stringify(event, null, 2)}
+                      </pre>
                     </div>
-                    <pre className="text-xs text-gray-300 font-mono overflow-x-auto">
-                      {JSON.stringify(event, null, 2)}
-                    </pre>
-                  </div>
-                );
-              } catch {
-                return null;
-              }
-            })}
+                  );
+                } catch {
+                  return null;
+                }
+              })
+            )}
           </div>
         ) : (
           <pre className="p-4 text-sm text-gray-300 font-mono leading-relaxed">
-            <code>{displayContent}</code>
+            <code>{content || '(空)'}</code>
           </pre>
         )}
       </div>

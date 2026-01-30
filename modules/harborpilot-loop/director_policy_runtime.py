@@ -74,6 +74,8 @@ def apply_policy_to_state(state: Any, policy: Dict[str, Any]) -> None:
 
     if "default_tools" in qa_cfg:
         state.default_tools_enabled = bool(qa_cfg.get("default_tools"))
+    if "enabled" in qa_cfg:
+        state.qa_enabled = bool(qa_cfg.get("enabled"))
 
     if "pm_tasks_max_chars" in context:
         state.context_pm_tasks_max_chars = _safe_int(context.get("pm_tasks_max_chars"), state.context_pm_tasks_max_chars)

@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Last State Memory Snapshot",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "last_run_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_round_index": {
+      "type": "integer"
+    },
+    "last_target_index": {
+      "type": "integer"
+    },
+    "last_target": {
+      "type": "string"
+    },
+    "last_summary": {
+      "type": ["string", "null"]
+    },
+    "last_next_step": {
+      "type": ["string", "null"]
+    },
+    "last_log_path": {
+      "type": "string"
+    },
+    "last_response_path": {
+      "type": "string"
+    },
+    "last_exit_code": {
+      "type": "integer"
+    },
+    "last_gap_review_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_gap_report_path": {
+      "type": "string"
+    },
+    "last_error": {
+      "type": "string"
+    }
+  }
+}

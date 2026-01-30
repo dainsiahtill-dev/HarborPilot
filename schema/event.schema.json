@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Action/Observation Event",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ts",
+    "ts_epoch",
+    "seq",
+    "event_id",
+    "kind",
+    "actor",
+    "name"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ts_epoch": {
+      "type": "number"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "action",
+        "observation"
+      ]
+    },
+    "actor": {
+      "type": "string",
+      "enum": [
+        "PM",
+        "Director",
+        "Reviewer",
+        "QA",
+        "System",
+        "Tooling"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "refs": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": ["string", "null"]
+        },
+        "task_fingerprint": {
+          "type": ["string", "null"]
+        },
+        "run_id": {
+          "type": ["string", "null"]
+        },
+        "pm_iteration": {
+          "type": ["integer", "null"]
+        },
+        "director_iteration": {
+          "type": ["integer", "null"]
+        },
+        "phase": {
+          "type": ["string", "null"]
+        },
+        "files": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_path": {
+          "type": ["string", "null"]
+        },
+        "trajectory_path": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object"
+    },
+    "input": {
+      "type": "object",
+      "description": "Present only if kind=action"
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "Present only if kind=observation"
+    },
+    "output": {
+      "type": "object",
+      "description": "Present only if kind=observation"
+    },
+    "truncation": {
+      "type": "object",
+      "properties": {
+        "truncated": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "original_bytes": {
+          "type": ["integer", "null"]
+        },
+        "kept_bytes": {
+          "type": ["integer", "null"]
+        },
+        "original_lines": {
+          "type": ["integer", "null"]
+        },
+        "kept_lines": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "duration_ms": {
+      "type": ["integer", "null"]
+    },
+    "error": {
+      "type": ["string", "null"]
+    }
+  }
+}

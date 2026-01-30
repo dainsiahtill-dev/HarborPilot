@@ -5,6 +5,48 @@ from typing import Dict, List, Optional
 from io_utils import ensure_codex_available, ensure_parent_dir, read_file_safe
 
 
+def _decode_with_fallback(data: bytes) -> str:
+    if not data:
+        return ""
+    try:
+        text = data.decode("utf-8")
+        return text
+    except UnicodeDecodeError:
+        pass
+    try:
+        text = data.decode("utf-8", errors="replace")
+    except Exception:
+        text = ""
+    if text:
+        bad = text.count("\ufffd")
+        if bad / max(len(text), 1) < 0.02:
+            return text
+    for enc in ("utf-8-sig", "gbk", "cp936"):
+        try:
+            return data.decode(enc)
+        except Exception:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _read_codex_output(path: str) -> str:
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+        text = _decode_with_fallback(data)
+        # Normalize output to UTF-8 for downstream consumers.
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        except Exception:
+            pass
+        return text
+    except Exception:
+        return read_file_safe(path)
+
+
 def build_codex_command(base_args: List[str], codex_path: str) -> List[str]:
     ext = os.path.splitext(codex_path)[1].lower()
     if ext == ".ps1":
@@ -43,10 +85,14 @@ def invoke_codex(
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("LANG", "en_US.UTF-8")
     env.setdefault("LC_ALL", "en_US.UTF-8")
+    env.setdefault("LC_CTYPE", "en_US.UTF-8")
     if extra_env:
         env.update(extra_env)
 
     try:
+        if os.name == "nt":
+            cmd_str = subprocess.list2cmdline(cmd)
+            cmd = ["cmd.exe", "/c", f"chcp 65001 >NUL & {cmd_str}"]
         subprocess.run(
             cmd,
             input=prompt,
@@ -63,4 +109,4 @@ def invoke_codex(
     except subprocess.TimeoutExpired:
         return ""
 
-    return read_file_safe(output_file)
+    return _read_codex_output(output_file)

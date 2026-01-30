@@ -174,7 +174,13 @@ def is_hot_artifact_path(rel_path: str) -> bool:
         return True
     if "/memory/" in p or p.startswith("state/ollama/memory/"):
         return True
+    if "/evidence/" in p or p.startswith("state/ollama/evidence/"):
+        return True
     lowered = p.lower()
+    if lowered.endswith("director_result.json"):
+        return True
+    if lowered.endswith("director_status.json"):
+        return True
     if lowered.endswith(".jsonl") or lowered.endswith(".log") or lowered.endswith(".lock"):
         return True
     if lowered.endswith("/runlog.md") or lowered.endswith("runlog.md"):

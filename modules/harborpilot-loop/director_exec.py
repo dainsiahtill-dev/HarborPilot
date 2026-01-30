@@ -172,35 +172,125 @@ def restore_snapshot(
     )
 
 
-def assess_patch_risk(changed_files: List[str], snapshot: Dict[str, Optional[str]]) -> Dict[str, Any]:
+def assess_patch_risk(
+    changed_files: List[str],
+    snapshot: Dict[str, Optional[str]],
+    workspace: str = "",
+    policy: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     risk = 0
     reasons: List[str] = []
-    if len(changed_files) >= 6:
+    
+    # Factors
+    files_changed_count = len(changed_files)
+    lines_added = 0
+    lines_removed = 0
+    touches_build_system = False
+    touches_security_sensitive = False
+    touches_runtime_entry = False
+    new_files: List[str] = []
+
+    # Check for relaxed policy
+    is_relaxed = False
+    if policy and isinstance(policy.get("risk"), dict):
+        relaxed_repos = policy["risk"].get("relaxed_repos")
+        if isinstance(relaxed_repos, list) and workspace:
+            norm_workspace = workspace.replace("\\", "/").lower()
+            for repo in relaxed_repos:
+                if str(repo).lower() in norm_workspace:
+                    is_relaxed = True
+                    break
+
+    # Analyze files
+    for path in changed_files:
+        if not path:
+            continue
+        
+        # New files
+        old_content = snapshot.get(path)
+        if old_content is None:
+            new_files.append(path)
+        
+        # Read new content for diff
+        new_content = ""
+        full_path = os.path.join(workspace, path) if workspace else path
+        if os.path.isfile(full_path):
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    new_content = f.read()
+            except Exception:
+                pass
+        
+        # Calculate diff lines
+        old_lines = (old_content or "").splitlines()
+        new_lines = new_content.splitlines()
+        diff = difflib.unified_diff(old_lines, new_lines, n=0)
+        for line in diff:
+            if line.startswith("+") and not line.startswith("+++"):
+                lines_added += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                lines_removed += 1
+        
+        # Check specific types
+        lower = path.lower()
+        if lower.endswith(("package.json", "package-lock.json", "pyproject.toml", "requirements.txt", "tsconfig.json", "vite.config.ts", "vite.config.js", "webpack.config.js")):
+            touches_build_system = True
+        
+        if any(part in lower for part in ("/protocol/", "/auth/", "/core/", "/security/", "/permissions/", "secret", "credential", "login", "token")):
+            touches_security_sensitive = True
+            
+        if lower.endswith(("main.py", "app.py", "index.js", "server.js", "entrypoint.sh", "main.ts", "index.ts")):
+            touches_runtime_entry = True
+
+    # Calculate Score
+    if files_changed_count >= 6:
         risk += 3
         reasons.append("Too many files changed")
-    elif len(changed_files) >= 3:
+    elif files_changed_count >= 3:
         risk += 2
         reasons.append("Multiple files changed")
-
-    new_files = [path for path in changed_files if snapshot.get(path) is None]
+    
     if new_files:
-        risk += 2
+        risk += 1
         reasons.append("New files added")
 
-    risky_files: List[str] = []
-    for path in changed_files:
-        lower = path.lower()
-        if lower.endswith(("package.json", "package-lock.json", "pyproject.toml", "requirements.txt")):
-            risky_files.append(path)
-        if any(part in lower for part in ("/protocol/", "/auth/", "/core/", "/security/", "/permissions/")):
-            risky_files.append(path)
-    if risky_files:
+    if lines_added > 200:
+        risk += 2
+        reasons.append("Large addition (>200 lines)")
+    elif lines_added > 50:
+        risk += 1
+        reasons.append("Medium addition (>50 lines)")
+
+    if touches_build_system:
+        risk += 2
+        reasons.append("Build system touched")
+    
+    if touches_security_sensitive:
         risk += 3
-        reasons.append("High impact files touched")
+        reasons.append("Security sensitive files touched")
+        
+    if touches_runtime_entry:
+        risk += 1
+        reasons.append("Runtime entry touched")
+
+    # Apply relaxation
+    if is_relaxed:
+        risk = max(0, risk - 2)
+        reasons.append("Policy relaxed (trusted repo)")
+
     return {
         "score": risk,
         "reasons": reasons,
         "new_files": new_files,
+        "factors": {
+            "files_changed_count": files_changed_count,
+            "lines_added": lines_added,
+            "lines_removed": lines_removed,
+            "touches_build_system": touches_build_system,
+            "touches_security_sensitive": touches_security_sensitive,
+            "touches_runtime_entry": touches_runtime_entry,
+            "test_coverage_delta": None,
+        }
     }
 
 
@@ -471,6 +561,35 @@ def run_tool_commands(state: Any, commands: List[str], log_path: str) -> List[Di
                 _append_log(log_path, "[CMD] STDOUT:\n" + stdout + "\n")
             if stderr:
                 _append_log(log_path, "[CMD] STDERR:\n" + stderr + "\n")
+            
+            # Parse standardized JSON output if available (tools.py wrapper usually outputs JSON if --json is passed, 
+            # but here we are calling it without --json to capture stdout/stderr directly for logs.
+            # However, since we are invoking tools.py via wrapper, the output is raw text unless we parse it.
+            # Wait, tools.py prints raw text by default unless --json.
+            # But the user wants 'duration_ms', 'artifacts' etc.
+            # The subprocess above CALLS the wrapper script (which is python tools.py ...).
+            # If we want structured data back, we should probably pass --json?
+            # BUT: current implementation expects readable stdout for the LLM.
+            # We can't change the output format to JSON without breaking the LLM's view of the output.
+            # SO: We will stick to estimating duration here and leave artifacts empty unless we parse them.
+            # Actually, `tools.py` prints normal stdout. 
+            # So `result.stdout` is what the tool printed.
+            # The `tools.py` modification I made affects what `tools.py` *returns* internally or prints if `--json`.
+            # If I run `python tools.py ...`, it prints text.
+            # If I want the metadata, I might need to run with --json OR rely on the wrapper to print metadata.
+            # But `run_tool_commands` is calling `subprocess.run(tokens...)`.
+            # `tokens` is `[python, tools.py, tool_name, args...]`.
+            # The changes I made to `tools.py` only affect the internal `Result` dict and JSON output.
+            # They do NOT affect the text output (except `_error_result` logic).
+            # So `stdout` here is just the tool output.
+            # I can't easily get `duration_ms` from the inner tool unless I parse it or measure it here.
+            # Measuring `time.time() - start_ts` here is "good enough" for the event log.
+            # `artifacts`: I can't get this unless the tool prints it.
+            # `truncated`: I can't get this unless I parse "TRUNCATED: true" from stdout.
+            
+            truncated = "TRUNCATED: true" in stdout
+            duration_ms = int((time.time() - start_ts) * 1000)
+            
             emit_event(
                 getattr(state, "events_full", ""),
                 kind="observation",
@@ -484,9 +603,10 @@ def run_tool_commands(state: Any, commands: List[str], log_path: str) -> List[Di
                     "returncode": result.returncode,
                     "stdout_preview": _truncate_text(stdout, 800),
                     "stderr_preview": _truncate_text(stderr, 800),
+                    "artifacts": [], # Cannot extract easily without structured output
                 },
-                truncation={"truncated": True, "reason": "preview_only"},
-                duration_ms=int((time.time() - start_ts) * 1000),
+                truncation={"truncated": truncated, "reason": "tool_output"},
+                duration_ms=duration_ms,
             )
             results.append(
                 {
@@ -494,6 +614,9 @@ def run_tool_commands(state: Any, commands: List[str], log_path: str) -> List[Di
                     "returncode": result.returncode,
                     "stdout": stdout,
                     "stderr": stderr,
+                    "duration_ms": duration_ms,
+                    "truncated": truncated,
+                    "artifacts": [],
                 }
             )
             if result.returncode != 0 and not state.continue_on_error:

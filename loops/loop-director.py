@@ -6,7 +6,7 @@ import re
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 def enforce_utf8() -> None:
@@ -81,23 +81,26 @@ try:
     from io_utils import (
         build_cache_root,
         resolve_artifact_path,
-        resolve_ramdisk_root,
-        ensure_memory_dir,
-        ensure_ollama_available,
-        ensure_parent_dir,
-        ensure_plan_file,
-        configure_jsonl_buffer,
-        emit_event,
-        emit_dialogue,
-        flush_jsonl_buffers,
-        get_event_seq,
-        get_memory_summary,
-        read_file_safe,
-        read_memory_snapshot,
-        resolve_workspace_path,
-        stop_requested,
-        write_json_atomic,
-        write_text_atomic,
+    resolve_ramdisk_root,
+    resolve_run_dir,
+    state_to_ramdisk_enabled,
+    ensure_memory_dir,
+    ensure_ollama_available,
+    ensure_parent_dir,
+    ensure_plan_file,
+    configure_jsonl_buffer,
+    emit_event,
+    emit_dialogue,
+    flush_jsonl_buffers,
+    get_event_seq,
+    get_memory_summary,
+    read_file_safe,
+    read_memory_snapshot,
+    resolve_workspace_path,
+    stop_requested,
+    update_latest_pointer,
+    write_json_atomic,
+    write_text_atomic,
     )
     from ollama_utils import invoke_ollama
     from ports import PORTS, plan_port_policy, stop_port_process
@@ -201,6 +204,7 @@ class State:
     reviewer_enabled: bool
     reviewer_rounds: int
     rollback_on_fail: bool
+    qa_enabled: bool
     risk_block_threshold: int
     evidence_verbosity: str
     evidence_write_enabled: bool
@@ -766,11 +770,14 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         task_goal: str = "",
         pm_iteration: Optional[int] = None,
         error_code: str = "",
+        failure_code: str = "",
         duration: Optional[float] = None,
         repair_attempts: int = 0,
     ) -> Dict[str, Any]:
         return {
+            "schema_version": 1,
             "timestamp": stamp,
+            "run_id": state.current_run_id,
             "director_iteration": index,
             "pm_iteration": pm_iteration,
             "task_id": task_id,
@@ -781,6 +788,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "acceptance": acceptance,
             "reason": reason,
             "error_code": error_code,
+            "failure_code": failure_code,
             "duration": duration,
             "repair_attempts": repair_attempts,
             "changed_files": changed_files or [],
@@ -944,6 +952,28 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     state.current_pm_iteration = pm_iteration
     state.current_run_id = f"pm-{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"dir-{index:05d}"
 
+    # Re-bucket if run_id changed (and we were auto-bucketing)
+    # We detect "auto-bucketing" by checking if current log_path contains the OLD run_id "dir-XXXXX"
+    # but the NEW run_id is "pm-XXXXX".
+    old_run_id = f"dir-{index:05d}"
+    if state.current_run_id != old_run_id and old_run_id in state.log_full:
+         run_id = state.current_run_id
+         run_dir = resolve_run_dir(state.workspace_full, state.cache_root_full, run_id)
+         update_latest_pointer(state.workspace_full, state.cache_root_full, run_id)
+         
+         state = replace(
+            state,
+            log_full=os.path.join(run_dir, "RUNLOG.md"),
+            director_result_full=os.path.join(run_dir, "DIRECTOR_RESULT.json"),
+            events_full=os.path.join(run_dir, "events.jsonl"),
+            planner_full=os.path.join(run_dir, "PLANNER_RESPONSE.md"),
+            ollama_full=os.path.join(run_dir, "OLLAMA_RESPONSE.md"),
+            qa_full=os.path.join(run_dir, "QA_RESPONSE.md"),
+            reviewer_full=os.path.join(run_dir, "REVIEWER_RESPONSE.md"),
+        )
+         log_path = state.log_full
+         append_log(log_path, f"\n## Run {index} (Switch to {run_id}) - {stamp}\n")
+
     if pm_task_note:
         target_note = pm_task_note
         append_log(state.log_full, "[INFO] Using PM tasks as target note.\n")
@@ -1106,6 +1136,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                 task_goal=pm_task_goal,
                 pm_iteration=pm_iteration,
                 error_code="FSM_BLOCKED",
+                failure_code="TOOL_BUDGET_EXCEEDED" if "Budget" in fsm_error else "FSM_ERROR",
                 duration=duration,
             ),
         )
@@ -1194,6 +1225,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                 task_goal=pm_task_goal,
                 pm_iteration=pm_iteration,
                 error_code="MISSING_CONTEXT",
+                failure_code="PLANNER_FAILURE",
                 duration=duration,
             ),
         )
@@ -1231,6 +1263,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                 task_goal=pm_task_goal,
                 pm_iteration=pm_iteration,
                 error_code="MISSING_CONTEXT",
+                failure_code="PLANNER_FAILURE",
                 duration=duration,
             ),
         )
@@ -1265,6 +1298,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                 task_goal=pm_task_goal,
                 pm_iteration=pm_iteration,
                 error_code="POLICY_BLOCKED",
+                failure_code="POLICY_BLOCKED",
                 duration=duration,
             ),
         )
@@ -1486,19 +1520,24 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         tool_results = run_tool_commands(state, tool_commands, log_path)
     tool_output_summary = format_tool_results(tool_results) if tool_results else ""
 
-    planner_output_for_qa, ollama_output_for_qa = _truncate_for_review(state, planner_output, ollama_output)
-    qa_output = run_qa(
-        state,
-        plan_text,
-        memory_summary,
-        target_note,
-        changed_files,
-        planner_output_for_qa,
-        ollama_output_for_qa,
-        tool_output_summary,
-        review_summary,
-        patch_risk_summary,
-    )
+    if state.qa_enabled:
+        planner_output_for_qa, ollama_output_for_qa = _truncate_for_review(state, planner_output, ollama_output)
+        qa_output = run_qa(
+            state,
+            plan_text,
+            memory_summary,
+            target_note,
+            changed_files,
+            planner_output_for_qa,
+            ollama_output_for_qa,
+            tool_output_summary,
+            review_summary,
+            patch_risk_summary,
+        )
+    else:
+        qa_output = '{"acceptance":"PASS","summary":"QA disabled"}'
+        write_text_atomic(state.qa_full, qa_output + "\n")
+        append_log(state.log_full, "[QA]\n" + qa_output + "\n")
     acceptance = parse_acceptance(qa_output)
 
     # Handle acceptance decision
@@ -1519,27 +1558,33 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             result = run_ollama_apply(state, repair_brief, files)
             ollama_output = result["output"]
             changed_files = result["changed_files"]
-            patch_risk = assess_patch_risk(changed_files, base_snapshot)
+            patch_risk = assess_patch_risk(changed_files, base_snapshot, state.workspace_full, policy_effective)
             patch_risk_summary = format_risk_summary(patch_risk)
             if tool_commands:
                 tool_results = run_tool_commands(state, tool_commands, log_path)
             tool_output_summary = format_tool_results(tool_results) if tool_results else ""
-            planner_output_for_qa, ollama_output_for_qa = _truncate_for_review(
-                state, planner_output, ollama_output
-            )
-            qa_output = run_qa(
-                state,
-                plan_text,
-                memory_summary,
-                target_note,
-                changed_files,
-                planner_output_for_qa,
-                ollama_output_for_qa,
-                tool_output_summary,
-                review_summary,
-                patch_risk_summary,
-            )
-            acceptance = parse_acceptance(qa_output)
+            if state.qa_enabled:
+                planner_output_for_qa, ollama_output_for_qa = _truncate_for_review(
+                    state, planner_output, ollama_output
+                )
+                qa_output = run_qa(
+                    state,
+                    plan_text,
+                    memory_summary,
+                    target_note,
+                    changed_files,
+                    planner_output_for_qa,
+                    ollama_output_for_qa,
+                    tool_output_summary,
+                    review_summary,
+                    patch_risk_summary,
+                )
+                acceptance = parse_acceptance(qa_output)
+            else:
+                qa_output = '{"acceptance":"PASS","summary":"QA disabled"}'
+                write_text_atomic(state.qa_full, qa_output + "\n")
+                append_log(state.log_full, "[QA]\n" + qa_output + "\n")
+                acceptance = True
             if acceptance is True:
                 break
     if acceptance is False and state.rollback_on_fail and base_snapshot:
@@ -1599,8 +1644,10 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
 
     status = "success" if acceptance is True else "fail" if acceptance is False else "unknown"
     error_code = ""
+    failure_code = ""
     if acceptance is False:
         error_code = "QA_FAIL"
+        failure_code = "QA_FAIL"
     result_payload = build_result(
         status,
         "completed",
@@ -1612,6 +1659,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         task_goal=pm_task_goal,
         pm_iteration=pm_iteration,
         error_code=error_code,
+        failure_code=failure_code,
         duration=duration,
         repair_attempts=repair_attempts,
     )
@@ -1632,6 +1680,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     tool_summary = summarize_tool_outputs(tool_outputs)
     result_payload.update(
         {
+            "completion_summary": qa_summary or tool_output_summary or "",
             "commands_run": commands,
             "tool_commands_run": tool_commands,
             "planner_brief": brief,
@@ -1689,6 +1738,25 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="HarborPilot Director loop (Ollama)")
     parser.add_argument("--plan-path", "-PlanPath", default="state/ollama/PLAN.md")
+    default_auto_plan = str(os.environ.get("HARBORPILOT_AUTO_PLAN", "1")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    parser.add_argument(
+        "--auto-plan",
+        dest="auto_plan",
+        action="store_true",
+        default=default_auto_plan,
+        help="Auto-generate PLAN.md when missing and continue without manual edit.",
+    )
+    parser.add_argument(
+        "--no-auto-plan",
+        dest="auto_plan",
+        action="store_false",
+        help="Require manual PLAN.md; exit after generating template.",
+    )
     parser.add_argument("--log-path", "-LogPath", default="state/ollama/RUNLOG.md")
     parser.add_argument("--planner-response-path", "-PlannerResponsePath", default="state/ollama/PLANNER_RESPONSE.md")
     parser.add_argument("--ollama-response-path", "-OllamaResponsePath", default="state/ollama/OLLAMA_RESPONSE.md")
@@ -1705,6 +1773,14 @@ def main() -> int:
     parser.add_argument("--reviewer", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--reviewer-rounds", type=int, default=1)
     parser.add_argument("--rollback-on-fail", action=argparse.BooleanOptionalAction, default=True)
+    default_qa_enabled = str(os.environ.get("HARBORPILOT_QA_ENABLED", "1")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    parser.add_argument("--qa", dest="qa_enabled", action="store_true", default=default_qa_enabled)
+    parser.add_argument("--no-qa", dest="qa_enabled", action="store_false")
     parser.add_argument("--risk-block-threshold", type=int, default=0, help="Block run when patch risk score >= threshold (0 disables).")
     parser.add_argument("--evidence-verbosity", choices=["summary", "full"], default="summary")
     parser.add_argument("--rag-topk", type=int, default=5, help="Default top-k for local RAG tools.")
@@ -1765,6 +1841,11 @@ def main() -> int:
         if isinstance(rag_policy.get("topk"), int):
             os.environ["HARBORPILOT_RAG_TOPK"] = str(rag_policy.get("topk"))
 
+        if state_to_ramdisk_enabled() and not cache_root_full:
+            raise RuntimeError(
+                "HARBORPILOT_STATE_TO_RAMDISK is enabled but no ramdisk cache root is available. "
+                "Set HARBORPILOT_RAMDISK_ROOT (e.g. X:\\) or disable HARBORPILOT_STATE_TO_RAMDISK."
+            )
         plan_full = resolve_artifact_path(workspace_full, cache_root_full, args.plan_path)
         log_full = resolve_artifact_path(workspace_full, cache_root_full, args.log_path)
         planner_full = resolve_artifact_path(workspace_full, cache_root_full, args.planner_response_path)
@@ -1779,7 +1860,7 @@ def main() -> int:
         ensure_parent_dir(qa_full)
         ensure_parent_dir(reviewer_full)
 
-        if not ensure_plan_file(plan_full):
+        if not ensure_plan_file(plan_full, auto_continue=bool(args.auto_plan)):
             return 1
 
         repair_policy = base_policy.get("repair", {}) if isinstance(base_policy.get("repair"), dict) else {}
@@ -1841,7 +1922,7 @@ def main() -> int:
             gap_max_files=args.gap_max_files,
             gap_review_done=False,
             gap_write_plan=args.gap_write_plan,
-            pm_task_path=os.path.join(workspace_full, args.pm_task_path),
+        pm_task_path=resolve_artifact_path(workspace_full, cache_root_full, args.pm_task_path),
             director_result_full=resolve_artifact_path(workspace_full, cache_root_full, args.director_result_path),
             dialogue_full=resolve_artifact_path(workspace_full, cache_root_full, args.dialogue_path),
             events_full=resolve_artifact_path(workspace_full, cache_root_full, args.events_path),
@@ -1849,6 +1930,7 @@ def main() -> int:
             reviewer_enabled=bool(repair_policy.get("reviewer_enabled", args.reviewer)),
             reviewer_rounds=int(repair_policy.get("reviewer_rounds", args.reviewer_rounds)),
             rollback_on_fail=bool(repair_policy.get("rollback_on_fail", args.rollback_on_fail)),
+            qa_enabled=bool(qa_policy.get("enabled", args.qa_enabled)),
             risk_block_threshold=int(risk_policy.get("block_threshold", args.risk_block_threshold)),
             evidence_verbosity=str(evidence_policy.get("verbosity", args.evidence_verbosity)),
             evidence_write_enabled=bool(evidence_policy.get("write_enabled", True)),
@@ -1871,12 +1953,24 @@ def main() -> int:
         if args.forever:
             index = 1
             while True:
+                # Sync sequences before each iteration in case other processes wrote to them
+                if state.dialogue_full:
+                    set_dialogue_seq(scan_last_seq(state.dialogue_full))
+                if state.events_full:
+                    set_event_seq(scan_last_seq(state.events_full))
+                
                 result = invoke_iteration(state, index, False)
                 if not result["ok"]:
                     return 1
                 index += 1
         else:
             for index in range(1, args.iterations + 1):
+                # Sync sequences
+                if state.dialogue_full:
+                    set_dialogue_seq(scan_last_seq(state.dialogue_full))
+                if state.events_full:
+                    set_event_seq(scan_last_seq(state.events_full))
+                    
                 is_last = index >= args.iterations
                 result = invoke_iteration(state, index, is_last)
                 if not result["ok"]:

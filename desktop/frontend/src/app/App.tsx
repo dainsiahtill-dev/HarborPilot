@@ -9,6 +9,7 @@ import { StatusBar } from '@/app/components/StatusBar';
 import { SettingsModal } from '@/app/components/SettingsModal';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
+import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -36,12 +37,15 @@ interface BackendSettings {
   pm_runs_director?: boolean;
   pm_director_show_output?: boolean;
   pm_director_timeout?: number;
+  pm_director_iterations?: number;
+  pm_director_match_mode?: string;
   pm_max_failures?: number;
   pm_max_blocked?: number;
   pm_max_same?: number;
   director_iterations?: number;
   director_forever?: boolean;
   director_show_output?: boolean;
+  qa_enabled?: boolean;
 }
 
 interface BackendStatus {
@@ -50,6 +54,11 @@ interface BackendStatus {
   started_at: number | null;
   mode?: string;
   log_path?: string;
+}
+
+interface MemoListResponse {
+  items: MemoItem[];
+  count: number;
 }
 
 interface LanceDbStatus {
@@ -200,6 +209,11 @@ export default function App() {
   const [memoryData, setMemoryData] = useState<FilePayload>({ content: '', mtime: '' });
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoItems, setMemoItems] = useState<MemoItem[]>([]);
+  const [memoSelected, setMemoSelected] = useState<MemoItem | null>(null);
+  const [memoData, setMemoData] = useState<FilePayload>({ content: '', mtime: '' });
+  const [memoLoading, setMemoLoading] = useState(false);
+  const [memoError, setMemoError] = useState<string | null>(null);
   const [dialogueEvents, setDialogueEvents] = useState<DialogueEvent[]>([]);
   const [wsLive, setWsLive] = useState(false);
   const seenDialogueIds = useRef<Set<string>>(new Set());
@@ -379,13 +393,61 @@ export default function App() {
     }
   };
 
+  const refreshMemos = async () => {
+    setMemoError(null);
+    try {
+      const res = await apiFetch('/memos/list?limit=200');
+      if (!res.ok) {
+        throw new Error('Failed to list memos');
+      }
+      const payload = (await res.json()) as MemoListResponse;
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      setMemoItems(items);
+      if (memoSelected) {
+        const stillExists = items.find((item) => item.path === memoSelected.path);
+        if (!stillExists) {
+          setMemoSelected(items[0] || null);
+        }
+      } else if (items.length > 0) {
+        setMemoSelected(items[0]);
+      }
+    } catch (err) {
+      setMemoError(err instanceof Error ? err.message : 'Failed to list memos');
+    }
+  };
+
+  const refreshMemoContent = async (item: MemoItem | null) => {
+    if (!item) {
+      setMemoData({ content: '', mtime: '' });
+      setMemoError(null);
+      return;
+    }
+    setMemoLoading(true);
+    setMemoError(null);
+    try {
+      const res = await apiFetch(`/files/read?path=${encodeURIComponent(item.path)}`);
+      if (!res.ok) {
+        throw new Error('Failed to read memo');
+      }
+      const payload = (await res.json()) as FilePayload;
+      setMemoData({ content: payload.content || '', mtime: payload.mtime || '' });
+    } catch (err) {
+      setMemoError(err instanceof Error ? err.message : 'Failed to read memo');
+      setMemoData({ content: '', mtime: '' });
+    } finally {
+      setMemoLoading(false);
+    }
+  };
+
   const refreshAll = async () => {
     await Promise.all([
       refreshSettings(),
       refreshStatus(),
       refreshSnapshot(),
       refreshMemory(),
+      refreshMemos(),
       refreshLanceDbStatus(),
+      refreshSuccessStats(),
     ]);
   };
 
@@ -416,6 +478,7 @@ export default function App() {
         refreshSnapshot().catch(() => undefined);
         refreshLanceDbStatus().catch(() => undefined);
         refreshMemory().catch(() => undefined);
+        refreshMemos().catch(() => undefined);
         refreshSuccessStats().catch(() => undefined);
       }
     }, intervalMs);
@@ -701,6 +764,14 @@ export default function App() {
     }
     refreshMemory().catch(() => undefined);
   }, [settings?.show_memory, settings?.workspace, settings?.ramdisk_root]);
+
+  useEffect(() => {
+    refreshMemos().catch(() => undefined);
+  }, [settings?.workspace, settings?.ramdisk_root]);
+
+  useEffect(() => {
+    refreshMemoContent(memoSelected).catch(() => undefined);
+  }, [memoSelected?.path, settings?.workspace, settings?.ramdisk_root]);
 
   const handleWorkspaceCommit = async (value: string) => {
     try {
@@ -1153,8 +1224,19 @@ export default function App() {
           <div className="flex-1 min-h-0">
             <DialoguePanel events={dialogueEvents} live={wsLive} />
           </div>
+          <div className="h-64 border-t border-gray-800">
+            <MemoPanel
+              items={memoItems}
+              selected={memoSelected}
+              content={memoData.content}
+              mtime={memoData.mtime}
+              loading={memoLoading}
+              error={memoError}
+              onSelect={(item) => setMemoSelected(item)}
+            />
+          </div>
           {settings?.show_memory ? (
-            <div className="h-64 border-t border-gray-800">
+            <div className="h-52 border-t border-gray-800">
               <MemoryPanel
                 content={memoryData.content}
                 mtime={memoryData.mtime}

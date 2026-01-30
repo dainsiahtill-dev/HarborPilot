@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 _JSONL_LOCK_STALE_SEC = float(os.environ.get("HARBORPILOT_JSONL_LOCK_STALE_SEC", "120") or 120)
 _RAMDISK_ENV = "HARBORPILOT_RAMDISK_ROOT"
+_STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 
 
 def enforce_utf8() -> None:
@@ -101,6 +102,11 @@ def resolve_ramdisk_root(cli_value: Optional[str] = None) -> str:
     return normalize_ramdisk_root(default_ramdisk_root())
 
 
+def state_to_ramdisk_enabled() -> bool:
+    value = os.environ.get(_STATE_TO_RAMDISK_ENV, "1").strip().lower()
+    return value not in ("0", "false", "no", "off")
+
+
 def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
     root = normalize_ramdisk_root(ramdisk_root)
     if not root:
@@ -121,13 +127,21 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
 
 def is_hot_artifact_path(rel_path: str) -> bool:
     p = (rel_path or "").replace("\\", "/").lstrip("./")
+    if p.startswith("state/") and state_to_ramdisk_enabled():
+        return True
     if not p.startswith("state/ollama/"):
         return False
     if "/runs/" in p or p.startswith("state/ollama/runs/"):
         return True
     if "/memory/" in p or p.startswith("state/ollama/memory/"):
         return True
+    if "/evidence/" in p or p.startswith("state/ollama/evidence/"):
+        return True
     lowered = p.lower()
+    if lowered.endswith("director_result.json"):
+        return True
+    if lowered.endswith("director_status.json"):
+        return True
     if lowered.endswith(".jsonl") or lowered.endswith(".log") or lowered.endswith(".lock"):
         return True
     if lowered.endswith("/runlog.md") or lowered.endswith("runlog.md"):
@@ -135,13 +149,84 @@ def is_hot_artifact_path(rel_path: str) -> bool:
     return False
 
 
-def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: str) -> str:
+def resolve_run_dir(workspace_full: str, cache_root_full: str, run_id: str) -> str:
+    if not run_id:
+        return ""
+    base_root = cache_root_full or workspace_full
+    return os.path.join(base_root, "state", "ollama", "runs", run_id)
+
+
+def update_latest_pointer(workspace_full: str, cache_root_full: str, run_id: str) -> None:
+    if not run_id:
+        return
+    base_root = cache_root_full or workspace_full
+    latest_dir = os.path.join(base_root, "state", "ollama", "runs", "latest")
+    run_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
+    
+    # Update latest_run.json for Windows compatibility (and Dashboard reading)
+    pointer_path = os.path.join(base_root, "state", "ollama", "latest_run.json")
+    write_json_atomic(pointer_path, {"run_id": run_id, "path": run_dir})
+
+    # Try to create symlink if possible (best effort)
+    if os.path.exists(latest_dir):
+        try:
+            if os.path.islink(latest_dir):
+                os.remove(latest_dir)
+            elif os.path.isdir(latest_dir):
+                # Don't delete if it's a real directory unless we are sure it's a symlink
+                pass 
+        except Exception:
+            pass
+    
+    try:
+        # On Windows, symlink requires Admin or Developer Mode enabled.
+        # Fallback is to rely on latest_run.json
+        os.symlink(run_dir, latest_dir, target_is_directory=True)
+    except Exception:
+        pass
+
+
+def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: str, run_id: Optional[str] = None) -> str:
     if not rel_path:
         return ""
     if os.path.isabs(rel_path):
         return rel_path
+    
+    # If run_id is provided and path is a "run-specific" artifact, redirect to run bucket
+    if run_id and is_run_artifact(rel_path):
+        run_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
+        basename = os.path.basename(rel_path)
+        return os.path.join(run_dir, basename)
+
+    p = (rel_path or "").replace("\\", "/").lstrip("./")
+    if p.startswith("state/") and state_to_ramdisk_enabled():
+        if not cache_root_full:
+            raise ValueError("state/ must be stored on ramdisk, but no ramdisk cache root is configured")
+        return os.path.join(cache_root_full, rel_path)
     base = cache_root_full if (cache_root_full and is_hot_artifact_path(rel_path)) else workspace_full
     return os.path.join(base, rel_path)
+
+
+def is_run_artifact(rel_path: str) -> bool:
+    """Check if the artifact should be stored in a run-specific bucket."""
+    lowered = rel_path.lower().replace("\\", "/")
+    if lowered.endswith("director_result.json"):
+        return True
+    if lowered.endswith("events.jsonl"):
+        return True
+    if lowered.endswith("trajectory.json"):
+        return True
+    if lowered.endswith("qa_response.md"):
+        return True
+    if lowered.endswith("planner_response.md"):
+        return True
+    if lowered.endswith("ollama_response.md"):
+        return True
+    if lowered.endswith("reviewer_response.md"):
+        return True
+    if lowered.endswith("runlog.md"):
+        return True
+    return False
 
 
 def ensure_parent_dir(path: str) -> None:
@@ -173,6 +258,11 @@ def ensure_memory_dir(path: str) -> None:
 
 
 def stop_flag_path(workspace: str) -> str:
+    if state_to_ramdisk_enabled():
+        cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
+        if not cache_root:
+            raise ValueError("state/ must be stored on ramdisk, but no ramdisk cache root is configured")
+        return os.path.join(cache_root, "state", "ollama", "PM_STOP.flag")
     return os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
 
 
@@ -371,6 +461,44 @@ _event_seq_lock = Lock()
 _event_seq = 0
 
 
+def set_dialogue_seq(n: int) -> None:
+    global _dialogue_seq
+    with _dialogue_seq_lock:
+        _dialogue_seq = n
+
+
+def set_event_seq(n: int) -> None:
+    global _event_seq
+    with _event_seq_lock:
+        _event_seq = n
+
+
+def scan_last_seq(path: str, key: str = "seq") -> int:
+    if not path or not os.path.exists(path):
+        return 0
+    try:
+        with open(path, "rb") as f:
+            try:
+                f.seek(-8192, os.SEEK_END)
+            except OSError:
+                f.seek(0)
+            lines = f.readlines()
+        
+        for line in reversed(lines):
+            if not line.strip():
+                continue
+            try:
+                text = line.decode("utf-8", errors="ignore")
+                data = json.loads(text)
+                if isinstance(data, dict) and key in data:
+                    return int(data[key])
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return 0
+
+
 def _next_dialogue_seq() -> int:
     global _dialogue_seq
     with _dialogue_seq_lock:
@@ -470,7 +598,7 @@ def emit_event(
     append_jsonl(event_path, payload)
 
 
-def ensure_plan_file(path: str) -> bool:
+def ensure_plan_file(path: str, auto_continue: bool = False) -> bool:
     if os.path.exists(path):
         return True
     profile = os.environ.get("HARBORPILOT_PROMPT_PROFILE", "demo_ming_armada").strip().lower()
@@ -527,6 +655,9 @@ def ensure_plan_file(path: str) -> bool:
     ensure_parent_dir(path)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(template)
+    if auto_continue:
+        print(f"Created {path}. Continuing with the auto-generated plan.")
+        return True
     print(f"Created {path}. Edit it and rerun the script.")
     return False
 
@@ -626,19 +757,48 @@ def ensure_tools_available() -> None:
         raise RuntimeError("Required tools not available (" + "; ".join(parts) + ").")
 
 
+def _decode_text_bytes(data: bytes) -> str:
+    if not data:
+        return ""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    try:
+        text = data.decode("utf-8", errors="replace")
+    except Exception:
+        text = ""
+    if text:
+        bad = text.count("\ufffd")
+        if bad / max(len(text), 1) < 0.02:
+            return text
+    for enc in ("utf-8-sig", "gbk", "cp936"):
+        try:
+            return data.decode(enc)
+        except Exception:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 def read_file_safe(path: str) -> str:
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as handle:
-            return handle.read()
-    return ""
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+        return _decode_text_bytes(data)
+    except Exception:
+        return ""
 
 
 def read_memory_snapshot(path: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
+        with open(path, "rb") as handle:
+            data = handle.read()
+        text = _decode_text_bytes(data)
+        return json.loads(text)
     except Exception:
         return None
 
