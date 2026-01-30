@@ -506,10 +506,18 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
     try:
         with open(path, "rb") as handle:
             handle.seek(0, os.SEEK_END)
-            pos = handle.tell()
+            file_size = handle.tell()
+            if file_size == 0:
+                return ""
+
+            pos = file_size
             block_size = 4096
-            data = b""
+            chunks = []
+            lines_found = 0
+            chars_read = 0
+
             target_lines = max_lines if max_lines and max_lines > 0 else None
+
             while pos > 0:
                 read_size = block_size if pos >= block_size else pos
                 pos -= read_size
@@ -517,25 +525,41 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
                 chunk = handle.read(read_size)
                 if not chunk:
                     break
-                data = chunk + data
-                if target_lines is not None:
-                    if data.count(b"\n") >= target_lines + 1 and (max_chars <= 0 or len(data) >= max_chars):
+                
+                chunks.append(chunk)
+                chars_read += len(chunk)
+                lines_found += chunk.count(b"\n")
+                
+                # Check exit conditions
+                # We need enough lines AND enough chars (if specified)
+                # But typically we stop if we have enough lines, unless max_chars forces us to read more?
+                # Actually, usually we want "at least N lines" but "at most M chars" is for return value.
+                # Here we read backwards to find the start point.
+                
+                if target_lines is not None and lines_found >= target_lines + 1:
+                    # We have enough lines. Check if we also have enough chars to cover potential truncation
+                    if max_chars <= 0 or chars_read >= max_chars:
                         break
-                else:
-                    if max_chars > 0 and len(data) >= max_chars * 4:
-                        break
-                if max_chars > 0 and len(data) >= max_chars * 4 and (
-                    target_lines is None or data.count(b"\n") >= target_lines + 1
-                ):
+                
+                if max_chars > 0 and chars_read >= max_chars * 2:
+                    # Safety break if we read way too many chars (even if not enough lines found yet, 
+                    # e.g. very long lines)
                     break
-        text = decode_bytes(data)
-        lines = text.splitlines()
-        if max_lines > 0 and len(lines) > max_lines:
-            lines = lines[-max_lines:]
-        content = "\n".join(lines)
-        if max_chars > 0 and len(content) > max_chars:
-            content = content[-max_chars:]
-        return content
+
+            # Join reversed chunks and decode
+            data = b"".join(reversed(chunks))
+            text = decode_bytes(data)
+
+            # Truncate to exact limits
+            lines = text.splitlines()
+            if max_lines > 0 and len(lines) > max_lines:
+                lines = lines[-max_lines:]
+            content = "\n".join(lines)
+
+            if max_chars > 0 and len(content) > max_chars:
+                content = content[-max_chars:]
+
+            return content
     except Exception:
         return ""
 

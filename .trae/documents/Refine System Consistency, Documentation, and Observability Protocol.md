@@ -1,47 +1,70 @@
-I will implement the requested improvements to enhance system consistency and executability.
+I will implement the refined documentation and protocol changes, incorporating the specific feedback on Windows compatibility, structured sentinels, and parsing robustness.
 
-### 1. Unified Path Truth
-- **Update Documentation**: In `README.md` and `docs/reference.md`, explicitly define `<workspace>/state/ollama/` as the single source of truth for all run artifacts.
-- **Visual Structure**: Add the directory tree diagram to `docs/reference.md` as requested.
+### 1. Unified Path Truth & Windows Compatibility
 
-### 2. Append-Only vs. Atomic Write
-- **Clarify Boundaries**: In `docs/architecture.md`, strictly categorize files into:
-  - **Append-only**: `events.jsonl`, `DIALOGUE.jsonl`.
-  - **Atomic Replace**: `PM_TASKS.json`, `DIRECTOR_RESULT.json`, `trajectory.json`, `last_state.json`.
-  - **Derived Views**: `RUNLOG.md`, `PM_REPORT.md` (rebuildable).
+* **Documentation**: Define `workspace` as the target repo root.
 
-### 3. Director Multi-Role Constraints
-- **Update Architecture**: In `docs/architecture.md`, clarify that multi-role simulation is "sequential perspective switching" within a single process, not concurrent agents, ensuring serializability and replayability.
+* **Run Layout**: Document the specific layout with `runs/<run_id>/` and `latest.json` (pointer file, not symlink) to ensure Windows compatibility.
 
-### 4. Smart Dashboard Protocol
-- **Define Protocol**: In `docs/architecture.md`, document the "Smart View Protocol":
-  - **Card Model**: `status` (open/closed/errored), `confidence` (partial/parsed/heuristic), `parse_error`.
-  - **UI Behavior**: Loading states vs. structured views.
-  - **Closing Strategies**: Sentinel preemption, Timeouts (2s/5s), Max length protection (4000 lines).
-  - **JSON Parsing**: Two-stage (Capture -> Tolerant Parse).
-  - **Truncation**: Align UI warning with `truncated=true` field.
+* **Match Mode**: Clarify that `latest` reads `latest.json` to find the run ID.
 
-### 5. Structured Sentinels in Logs
-- **Update Code**: Modify `director_exec.py` to emit structured sentinel lines in `RUNLOG.md` (e.g., `@@phase: TOOL_PLANNER begin`). This makes parsing robust.
+### 2. Append-Only vs. Atomic Write Semantics
 
-### 6. JSON Schemas
-- **Create Schema Files**: Create `schemas/` directory and add minimal schemas for:
-  - `schemas/events.schema.json`
-  - `schemas/pm_tasks.schema.json`
-  - `schemas/dialogue.schema.json`
-  - (Reuse existing `director_result.schema.json`)
+* **Docs**: In `docs/architecture.md`, specify:
 
-### 7. Env Vars & Troubleshooting
-- **Update Reference**: In `docs/reference.md`:
-  - Add the requested Environment Variables table.
-  - Add the Troubleshooting section (Dashboard tailing, RAMDISK paths, Port conflicts).
+  * **Atomic Replace**: Use `write -> flush -> os.replace` pattern.
 
-### 8. Sharpened Selling Point
-- **Update README**: Add the "Contract-Driven Dual-Loop Agent" summary line at the top.
+  * **Append-Only**: Newline-delimited JSON, never rewrite bytes, always end with `\n`.
+
+  * **Invariant**: Only one executor mutates workspace per run (serializable).
+
+### 3. Smart View Protocol (Wire Format)
+
+* **Protocol Definition**: In `docs/architecture.md`, define the `@@hp` JSON sentinel grammar:
+
+  * `@@hp {"kind":"phase", "state":"begin", ...}`
+
+  * `@@hp {"kind":"block", "state":"begin", ...}`
+
+* **Parsing Logic**: Describe the deterministic state machine (Sentinel -> Parse JSON -> Switch State; Else -> Raw Payload).
+
+* **Closing Strategies**: Per-block timeout/max-length, sentinel preemption (mark partial).
+
+### 4. Structured Sentinels Implementation
+
+* **Code Update**: Modify `director_exec.py` to:
+
+  * Emit `@@hp` sentinels in `RUNLOG.md`.
+
+  * Emit corresponding lifecycle events in `events.jsonl` (e.g., `phase` events).
+
+  * Ensure `latest.json` is written instead of (or alongside) symlinks on Windows.
+
+### 5. JSON Schemas
+
+* **Create Schemas**: Add `schemas/` with versioning (`schema_version`) and `additionalProperties: true`.
+
+  * `events.schema.json`: Enforce `seq`, `ts`, `refs.run_id`, `kind`.
+
+  * `pm_tasks.schema.json`
+
+  * `director_result.schema.json`
+
+### 6. Reference & Troubleshooting
+
+* **Env Vars**: Add table.
+
+* **Troubleshooting**: Add "Symptom -> Check -> Fix" format for Dashboard, RAMDISK, Ports.
+
+### 7. Selling Point
+
+* **README**: Update the opening summary with the "Contract-Driven Dual-Loop Agent" definition.
 
 ### Execution Order
-1.  Update `README.md` (Selling point, path unification).
-2.  Update `docs/architecture.md` (Write semantics, Multi-role, Smart View Protocol).
-3.  Update `docs/reference.md` (Path structure, Env Vars, Troubleshooting).
-4.  Create `schemas/*.json`.
-5.  Update `director_exec.py` (Structured sentinels).
+
+1. **Update README** (Selling point, path truth).
+2. **Update** **`docs/architecture.md`** (Write semantics, Smart View Protocol `@@hp`).
+3. **Update** **`docs/reference.md`** (Layout, Env Vars, Troubleshooting).
+4. **Create** **`schemas/*.json`**.
+5. **Update** **`director_exec.py`** (Implement `@@hp` sentinels and `latest.json` logic).
+

@@ -81,26 +81,29 @@ try:
     from io_utils import (
         build_cache_root,
         resolve_artifact_path,
-    resolve_ramdisk_root,
-    resolve_run_dir,
-    state_to_ramdisk_enabled,
-    ensure_memory_dir,
-    ensure_ollama_available,
-    ensure_parent_dir,
-    ensure_plan_file,
-    configure_jsonl_buffer,
-    emit_event,
-    emit_dialogue,
-    flush_jsonl_buffers,
-    get_event_seq,
-    get_memory_summary,
-    read_file_safe,
-    read_memory_snapshot,
-    resolve_workspace_path,
-    stop_requested,
-    update_latest_pointer,
-    write_json_atomic,
-    write_text_atomic,
+        resolve_ramdisk_root,
+        resolve_run_dir,
+        state_to_ramdisk_enabled,
+        ensure_memory_dir,
+        ensure_ollama_available,
+        ensure_parent_dir,
+        ensure_plan_file,
+        configure_jsonl_buffer,
+        emit_event,
+        emit_dialogue,
+        flush_jsonl_buffers,
+        get_event_seq,
+        get_memory_summary,
+        read_file_safe,
+        read_memory_snapshot,
+        resolve_workspace_path,
+        scan_last_seq,
+        set_dialogue_seq,
+        set_event_seq,
+        stop_requested,
+        update_latest_pointer,
+        write_json_atomic,
+        write_text_atomic,
     )
     from ollama_utils import invoke_ollama
     from ports import PORTS, plan_port_policy, stop_port_process
@@ -1819,6 +1822,10 @@ def main() -> int:
         if args.prompt_profile:
             os.environ[PROMPT_PROFILE_ENV] = str(args.prompt_profile).strip()
         ensure_ollama_available()
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        mode = "forever" if args.forever else f"iterations={args.iterations}"
+        print(f"[director] {stamp} start {mode}")
+        sys.stdout.flush()
         workspace_full = resolve_workspace_path(args.workspace)
         os.chdir(workspace_full)
 

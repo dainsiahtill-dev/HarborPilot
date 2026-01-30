@@ -1,5 +1,7 @@
 import os
+import re
 import subprocess
+import sys
 from typing import Dict, List, Optional
 
 from io_utils import ensure_codex_available, ensure_parent_dir, read_file_safe
@@ -56,6 +58,24 @@ def build_codex_command(base_args: List[str], codex_path: str) -> List[str]:
     return [codex_path] + base_args
 
 
+def _detect_encoding_violations(output: str) -> bool:
+    if not output:
+        return False
+    pattern = re.compile(r"(?i)Get-Content\\b(?![^\\r\\n]*-Encoding)")
+    return bool(pattern.search(output))
+
+
+def _retry_prompt_for_encoding(prompt: str) -> str:
+    guard = (
+        "Encoding guardrail (HARD RULE): You MUST use UTF-8 for any PowerShell read/write.\n"
+        "- Always use: Get-Content -Encoding utf8 (or -Raw -Encoding utf8) and Set-Content -Encoding utf8.\n"
+        "- Do NOT set global PowerShell defaults; just include -Encoding utf8 in each command.\n"
+        "- If you already ran a PowerShell command without UTF-8, re-run it immediately with the UTF-8 flags.\n"
+        "- Prefer repo tools (python tools.py repo_read_* ) over PowerShell reads.\n"
+    )
+    return guard + "\n" + prompt
+
+
 def invoke_codex(
     prompt: str,
     output_file: str,
@@ -89,23 +109,61 @@ def invoke_codex(
     if extra_env:
         env.update(extra_env)
 
-    try:
+    capture_stdout = str(os.environ.get("HARBORPILOT_CODEX_CAPTURE_STDOUT", "0")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+        "",
+    )
+
+    def _run_once(run_prompt: str) -> str:
         if os.name == "nt":
             cmd_str = subprocess.list2cmdline(cmd)
-            cmd = ["cmd.exe", "/c", f"chcp 65001 >NUL & {cmd_str}"]
+            run_cmd = ["cmd.exe", "/c", f"chcp 65001 >NUL & {cmd_str}"]
+        else:
+            run_cmd = cmd
+        if capture_stdout:
+            result = subprocess.run(
+                run_cmd,
+                input=run_prompt,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=workspace,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout if timeout > 0 else None,
+                check=False,
+            )
+            output = result.stdout or ""
+            if output and (show_output or not sys.stdout.isatty()):
+                try:
+                    sys.stdout.write(output)
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+            return output
         subprocess.run(
-            cmd,
-            input=prompt,
+            run_cmd,
+            input=run_prompt,
             text=True,
             encoding="utf-8",
             errors="replace",
             cwd=workspace,
             env=env,
-            stdout=None if show_output else subprocess.DEVNULL,
-            stderr=None if show_output else subprocess.DEVNULL,
+            stdout=None,
+            stderr=None,
             timeout=timeout if timeout > 0 else None,
             check=False,
         )
+        return ""
+
+    try:
+        output = _run_once(prompt)
+        if capture_stdout and _detect_encoding_violations(output):
+            output = _run_once(_retry_prompt_for_encoding(prompt))
     except subprocess.TimeoutExpired:
         return ""
 

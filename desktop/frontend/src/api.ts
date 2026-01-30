@@ -81,7 +81,10 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   }
 }
 
-export async function connectWebSocket(): Promise<WebSocket> {
+export async function connectWebSocket(forceRefresh = false): Promise<WebSocket> {
+  if (forceRefresh) {
+    clearBackendInfoCache();
+  }
   let info = await getBackendInfo();
   if (!info.baseUrl) {
     clearBackendInfoCache();

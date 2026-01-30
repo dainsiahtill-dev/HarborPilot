@@ -539,6 +539,7 @@ def emit_dialogue(
         return
     payload = {
         "ts": utc_iso_now(),
+        "ts_epoch": time.time(),
         "seq": _next_dialogue_seq(),
         "event_id": _new_event_id(),
         "run_id": run_id,
@@ -551,7 +552,7 @@ def emit_dialogue(
         "refs": refs or {},
         "meta": meta or {},
     }
-    append_jsonl(dialogue_path, payload)
+    append_jsonl_atomic(dialogue_path, payload)
 
 
 def emit_event(

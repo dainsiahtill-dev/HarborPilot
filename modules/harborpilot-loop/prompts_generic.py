@@ -43,12 +43,11 @@ Port guard:
 - Prefer smoke/short commands over long-running `npm run dev:*` in loops.
 - If needed, use alternative ports via env vars (e.g., `PHYSICS_PORT`) and note them.
 
-Encoding guardrail:
-- When reading text files (especially `docs/*.txt`), always use UTF-8:
-  `Get-Content -Encoding utf8` (or `-Raw -Encoding utf8`) and set
-  `[Console]::OutputEncoding = [Text.Encoding]::UTF8` if needed.
-  Optional session default (PowerShell):
-  `$PSDefaultParameterValues['Get-Content:Encoding']='utf8'; $PSDefaultParameterValues['Set-Content:Encoding']='utf8'`
+Encoding guardrail (HARD RULE):
+- Any PowerShell read/write of text MUST include UTF-8.
+- Use: `Get-Content -Encoding utf8` (or `-Raw -Encoding utf8`) and `Set-Content -Encoding utf8`.
+- If you forgot, re-run immediately with the UTF-8 flags.
+- Do NOT set global PowerShell defaults; include `-Encoding utf8` on each command instead.
 
 Context references (must read before changes):
 - docs/README.md
@@ -111,12 +110,11 @@ Port guard:
 - If needed, use alternative ports via env vars (e.g., `PHYSICS_PORT`) and note them.
 - Optional: the loop can be started with `-KillOnPortConflict` to force-kill processes on known ports.
 
-Encoding guardrail:
-- When reading text files (especially `docs/*.txt`), always use UTF-8:
-  `Get-Content -Encoding utf8` (or `-Raw -Encoding utf8`) and set
-  `[Console]::OutputEncoding = [Text.Encoding]::UTF8` if needed.
-  Optional session default (PowerShell):
-  `$PSDefaultParameterValues['Get-Content:Encoding']='utf8'; $PSDefaultParameterValues['Set-Content:Encoding']='utf8'`
+Encoding guardrail (HARD RULE):
+- Any PowerShell read/write of text MUST include UTF-8.
+- Use: `Get-Content -Encoding utf8` (or `-Raw -Encoding utf8`) and `Set-Content -Encoding utf8`.
+- If you forgot, re-run immediately with the UTF-8 flags.
+- Do NOT set global PowerShell defaults; include `-Encoding utf8` on each command instead.
 
 Context references (must read before changes):
 - docs/README.md

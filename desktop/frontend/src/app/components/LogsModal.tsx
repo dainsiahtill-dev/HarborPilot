@@ -182,7 +182,7 @@ function parseEvents(lines: string[]): LogEvent[] {
       continue;
     }
 
-    const execMatch = trimmed.match(/^\[(?:cmd|CMD)\]\s+Running:\s+(.+)$/);
+    const execMatch = trimmed.match(/^\[(empty:cmd|CMD)\]\s+Running:\s+(.+)$/);
     if (execMatch) {
       events.push({ id: `exec-${index}`, kind: 'exec', cmd: execMatch[1], lifecycle: 'closed' });
       index += 1;
@@ -254,7 +254,7 @@ function parseEvents(lines: string[]): LogEvent[] {
           const isBoundary =
             isSectionHeader(candidateTrimmed) ||
             candidateTrimmed.toLowerCase().startsWith('thinking') ||
-            /^\[(?:cmd|CMD)\]\s+Running:/.test(candidateTrimmed) ||
+            /^\[(empty:cmd|CMD)\]\s+Running:/.test(candidateTrimmed) ||
             /^(.*) in (.+) (succeeded|failed) in (\d+)ms:?\s*$/i.test(candidateTrimmed) ||
             candidateTrimmed.toLowerCase().startsWith('mcp:') ||
             candidateTrimmed.startsWith('Traceback') ||
@@ -361,7 +361,7 @@ function parseEvents(lines: string[]): LogEvent[] {
       continue;
     }
 
-    const tokensMatchInline = trimmed.match(/^tokens used[:\s]*([\d,]+(?:\.\d+)?)$/i);
+    const tokensMatchInline = trimmed.match(/^tokens used[:\s]*([\d,]+(empty:\.\d+)?)$/i);
     if (tokensMatchInline) {
       events.push({
         id: `metric-${index}`,
@@ -643,7 +643,7 @@ export function LogsModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
-  const [viewMode, setViewMode] = useState<'raw' | 'smart'>('smart');
+  const [viewMode, setViewMode] = useState<'raw' | 'smart' | 'json'>('smart');
   const [filter, setFilter] = useState<'all' | 'error' | 'exec' | 'tool'>('all');
   const [query, setQuery] = useState('');
   const socketRef = useRef<WebSocket | null>(null);
@@ -654,6 +654,10 @@ export function LogsModal({
     () => LOG_SOURCES.find((item) => item.id === active) || LOG_SOURCES[0],
     [active]
   );
+
+  const allowSmart = active === 'pm-subprocess';
+  const allowJson = active === 'pm-log';
+  const allowRaw = active !== 'pm-log';
 
   const refresh = async () => {
     setLoading(true);
@@ -690,8 +694,10 @@ export function LogsModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (active === 'pm-subprocess' || active === 'pm-report') {
+    if (active === 'pm-subprocess') {
       setViewMode('smart');
+    } else if (active === 'pm-log') {
+      setViewMode('json');
     } else {
       setViewMode('raw');
     }
@@ -769,6 +775,21 @@ export function LogsModal({
     if (streamEvents.length > 0) return streamEvents;
     return parseEvents(lines);
   }, [lines, streamEvents]);
+  const jsonEvents = useMemo(() => {
+    if (active !== 'pm-log') return [];
+    return lines
+      .map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        try {
+          return { id: `jsonl-${idx}`, raw: trimmed, value: JSON.parse(trimmed) };
+        } catch {
+          return { id: `jsonl-${idx}`, raw: trimmed, value: null };
+        }
+      })
+      .filter(Boolean) as { id: string; raw: string; value: unknown | null }[];
+  }, [active, lines]);
+
   const filteredEvents = useMemo(() => {
     return smartEvents.filter((event) => {
       if (filter !== 'all' && event.kind !== filter) {
@@ -887,20 +908,31 @@ export function LogsModal({
         <div className="px-4 pt-3 flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-md border border-gray-700 bg-gray-800/80 p-1">
             <button
-              onClick={() => setViewMode('raw')}
+              onClick={() => allowRaw && setViewMode('raw')}
+              disabled={!allowRaw}
               className={`px-2 py-1 text-xs rounded ${
                 viewMode === 'raw' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
-              }`}
+              } ${!allowRaw ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               Raw
             </button>
             <button
-              onClick={() => setViewMode('smart')}
+              onClick={() => allowSmart && setViewMode('smart')}
+              disabled={!allowSmart}
               className={`px-2 py-1 text-xs rounded ${
                 viewMode === 'smart' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
-              }`}
+              } ${!allowSmart ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               Smart
+            </button>
+            <button
+              onClick={() => allowJson && setViewMode('json')}
+              disabled={!allowJson}
+              className={`px-2 py-1 text-xs rounded ${
+                viewMode === 'json' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
+              } ${!allowJson ? 'opacity-40 cursor-not-allowed' : ''}`}
+            >
+              JSON
             </button>
           </div>
           {viewMode === 'smart' ? (
@@ -946,6 +978,20 @@ export function LogsModal({
             <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
               {loading ? '加载中...' : lines.join('\n') || '(空)'}
             </pre>
+          ) : viewMode === 'json' ? (
+            <div className="space-y-2">
+              {loading ? (
+                <div className="text-sm text-gray-300">Loading...</div>
+              ) : jsonEvents.length === 0 ? (
+                <div className="text-sm text-gray-400">(empty)</div>
+              ) : (
+                jsonEvents.map((event) => (
+                  <pre key={event.id} className="text-xs text-gray-200 font-mono whitespace-pre-wrap">
+                    {event.value ? JSON.stringify(event.value, null, 2) : event.raw}
+                  </pre>
+                ))
+              )}
+            </div>
           ) : (
             <div className="space-y-3">
               {loading ? (

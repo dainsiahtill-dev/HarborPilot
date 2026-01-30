@@ -14,6 +14,23 @@ graph LR
     User -.->|Observe| Dir
 ```
 
+## Quickstart
+
+```bash
+# setup
+cd desktop
+npm install
+
+# dev
+npm run dev
+
+# test
+npm run test
+
+# build
+npm run build
+```
+
 ---
 
 ## 1. 快速开始 (Quick Start)
@@ -22,9 +39,6 @@ graph LR
 
 最简单的上手方式是使用可视化面板：
 
-```bash
-python ui/pm-dashboard.py
-```
 
 在界面中：
 1.  选择 **Workspace** (必须包含 `docs/` 目录)。

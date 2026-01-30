@@ -520,14 +520,14 @@ export default function App() {
       cleanupTimer();
       reconnectTimer = window.setTimeout(() => {
         if (!active) return;
-        connect();
+        connect(true);
         retryDelay = Math.min(retryDelay * 2, 10000);
       }, retryDelay);
     };
 
-    const connect = async () => {
+    const connect = async (forceRefresh = false) => {
       try {
-        socket = await connectWebSocket();
+        socket = await connectWebSocket(forceRefresh);
       } catch {
         if (active) {
           setWsLive(false);

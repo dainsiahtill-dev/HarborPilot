@@ -187,7 +187,13 @@ def write_director_status(path: str, payload: Dict[str, Any]) -> None:
         pass
 
 
-def run_director_once(args: argparse.Namespace, workspace_full: str, iteration: int, log_path: str = "") -> int:
+def run_director_once(
+    args: argparse.Namespace,
+    workspace_full: str,
+    iteration: int,
+    subprocess_log_path: str = "",
+    director_log_path: str = "",
+) -> int:
     director_path = args.director_path or "loops/loop-director.py"
     director_path = resolve_director_path(director_path, workspace_full)
     if not os.path.isfile(director_path):
@@ -196,8 +202,8 @@ def run_director_once(args: argparse.Namespace, workspace_full: str, iteration: 
     cmd = [sys.executable, director_path, "--iterations", "1"]
     if args.director_result_path:
         cmd.extend(["--director-result-path", args.director_result_path])
-    if args.director_log_path:
-        cmd.extend(["--log-path", args.director_log_path])
+    if director_log_path:
+        cmd.extend(["--log-path", director_log_path])
     if args.director_events_path:
         cmd.extend(["--events-path", args.director_events_path])
     if args.pm_task_path:
@@ -223,9 +229,9 @@ def run_director_once(args: argparse.Namespace, workspace_full: str, iteration: 
         cmd.extend(["--prompt-profile", args.prompt_profile])
 
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if log_path:
-        append_director_log(log_path, f"\n## {stamp} (iteration {iteration}) - start\n")
-        append_director_log(log_path, "[cmd] " + " ".join(cmd) + "\n")
+    if subprocess_log_path:
+        append_director_log(subprocess_log_path, f"\n## {stamp} (iteration {iteration}) - start\n")
+        append_director_log(subprocess_log_path, "[cmd] " + " ".join(cmd) + "\n")
 
     try:
         extra_env: Dict[str, str] = {}
@@ -242,14 +248,14 @@ def run_director_once(args: argparse.Namespace, workspace_full: str, iteration: 
             env=build_utf8_env(extra_env),
         )
         output = result.stdout or ""
-        if log_path:
+        if subprocess_log_path:
             if output:
-                append_director_log(log_path, output if output.endswith("\n") else output + "\n")
-            append_director_log(log_path, f"[exit] {result.returncode}\n")
+                append_director_log(subprocess_log_path, output if output.endswith("\n") else output + "\n")
+            append_director_log(subprocess_log_path, f"[exit] {result.returncode}\n")
         return result.returncode
     except Exception as exc:
-        if log_path:
-            append_director_log(log_path, f"[error] {exc}\n")
+        if subprocess_log_path:
+            append_director_log(subprocess_log_path, f"[error] {exc}\n")
         return 1
 
 
@@ -819,7 +825,6 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     
     # Point args to run-specific paths for director invocation
     args.director_result_path = run_director_result
-    args.director_log_path = run_director_log
     args.director_events_path = run_events
     args.pm_task_path = run_pm_tasks
     args.planner_response_path = run_planner_resp
@@ -835,10 +840,9 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         set_dialogue_seq(scan_last_seq(dialogue_full))
 
     pm_last_full = resolve_artifact_path(workspace_full, cache_root_full, args.pm_last_message_path)
-    director_log_full = ""
+    director_log_full = resolve_artifact_path(workspace_full, cache_root_full, run_director_log)
+    director_subprocess_log_full = resolve_artifact_path(workspace_full, cache_root_full, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
     director_status_full = resolve_artifact_path(workspace_full, cache_root_full, DEFAULT_DIRECTOR_STATUS)
-    if getattr(args, "director_log_path", None):
-        director_log_full = resolve_artifact_path(workspace_full, cache_root_full, args.director_log_path)
 
     requirements = read_file_safe(req_full) or ""
     plan_text = read_file_safe(plan_full) or ""
@@ -942,6 +946,8 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
 
     prompt = build_pm_prompt(requirements, plan_text, gap_report, last_qa, last_tasks, director_result, pm_state)
     show_output = bool(getattr(args, "pm_show_output", False))
+    print(f"[pm] {start_timestamp} iteration={iteration} backend={backend}")
+    sys.stdout.flush()
     if backend == "codex":
         output = invoke_codex(
             prompt,
@@ -956,6 +962,8 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         )
     else:
         output = invoke_ollama(prompt, args.model, workspace_full, show_output, args.timeout)
+    print(f"[pm] completed iteration={iteration} output_chars={len(output or '')}")
+    sys.stdout.flush()
     exit_code = 0
 
     try:
@@ -972,19 +980,33 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     tasks_for_dialogue = normalized.get("tasks") if isinstance(normalized, dict) else []
     if isinstance(tasks_for_dialogue, list) and tasks_for_dialogue:
         primary_task = tasks_for_dialogue[0] if isinstance(tasks_for_dialogue[0], dict) else None
-    if primary_task:
-        task_id = str(primary_task.get("id") or "")
-        acc = primary_task.get("acceptance") or []
-        acc_summary = ", ".join(acc[:3]) if isinstance(acc, list) else ""
+        for task in tasks_for_dialogue:
+            if not isinstance(task, dict):
+                continue
+            task_id = str(task.get("id") or "")
+            task_title = str(task.get("title") or "")
+            acc = task.get("acceptance") or []
+            acc_summary = ", ".join(acc[:3]) if isinstance(acc, list) else ""
+            emit_dialogue(
+                dialogue_full,
+                speaker="PM",
+                type="handoff",
+                text=f"Assigning task {task_id}: {task_title}. Acceptance: {acc_summary}",
+                summary=f"Dispatch: {task_id}",
+                run_id=run_id,
+                pm_iteration=iteration,
+                refs={"task_id": task_id, "phase": "handoff", "files": ["PM_TASKS.json"]},
+            )
+    else:
         emit_dialogue(
             dialogue_full,
             speaker="PM",
             type="handoff",
-            text=f"I am assigning tasks. Priority: {task_id}. Acceptance: {acc_summary}",
-            summary=f"Dispatch: {task_id}",
+            text="No tasks generated in this iteration.",
+            summary="Dispatch: none",
             run_id=run_id,
             pm_iteration=iteration,
-            refs={"task_id": task_id, "phase": "handoff", "files": ["PM_TASKS.json"]},
+            refs={"phase": "handoff", "files": ["PM_TASKS.json"]},
         )
 
     ensure_parent_dir(pm_report_full)
@@ -1065,7 +1087,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                     "mode": "pm",
                     "pm_iteration": iteration,
                     "exit_code": 1,
-                    "log_path": director_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                    "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
                 },
             )
         director_exit: Optional[int] = None
@@ -1085,7 +1107,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                         "pm_iteration": iteration,
                         "director_attempt": attempt,
                         "director_attempts": director_attempts,
-                        "log_path": director_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                        "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
                     },
                 )
                 if director_attempts > 1:
@@ -1100,7 +1122,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                         refs={"task_id": expected_task_id or None},
                     )
                 try:
-                    director_exit = run_director_once(args, workspace_full, iteration, director_log_full)
+                    director_exit = run_director_once(args, workspace_full, iteration, subprocess_log_path=director_subprocess_log_full, director_log_path=run_director_log)
                 finally:
                     write_director_status(
                         director_status_full,
@@ -1114,7 +1136,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                             "director_attempt": attempt,
                             "director_attempts": director_attempts,
                             "exit_code": director_exit,
-                            "log_path": director_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                            "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
                         },
                     )
                 if director_exit is None or director_exit == 0:
@@ -1240,6 +1262,100 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                 refs={"task_id": expected_task_id or None, "phase": "memo"},
                             )
                         last_dialogue_ts = ts_epoch
+                else:
+                    # Emit dialogue even when Director produced no result.
+                    now = datetime.now()
+                    now_epoch = now.timestamp()
+                    if now_epoch > last_dialogue_ts:
+                        fallback_result = {
+                            "timestamp": now.isoformat(),
+                            "status": "blocked",
+                            "acceptance": False,
+                            "error_code": "DIRECTOR_NO_RESULT",
+                            "reason": "Director did not produce a result for this attempt.",
+                            "task_id": expected_task_id,
+                            "task_title": expected_task_title,
+                        }
+                        pm_question, director_report, pm_review = emit_pm_director_conversation(
+                            dialogue_full,
+                            run_id,
+                            iteration,
+                            fallback_result,
+                            expected_task_id,
+                            expected_task_title,
+                            attempt,
+                            director_attempts,
+                            qa_enabled,
+                        )
+                        memo_content = build_pm_memo(
+                            run_id=run_id,
+                            pm_iteration=iteration,
+                            attempt=attempt,
+                            attempts=director_attempts,
+                            expected_task_id=expected_task_id,
+                            expected_task_title=expected_task_title,
+                            result=fallback_result,
+                            qa_enabled=qa_enabled,
+                            pm_question=pm_question,
+                            director_report=director_report,
+                            pm_review=pm_review,
+                        )
+                        try:
+                            memo_path, memo_rel = write_pm_memo(
+                                workspace_full,
+                                cache_root_full,
+                                run_id,
+                                attempt,
+                                memo_content,
+                            )
+                            record = {
+                                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                "run_id": run_id,
+                                "pm_iteration": iteration,
+                                "director_attempt": attempt,
+                                "director_attempts": director_attempts,
+                                "task_id": expected_task_id,
+                                "task_title": expected_task_title,
+                                "status": "blocked",
+                                "acceptance": False,
+                                "summary": "Director did not produce a result for this attempt.",
+                                "rel_path": memo_rel.replace("\\", "/"),
+                            }
+                            index_path = write_pm_memo_index(workspace_full, cache_root_full, record)
+                            summary_block = (
+                                f"## {record['timestamp']} {run_id}\n"
+                                f"- Task: {expected_task_id} {expected_task_title}\n"
+                                f"- Result: {record['acceptance']}/{record['status']}\n"
+                                f"- Summary: {record['summary']}\n"
+                                f"- Memo: {record['rel_path']}\n\n"
+                            )
+                            summary_path, export_path = write_pm_memo_summary(
+                                workspace_full,
+                                cache_root_full,
+                                summary_block,
+                            )
+                            emit_dialogue(
+                                dialogue_full,
+                                speaker="System",
+                                type="note",
+                                text=f"已生成 PM 备忘录：{memo_path}；索引：{index_path}；摘要：{summary_path}；导出：{export_path}",
+                                summary="PM memo saved",
+                                run_id=run_id,
+                                pm_iteration=iteration,
+                                refs={"task_id": expected_task_id or None, "phase": "memo"},
+                            )
+                        except Exception as exc:
+                            emit_dialogue(
+                                dialogue_full,
+                                speaker="System",
+                                type="warning",
+                                text=f"PM 澶囧繕褰曞啓鍏ュけ璐ワ細{exc}",
+                                summary="PM memo failed",
+                                run_id=run_id,
+                                pm_iteration=iteration,
+                                refs={"task_id": expected_task_id or None, "phase": "memo"},
+                            )
+                        last_dialogue_ts = now_epoch
                 if matched_result is not None and is_director_done(matched_result):
                     break
             if expected_task_ids and matched_result is None:
@@ -1419,6 +1535,15 @@ def main() -> int:
     try:
         if args.prompt_profile:
             os.environ[PROMPT_PROFILE_ENV] = str(args.prompt_profile).strip()
+        workspace_full = resolve_workspace_path(args.workspace)
+        ramdisk_root = resolve_ramdisk_root(getattr(args, "ramdisk_root", None))
+        cache_root_full = build_cache_root(ramdisk_root, workspace_full) or ""
+        if state_to_ramdisk_enabled() and not cache_root_full:
+            raise RuntimeError(
+                "HARBORPILOT_STATE_TO_RAMDISK is enabled but no ramdisk cache root is available. "
+                "Set HARBORPILOT_RAMDISK_ROOT (e.g. X:\\) or disable HARBORPILOT_STATE_TO_RAMDISK."
+            )
+        dialogue_full = resolve_artifact_path(workspace_full, cache_root_full, args.dialogue_path) if args.dialogue_path else ""
         iterations = 0
         if args.loop:
             state_full = os.path.join(resolve_workspace_path(args.workspace), args.state_path)

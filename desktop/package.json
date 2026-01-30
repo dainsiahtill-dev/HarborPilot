@@ -7,6 +7,7 @@
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --config frontend/vite.config.ts",
     "dev:electron": "wait-on http://localhost:5173 && electron electron/main.cjs",
+    "test": "node -e \"console.log('No tests configured')\"",
     "build": "npm run build:renderer",
     "build:renderer": "vite build --config frontend/vite.config.ts",
     "start": "electron electron/main.cjs"
