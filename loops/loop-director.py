@@ -1605,18 +1605,19 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     if isinstance(qa_payload, dict):
         qa_summary = str(qa_payload.get("summary") or "").strip()
     qa_status = "PASS" if acceptance is True else "FAIL" if acceptance is False else "UNKNOWN"
-    emit_dialogue(
-        state.dialogue_full,
-        speaker="QA",
-        type="result",
-        text=f"QA result: {qa_status}. {qa_summary[:160]}",
-        summary=f"QA: {qa_status}",
-        run_id=run_id,
-        pm_iteration=pm_iteration,
-        director_iteration=index,
-        refs={"task_id": pm_task_id, "phase": "done"},
-        meta={"qa_pass": True if acceptance is True else False if acceptance is False else None},
-    )
+    if state.qa_enabled:
+        emit_dialogue(
+            state.dialogue_full,
+            speaker="QA",
+            type="result",
+            text=f"QA result: {qa_status}. {qa_summary[:160]}",
+            summary=f"QA: {qa_status}",
+            run_id=run_id,
+            pm_iteration=pm_iteration,
+            director_iteration=index,
+            refs={"task_id": pm_task_id, "phase": "done"},
+            meta={"qa_pass": True if acceptance is True else False if acceptance is False else None},
+        )
 
     qa_payload = parse_json_payload(qa_output)
     memory_status = update_memory_snapshot(

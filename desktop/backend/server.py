@@ -711,6 +711,20 @@ def terminate_process(handle: ProcessHandle) -> None:
     process = handle.process
     if process is None:
         return
+    pid = None
+    try:
+        pid = process.pid
+    except Exception:
+        pid = None
+    if os.name == "nt" and pid:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
     try:
         process.terminate()
     except Exception:
@@ -863,6 +877,12 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def require_auth(request: Request) -> None:
         if not auth.check(request.headers.get("authorization", "")):
             raise HTTPException(status_code=401, detail="unauthorized")
+
+    @app.post("/app/shutdown")
+    def app_shutdown(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+        terminate_process(state.director)
+        terminate_process(state.pm)
+        return {"ok": True}
 
     def build_pm_status() -> Dict[str, Any]:
         handle = state.pm

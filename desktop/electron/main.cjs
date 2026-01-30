@@ -133,6 +133,15 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (backendInfo && backendInfo.baseUrl && backendInfo.token) {
+    const url = `${backendInfo.baseUrl}/app/shutdown`;
+    try {
+      fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${backendInfo.token}` },
+      }).catch(() => {});
+    } catch {}
+  }
   if (backendProcess) {
     backendProcess.kill();
     backendProcess = null;

@@ -290,7 +290,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
                 />
                 <label htmlFor="pm-show-output" className="text-sm text-gray-300">
-                  鏄剧ず PM 杈撳嚭
+                  显示 PM 输出
                 </label>
               </div>
 
