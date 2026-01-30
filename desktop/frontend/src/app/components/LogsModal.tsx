@@ -60,6 +60,58 @@ type XmlTreeNode = {
   text?: string;
 };
 
+function escapeHtml(source: string) {
+  return source
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function buildMarkupSrcDoc(kind: MarkupKind, source: string) {
+  const trimmed = (source || '').trim();
+  if (!trimmed) return '';
+
+  if (kind === 'svg') {
+    return `<!doctype html><html><head><meta charset="utf-8" /><style>html,body{margin:0;padding:0;background:radial-gradient(1000px 600px at 20% 20%, rgba(34,211,238,.18), transparent 60%),radial-gradient(900px 500px at 80% 30%, rgba(168,85,247,.16), transparent 55%),#050816;color:#e5e7eb;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;}a{color:#22d3ee;}code,pre{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;}</style></head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;"><div style="padding:14px;border:1px solid rgba(34,211,238,.25);border-radius:12px;background:rgba(3,7,18,.65);box-shadow:0 0 0 1px rgba(168,85,247,.12),0 0 24px rgba(34,211,238,.12),0 0 42px rgba(168,85,247,.10);">${trimmed}</div></body></html>`;
+  }
+
+  if (kind !== 'html') return '';
+
+  let headHtml = '';
+  let bodyHtml = trimmed;
+  let textContent = '';
+  let hasRenderableElements = false;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(trimmed, 'text/html');
+    doc.querySelectorAll('script').forEach((node) => node.remove());
+    headHtml = doc.head ? doc.head.innerHTML : '';
+    bodyHtml = doc.body ? doc.body.innerHTML : trimmed;
+    textContent = (doc.body?.textContent || '').trim();
+    hasRenderableElements = Boolean(
+      doc.body?.querySelector(
+        'img,svg,canvas,video,iframe,object,embed,table,button,input,select,textarea,hr,ul,ol,li,blockquote'
+      )
+    );
+  } catch {
+    headHtml = '';
+    bodyHtml = trimmed;
+    textContent = '';
+    hasRenderableElements = false;
+  }
+
+  const normalizedText = textContent.replace(/\s+/g, ' ').trim();
+  const visible = normalizedText.length > 0 || hasRenderableElements;
+  const fallback = `<pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;font-size:12px;line-height:1.5;color:#e5e7eb;">${escapeHtml(
+    trimmed
+  )}</pre>`;
+  const finalBody = visible ? bodyHtml : fallback;
+
+  return `<!doctype html><html><head><meta charset="utf-8" /><base target="_blank" />${headHtml}<style>html,body{margin:0;padding:0;background:radial-gradient(1100px 650px at 15% 20%, rgba(34,211,238,.16), transparent 62%),radial-gradient(900px 520px at 85% 25%, rgba(168,85,247,.14), transparent 58%),radial-gradient(900px 600px at 60% 90%, rgba(251,113,133,.10), transparent 60%),#050816;color:#e5e7eb;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;}a{color:#22d3ee;}a:hover{color:#a855f7;}code,pre{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;}*{box-sizing:border-box;}hr{border:0;border-top:1px solid rgba(148,163,184,.22);}table{border-collapse:collapse;}td,th{border:1px solid rgba(148,163,184,.18);padding:6px 8px;}blockquote{border-left:3px solid rgba(34,211,238,.35);margin:8px 0;padding:6px 10px;background:rgba(3,7,18,.35);}img{max-width:100%;height:auto;} </style></head><body><div style="padding:14px;"><div style="border:1px solid rgba(34,211,238,.22);border-radius:12px;background:rgba(3,7,18,.62);box-shadow:0 0 0 1px rgba(168,85,247,.10),0 0 26px rgba(34,211,238,.12),0 0 46px rgba(168,85,247,.10);padding:12px;min-height:100%;backdrop-filter:blur(6px);">${finalBody}</div></div></body></html>`;
+}
+
 function detectMarkupKind(source: string, pathHint?: string): MarkupKind | null {
   if (!source) return null;
   const hint = (pathHint || '').toLowerCase();
@@ -72,12 +124,21 @@ function detectMarkupKind(source: string, pathHint?: string): MarkupKind | null 
   if (/^<!doctype\s+html/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) return 'html';
   if (/<svg[\s>]/i.test(trimmed)) return 'svg';
   if (/^<\?xml/i.test(trimmed)) return 'xml';
-  if (/<[a-zA-Z][\w:-]*[^>]*>/.test(trimmed) && /<\/[a-zA-Z][\w:-]*>/.test(trimmed)) return 'html';
+  if (
+    /<\s*(div|span|p|a|img|table|tr|td|th|ul|ol|li|section|article|header|footer|main|nav|pre|code|h[1-6]|br|hr|input|button|form|label|textarea|select)\b/i.test(
+      trimmed
+    )
+  ) {
+    return 'html';
+  }
   if (typeof window !== 'undefined' && 'DOMParser' in window) {
     try {
       const parser = new DOMParser();
       const xml = parser.parseFromString(trimmed, 'text/xml');
-      if (!xml.querySelector('parsererror')) return 'xml';
+      if (!xml.querySelector('parsererror')) {
+        const root = (xml.documentElement?.tagName || '').toLowerCase();
+        if (root && root !== 'html' && root !== 'svg') return 'xml';
+      }
     } catch {
       // ignore parse failures
     }
@@ -98,7 +159,26 @@ function MarkupCard({
   badge?: JSX.Element | null;
   meta?: string;
 }) {
-  const [view, setView] = useState<MarkupView>(kind === 'xml' ? 'tree' : 'render');
+  const renderProbablyBlank = useMemo(() => {
+    if (kind !== 'html') return false;
+    if (/<\s*(img|svg|canvas|video|iframe|object|embed|table|button|input|select|textarea)\b/i.test(source)) {
+      return false;
+    }
+    const textOnly = source
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .trim();
+    return textOnly.length === 0;
+  }, [kind, source]);
+
+  const [view, setView] = useState<MarkupView>(() => {
+    if (kind === 'xml') return 'tree';
+    if (kind === 'html' && renderProbablyBlank) return 'source';
+    return 'render';
+  });
   const canRender = kind === 'html' || kind === 'svg';
   const canTree = kind === 'xml';
   const xmlTree = useMemo(() => {
@@ -115,11 +195,7 @@ function MarkupCard({
   }, [canTree, source]);
   const srcDoc = useMemo(() => {
     if (!canRender) return '';
-    if (kind === 'html') return source.trim();
-    if (kind === 'svg') {
-      return `<!doctype html><html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111827;">${source.trim()}</body></html>`;
-    }
-    return '';
+    return buildMarkupSrcDoc(kind, source);
   }, [canRender, kind, source]);
 
   return (
@@ -158,7 +234,7 @@ function MarkupCard({
       </div>
       {view === 'render' && canRender ? (
         <iframe
-          className="mt-2 h-60 w-full rounded border border-gray-700 bg-white"
+          className="mt-2 h-60 w-full rounded border border-gray-700 bg-transparent"
           sandbox=""
           srcDoc={srcDoc}
           title={title}
@@ -630,11 +706,11 @@ export function LogsModal({
                           </div>
                           <div className="mt-1 text-xs text-gray-400">
                             {event.cwd ? `cwd: ${event.cwd} ` : ''}
-                            {typeof event.ms === 'number' ? `? ${event.ms}ms ` : ''}
-                            {typeof event.exitCode === 'number' ? `? exit ${event.exitCode}` : ''}
+                            {typeof event.ms === 'number' ? `· ${event.ms}ms ` : ''}
+                            {typeof event.exitCode === 'number' ? `· exit ${event.exitCode}` : ''}
                           </div>
                           <div className="mt-2 text-xs text-gray-400">
-                            File {next.pathHint || ''} {next.encodingWarning ? ' ? encoding warning' : ''}
+                            File {next.pathHint || ''} {next.encodingWarning ? ' · encoding warning' : ''}
                           </div>
                           <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{next.content || '(empty)'}</pre>
                         </div>
@@ -651,8 +727,8 @@ export function LogsModal({
                           </div>
                           <div className="mt-1 text-xs text-gray-400">
                             {event.cwd ? `cwd: ${event.cwd} ` : ''}
-                            {typeof event.ms === 'number' ? `? ${event.ms}ms ` : ''}
-                            {typeof event.exitCode === 'number' ? `? exit ${event.exitCode}` : ''}
+                            {typeof event.ms === 'number' ? `· ${event.ms}ms ` : ''}
+                            {typeof event.exitCode === 'number' ? `· exit ${event.exitCode}` : ''}
                           </div>
                           <pre className="mt-2 text-xs text-red-100 whitespace-pre-wrap">{next.raw}</pre>
                         </div>
@@ -680,7 +756,7 @@ export function LogsModal({
                             <span>Run</span>
                           </div>
                           <div className="text-sm text-gray-200">OpenAI Codex v{event.version}</div>
-                          <div className="mt-1 text-xs text-gray-400">{Object.entries(event.meta).map(([k, v]) => `${k}: ${v}`).join(' ? ')}</div>
+                          <div className="mt-1 text-xs text-gray-400">{Object.entries(event.meta).map(([k, v]) => `${k}: ${v}`).join(' · ')}</div>
                         </div>
                       );
                       continue;
@@ -710,7 +786,7 @@ export function LogsModal({
                         <div key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
                           <div className="flex items-center gap-2 text-xs text-gray-400">
                             {roleBadge}
-                            <span>Exec</span>
+                            {!roleBadge ? <span>Exec</span> : null}
                           </div>
                           <div className="text-sm text-gray-200 break-all">{event.cmd}</div>
                           <div className="mt-1 text-xs text-gray-400">{event.shell}</div>
@@ -732,8 +808,8 @@ export function LogsModal({
                           </div>
                           <div className="mt-1 text-xs text-gray-400">
                             {event.cwd ? `cwd: ${event.cwd} ` : ''}
-                            {typeof event.ms === 'number' ? `? ${event.ms}ms ` : ''}
-                            {typeof event.exitCode === 'number' ? `? exit ${event.exitCode}` : ''}
+                            {typeof event.ms === 'number' ? `· ${event.ms}ms ` : ''}
+                            {typeof event.exitCode === 'number' ? `· exit ${event.exitCode}` : ''}
                           </div>
                           {event.lifecycle === 'open' ? (
                             <div className="mt-1 text-xs text-blue-300">streaming...</div>
@@ -747,13 +823,13 @@ export function LogsModal({
                         <div key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
                           <div className="flex items-center gap-2 text-xs text-gray-400">
                             {roleBadge}
-                            <span>Exec</span>
+                            {!roleBadge ? <span>Exec</span> : null}
                           </div>
                           <div className="text-sm text-gray-200 break-all">{event.cmd}</div>
                           <div className="mt-1 text-xs text-gray-400">
                             {event.cwd ? `cwd: ${event.cwd} ` : ''}
-                            {typeof event.ms === 'number' ? `? ${event.ms}ms ` : ''}
-                            {typeof event.exitCode === 'number' ? `? exit ${event.exitCode}` : ''}
+                            {typeof event.ms === 'number' ? `· ${event.ms}ms ` : ''}
+                            {typeof event.exitCode === 'number' ? `· exit ${event.exitCode}` : ''}
                           </div>
                         </div>
                       );
@@ -766,7 +842,7 @@ export function LogsModal({
                             {roleBadge}
                             <span>Tool</span>
                           </div>
-                          <div className="text-sm text-gray-200">{event.tool} ? {event.phase}</div>
+                          <div className="text-sm text-gray-200">{event.tool} · {event.phase}</div>
                           {event.message ? <div className="mt-1 text-xs text-gray-300">{event.message}</div> : null}
                         </div>
                       );
@@ -823,7 +899,7 @@ export function LogsModal({
                         <div key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
                           <div className="flex items-center gap-2 text-xs text-gray-400">
                             {roleBadge}
-                            <span>File {event.pathHint || ''} {event.encodingWarning ? ' ? encoding warning' : ''}</span>
+                            <span>File {event.pathHint || ''} {event.encodingWarning ? ' · encoding warning' : ''}</span>
                           </div>
                           {event.lifecycle === 'open' ? (
                             <div className="mt-1 text-xs text-blue-300">streaming...</div>
@@ -834,13 +910,51 @@ export function LogsModal({
                       continue;
                     }
                     if (event.kind === 'metric') {
+                      const normalizedLabel = (event.label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                      const isTokensUsed = normalizedLabel === 'tokens used' || normalizedLabel === 'token used';
+                      const rawValue = String(event.value || '');
+                      const numeric = Number.parseInt(rawValue.replace(/[^\d]/g, ''), 10);
+                      const formatted = Number.isFinite(numeric) ? numeric.toLocaleString() : rawValue;
+                      const compact = Number.isFinite(numeric)
+                        ? new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(numeric)
+                        : null;
                       nodes.push(
                         <div key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
-                          <div className="flex items-center gap-2 text-xs text-gray-400">
-                            {roleBadge}
-                            <span>Metric</span>
-                          </div>
-                          <div className="text-sm text-gray-200">{event.label}: <span className="font-semibold text-emerald-200">{event.value}</span></div>
+                          {isTokensUsed ? (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-gray-400">
+                                {roleBadge}
+                                <span className="uppercase tracking-wider text-[10px] text-cyan-200/90">Tokens Used</span>
+                                {compact ? (
+                                  <span className="ml-auto rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] text-fuchsia-200">
+                                    {compact}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-2 flex items-end justify-between gap-3">
+                                <div className="text-2xl font-semibold leading-none text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-fuchsia-300 to-pink-300">
+                                  {formatted}
+                                </div>
+                                <div className="text-[11px] text-gray-400">tokens</div>
+                              </div>
+                              <div className="mt-2 h-1.5 w-full rounded-full bg-gray-800/80 overflow-hidden">
+                                <div
+                                  className="h-full w-full bg-gradient-to-r from-cyan-400/60 via-fuchsia-400/50 to-pink-400/50"
+                                  style={{ boxShadow: '0 0 18px rgba(34,211,238,.22), 0 0 28px rgba(168,85,247,.18)' }}
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-gray-400">
+                                {roleBadge}
+                                <span className="uppercase tracking-wider text-[10px]">{event.label || 'Metric'}</span>
+                              </div>
+                              <div className="mt-1 text-sm text-gray-200">
+                                <span className="font-semibold text-emerald-200">{event.value}</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       );
                       continue;
@@ -850,10 +964,9 @@ export function LogsModal({
                         <details key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
                           <summary className="cursor-pointer text-sm text-purple-200 flex items-center gap-2">
                             {roleBadge}
-                            <span>Thinking</span>
+                            <span>{event.title || 'Thinking'}</span>
                           </summary>
                           <div className="mt-2 text-xs text-gray-200">
-                            <div className="font-semibold text-purple-100">{event.title}</div>
                             {event.body ? <div className="mt-2 whitespace-pre-wrap text-gray-200">{event.body}</div> : null}
                           </div>
                         </details>

@@ -117,16 +117,25 @@ type TextState = {
   buffer: string[];
 };
 
+type ThinkingState = {
+  id: string;
+  idx: number;
+  title: string;
+  buffer: string[];
+};
+
 export class CodexCliStreamParser {
   events: LogEvent[] = [];
   mode: 'idle' | 'user' | 'thinking' | 'exec' = 'idle';
   lastCmd: { shell?: string; payload?: string } | null = null;
   expectOutput: { kind: 'getChildItem' | 'getContent'; pathHint?: string } | null = null;
+  expectMetricLabel: string | null = null;
 
   private json: JsonState | null = null;
   private table: TableState | null = null;
   private file: FileState | null = null;
   private text: TextState | null = null;
+  private thinking: ThinkingState | null = null;
 
   private push(e: LogEvent) {
     this.events.push(e);
@@ -159,6 +168,23 @@ export class CodexCliStreamParser {
     const text = buffer.join('\n');
     this.events[idx] = { ...this.events[idx], kind: 'text', text, lifecycle: 'closed' } as LogEvent;
     this.text = null;
+  }
+
+  private flushThinking() {
+    if (!this.thinking) return;
+    const { idx, title, buffer } = this.thinking;
+    const body = buffer.join('\n');
+    this.events[idx] = { ...this.events[idx], kind: 'thinking', title, body, lifecycle: 'closed' } as LogEvent;
+    this.thinking = null;
+  }
+
+  private isThinkingTitleLine(trimmed: string) {
+    return /^\*\*(.+?)\*\*\s*$/.test(trimmed);
+  }
+
+  private parseMetricValue(text: string) {
+    const m = text.match(/([0-9][0-9,._]*)/);
+    return m ? m[1] : null;
   }
 
   private scanJsonFragment(fragment: string, st: JsonState) {
@@ -206,6 +232,23 @@ export class CodexCliStreamParser {
 
     while (reprocess) {
       reprocess = false;
+
+      if (this.thinking) {
+        if (isBoundaryForCaptures(currentStripped) || this.isThinkingTitleLine(currentTrimmed)) {
+          this.closeByIdx(this.thinking.idx);
+          this.thinking = null;
+          reprocess = true;
+          continue;
+        }
+        this.thinking.buffer.push(currentStripped);
+        const body = this.thinking.buffer.join('\n');
+        this.events[this.thinking.idx] = {
+          ...(this.events[this.thinking.idx] as LogEvent),
+          title: this.thinking.title,
+          body,
+        } as LogEvent;
+        return;
+      }
 
       if (this.file) {
         if (isBoundaryForCaptures(currentStripped)) {
@@ -275,6 +318,27 @@ export class CodexCliStreamParser {
       }
 
       if (this.json) {
+        if (isBoundaryForCaptures(currentStripped)) {
+          const raw = this.json.raw;
+          try {
+            const val = JSON.parse(raw);
+            this.events[this.json.idx] = {
+              ...(this.events[this.json.idx] as LogEvent),
+              value: val,
+              raw,
+              lifecycle: 'closed',
+            } as LogEvent;
+          } catch {
+            this.events[this.json.idx] = {
+              ...(this.events[this.json.idx] as LogEvent),
+              raw,
+              lifecycle: 'closed',
+            } as LogEvent;
+          }
+          this.json = null;
+          reprocess = true;
+          continue;
+        }
         if (this.json.lines > 400) {
           const raw = this.json.raw;
           this.events[this.json.idx] = { id: this.json.id, kind: 'text', text: raw, lifecycle: 'closed' };
@@ -307,7 +371,27 @@ export class CodexCliStreamParser {
         return;
       }
 
+      if (this.expectMetricLabel) {
+        if (isBoundaryForCaptures(currentStripped)) {
+          this.expectMetricLabel = null;
+          reprocess = true;
+          continue;
+        }
+        const val = this.parseMetricValue(currentTrimmed);
+        if (val) {
+          this.flushThinking();
+          this.flushText();
+          this.push({ id: `metric-${this.events.length}`, kind: 'metric', label: this.expectMetricLabel, value: val, lifecycle: 'closed' });
+          this.expectMetricLabel = null;
+          return;
+        }
+        this.expectMetricLabel = null;
+        reprocess = true;
+        continue;
+      }
+
       if (currentTrimmed === '') {
+        this.flushThinking();
         this.ensureText();
         this.text!.buffer.push('');
         this.events[this.text!.idx] = { ...(this.events[this.text!.idx] as LogEvent), text: this.text!.buffer.join('\n') } as LogEvent;
@@ -315,6 +399,7 @@ export class CodexCliStreamParser {
       }
 
       if (isRoleLine(currentTrimmed)) {
+        this.flushThinking();
         this.flushText();
         const role = currentTrimmed.toLowerCase() as 'user' | 'thinking' | 'exec';
         this.push({ id: `role-${this.events.length}`, kind: 'role', role, lifecycle: 'closed' });
@@ -322,8 +407,34 @@ export class CodexCliStreamParser {
         return;
       }
 
+      const tokensUsed = currentTrimmed.match(/^(tokens?\s+used)\s*[:：]?\s*(.*)$/i);
+      if (tokensUsed) {
+        const rest = (tokensUsed[2] || '').trim();
+        if (!rest) {
+          this.expectMetricLabel = 'tokens used';
+          return;
+        }
+        const val = this.parseMetricValue(rest);
+        if (val) {
+          this.flushThinking();
+          this.flushText();
+          this.push({ id: `metric-${this.events.length}`, kind: 'metric', label: 'tokens used', value: val, lifecycle: 'closed' });
+          return;
+        }
+      }
+
+      if (this.mode === 'thinking' && this.isThinkingTitleLine(currentTrimmed)) {
+        this.flushText();
+        const title = currentTrimmed.replace(/^\*\*(.+?)\*\*\s*$/, '$1').trim();
+        const id = `thinking-${this.events.length}`;
+        const idx = this.push({ id, kind: 'thinking', title, body: '', lifecycle: 'open' });
+        this.thinking = { id, idx, title, buffer: [] };
+        return;
+      }
+
       const ps = currentTrimmed.match(/^"([^"]*powershell\.exe)"\s+-Command\s+(.*)$/i);
       if (ps) {
+        this.flushThinking();
         this.flushText();
         const shell = ps[1];
         let payload = ps[2].trim();
@@ -336,6 +447,7 @@ export class CodexCliStreamParser {
 
       const execMatch = currentTrimmed.match(/^\[(?:cmd|CMD)\]\s+Running:\s+(.+)$/);
       if (execMatch) {
+        this.flushThinking();
         this.flushText();
         this.push({ id: `exec-${this.events.length}`, kind: 'exec', cmd: execMatch[1], lifecycle: 'closed' });
         return;
@@ -344,6 +456,7 @@ export class CodexCliStreamParser {
       const ok = currentTrimmed.match(/\bin\s+(.+?)\s+succeeded\s+in\s+(\d+)ms:?\s*$/);
       const fail = currentTrimmed.match(/\bexited\s+(-?\d+)\s+in\s+(\d+)ms:?\s*$/);
       if (ok) {
+        this.flushThinking();
         this.flushText();
         const cwd = ok[1].trim();
         const ms = Number(ok[2]);
@@ -360,6 +473,7 @@ export class CodexCliStreamParser {
         return;
       }
       if (fail) {
+        this.flushThinking();
         this.flushText();
         const code = Number(fail[1]);
         const ms = Number(fail[2]);
@@ -369,6 +483,7 @@ export class CodexCliStreamParser {
       }
 
       if (/^mcp:/i.test(currentTrimmed)) {
+        this.flushThinking();
         this.flushText();
         const msg = currentTrimmed.replace(/^mcp:\s*/i, '');
         let phase: 'starting' | 'ready' | 'info' = 'info';
@@ -379,6 +494,7 @@ export class CodexCliStreamParser {
       }
       const mcpStartup = currentTrimmed.match(/^mcp startup:\s*ready:\s*(.+)\s*$/i);
       if (mcpStartup) {
+        this.flushThinking();
         this.flushText();
         const list = mcpStartup[1].split(',').map((s) => s.trim()).filter(Boolean);
         list.forEach((tool) => {
@@ -390,6 +506,7 @@ export class CodexCliStreamParser {
       if (this.expectOutput?.kind === 'getChildItem') {
         const dir = currentTrimmed.match(/^Directory:\s+(.+)$/);
         if (dir) {
+          this.flushThinking();
           this.flushText();
           const id = `table-${this.events.length}`;
           const idx = this.push({ id, kind: 'table', title: dir[1], columns: [], rows: [], lifecycle: 'open' });
@@ -400,6 +517,7 @@ export class CodexCliStreamParser {
 
       if (this.expectOutput?.kind === 'getContent') {
         if (!this.file) {
+          this.flushThinking();
           this.flushText();
           const id = `file-${this.events.length}`;
           const idx = this.push({
@@ -416,6 +534,7 @@ export class CodexCliStreamParser {
       }
 
       if (this.isJsonStartLine(currentStripped)) {
+        this.flushThinking();
         this.flushText();
         const id = `json-${this.events.length}`;
         const idx = this.push({ id, kind: 'json', value: undefined, raw: '', lifecycle: 'open' });
@@ -453,6 +572,10 @@ export class CodexCliStreamParser {
     if (this.json) {
       this.closeByIdx(this.json.idx);
       this.json = null;
+    }
+    if (this.thinking) {
+      this.closeByIdx(this.thinking.idx);
+      this.thinking = null;
     }
     this.flushText();
     this.expectOutput = null;

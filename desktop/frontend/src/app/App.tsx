@@ -298,6 +298,7 @@ export default function App() {
   const [isLanceDbDialogOpen, setIsLanceDbDialogOpen] = useState(false);
   const [pmUserAction, setPmUserAction] = useState<'start' | 'stop' | 'once' | null>(null);
   const lastPmStopShownAtRef = useRef(0);
+  const prevPmRunningRef = useRef<boolean | null>(null);
   const lancedbBlocked = lancedbStatus ? lancedbStatus.ok === false : true;
   const lancedbBlockMessage = useMemo(() => {
     if (!lancedbBlocked) return '';
@@ -628,22 +629,32 @@ export default function App() {
 
   useEffect(() => {
     if (!pmStatus) return;
-    
-    // Clear user action when PM status changes to running
+
+    if (prevPmRunningRef.current === null) {
+      prevPmRunningRef.current = pmStatus.running;
+      if (pmStatus.running) {
+        setPmUserAction(null);
+      }
+      return;
+    }
+
+    const wasRunning = prevPmRunningRef.current;
+    prevPmRunningRef.current = pmStatus.running;
+
     if (pmStatus.running) {
       setPmUserAction(null);
+      return;
     }
-    
-    // Handle PM stopping
-    if (!pmStatus.running && pmUserAction !== 'stop') {
-      // PM stopped unexpectedly (not by user action)
-      const wasOnce = pmUserAction === 'once' || (pmStatus.mode || '').toLowerCase() === 'once';
-      if (!wasOnce) {
-        showPmStoppedDialog().catch((err) => {
-          console.error('Failed to show PM stopped dialog:', err);
-        });
-      }
-    }
+
+    if (!wasRunning) return;
+    if (pmUserAction === 'stop') return;
+
+    const wasOnce = pmUserAction === 'once' || (pmStatus.mode || '').toLowerCase() === 'once';
+    if (wasOnce) return;
+
+    showPmStoppedDialog().catch((err) => {
+      console.error('Failed to show PM stopped dialog:', err);
+    });
   }, [pmStatus, pmUserAction]);
 
   useEffect(() => {
