@@ -430,7 +430,11 @@ export function LogsModal({
                               ? `${event.title ?? ''} ${event.columns.join(' ')}`
                               : event.kind === 'fileContent'
                                 ? `${event.pathHint ?? ''} ${event.content.slice(0, 100)}`
-                                : event.text;
+                                : event.kind === 'metric'
+                                  ? `${event.label} ${event.value}`
+                                  : event.kind === 'text'
+                                    ? event.text
+                                    : '';
       return haystack.toLowerCase().includes(query.toLowerCase());
     });
   }, [smartEvents, filter, query]);

@@ -1,4 +1,5 @@
-import { FileCode, Clock, AlertCircle } from 'lucide-react';
+import { FileCode, Clock, AlertCircle, Loader2 } from 'lucide-react';
+import { FileViewerSkeleton } from './FileViewerSkeleton';
 
 interface FileViewerProps {
   selectedFile: {
@@ -67,7 +68,7 @@ export function FileViewer({ selectedFile, content, mtime, loading, error, badge
           </div>
         ) : null}
         {loading ? (
-          <div className="p-4 text-sm text-gray-300">加载中...</div>
+          <FileViewerSkeleton />
         ) : isJsonl ? (
           <div className="p-4 space-y-2">
             {!content.trim() ? (

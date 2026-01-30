@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface ControlPanelProps {
@@ -7,6 +7,7 @@ interface ControlPanelProps {
   directorRunning: boolean;
   pmToggleDisabled?: boolean;
   directorToggleDisabled?: boolean;
+  directorBlockedReason?: string;
   runOnceDisabled?: boolean;
   onOpenSettings: () => void;
   onWorkspaceCommit: (value: string) => void;
@@ -17,6 +18,11 @@ interface ControlPanelProps {
   onStopOllama?: () => void;
   onRefresh: () => void;
   workspaceError?: string | null;
+  isStartingPM?: boolean;
+  isStoppingPM?: boolean;
+  isStartingDirector?: boolean;
+  isStoppingDirector?: boolean;
+  isStoppingOllama?: boolean;
 }
 
 export function ControlPanel({
@@ -25,6 +31,7 @@ export function ControlPanel({
   directorRunning,
   pmToggleDisabled,
   directorToggleDisabled,
+  directorBlockedReason,
   runOnceDisabled,
   onOpenSettings,
   onWorkspaceCommit,
@@ -35,6 +42,11 @@ export function ControlPanel({
   onStopOllama,
   onRefresh,
   workspaceError,
+  isStartingPM,
+  isStoppingPM,
+  isStartingDirector,
+  isStoppingDirector,
+  isStoppingOllama,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;
@@ -119,26 +131,32 @@ export function ControlPanel({
           <span className="text-xs text-gray-400">PM</span>
           <button
             onClick={onTogglePm}
-            disabled={pmDisabled}
-            className={`p-1.5 rounded transition-colors ${
+            disabled={pmDisabled || isStartingPM || isStoppingPM}
+            className={`p-1.5 rounded transition-colors relative ${
               pmRunning
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-            } ${pmDisabled ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
+            } ${pmDisabled || isStartingPM || isStoppingPM ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
             title={pmRunning ? 'Stop loop' : 'Start loop'}
           >
-            {pmRunning ? <Square className="size-4" /> : <Play className="size-4" />}
+            {isStartingPM || isStoppingPM ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : pmRunning ? (
+              <Square className="size-4" />
+            ) : (
+              <Play className="size-4" />
+            )}
           </button>
           {onRunPmOnce ? (
             <button
               onClick={onRunPmOnce}
-              disabled={runOnceBlocked}
-              className={`p-1.5 rounded transition-colors bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 ${
-                runOnceBlocked ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''
+              disabled={runOnceBlocked || isStartingPM}
+              className={`p-1.5 rounded transition-colors bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 relative ${
+                runOnceBlocked || isStartingPM ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''
               }`}
               title="Run once"
             >
-              <Zap className="size-4" />
+              {isStartingPM ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
             </button>
           ) : null}
         </div>
@@ -146,16 +164,28 @@ export function ControlPanel({
         {/* Director 控制 */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1e1e1e] rounded border border-gray-700">
           <span className="text-xs text-gray-400">Director</span>
+          {directorBlockedReason ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">
+              {directorBlockedReason}
+            </span>
+          ) : null}
           <button
             onClick={onToggleDirector}
-            disabled={directorDisabled}
-            className={`p-1.5 rounded transition-colors ${
+            disabled={directorDisabled || isStartingDirector || isStoppingDirector}
+            className={`p-1.5 rounded transition-colors relative ${
               directorRunning
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-            } ${directorDisabled ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
+            } ${directorDisabled || isStartingDirector || isStoppingDirector ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
+            title={directorBlockedReason || undefined}
           >
-            {directorRunning ? <Square className="size-4" /> : <Play className="size-4" />}
+            {isStartingDirector || isStoppingDirector ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : directorRunning ? (
+              <Square className="size-4" />
+            ) : (
+              <Play className="size-4" />
+            )}
           </button>
         </div>
 
@@ -164,10 +194,13 @@ export function ControlPanel({
             <span className="text-xs text-gray-400">Ollama</span>
             <button
               onClick={onStopOllama}
-              className="p-1.5 rounded transition-colors bg-red-500/20 text-red-400 hover:bg-red-500/30"
+              disabled={isStoppingOllama}
+              className={`p-1.5 rounded transition-colors bg-red-500/20 text-red-400 hover:bg-red-500/30 relative ${
+                isStoppingOllama ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''
+              }`}
               title="Stop running Ollama models"
             >
-              <Square className="size-4" />
+              {isStoppingOllama ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
             </button>
           </div>
         ) : null}

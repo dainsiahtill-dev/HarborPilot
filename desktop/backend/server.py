@@ -38,6 +38,8 @@ DEFAULT_PLANNER = "state/ollama/PLANNER_RESPONSE.md"
 DEFAULT_OLLAMA = "state/ollama/OLLAMA_RESPONSE.md"
 DEFAULT_RUNLOG = "state/ollama/RUNLOG.md"
 DEFAULT_DIALOGUE = "state/ollama/DIALOGUE.jsonl"
+AGENTS_DRAFT_REL = "state/ollama/AGENTS.generated.md"
+AGENTS_FEEDBACK_REL = "state/ollama/AGENTS.feedback.md"
 STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 
 CHANNEL_FILES = {
@@ -210,6 +212,30 @@ def check_backend_available(settings: "Settings") -> Optional[str]:
     return None
 
 
+def build_runtime_issues(settings: "Settings", workspace: str) -> List[Dict[str, str]]:
+    issues: List[Dict[str, str]] = []
+    backend = (settings.pm_backend or "").strip().lower()
+    if backend == "codex" and not shutil.which("codex"):
+        issues.append(
+            {
+                "code": "CODEX_MISSING",
+                "title": "Codex 未安装",
+                "detail": "检测不到 codex 命令。请安装 Codex 或在设置里切换 PM Backend 为 Ollama。",
+            }
+        )
+    if not shutil.which("ollama"):
+        if backend == "ollama":
+            detail = "检测不到 ollama 命令。请安装 Ollama 或在设置里切换 PM Backend 为 Codex。"
+            code = "OLLAMA_MISSING"
+            title = "Ollama 未安装"
+        else:
+            detail = "检测不到 ollama 命令。Director 需要 Ollama 才能运行。请安装 Ollama。"
+            code = "DIRECTOR_OLLAMA_MISSING"
+            title = "Director 依赖缺失"
+        issues.append({"code": code, "title": title, "detail": detail})
+    return issues
+
+
 class SettingsUpdate(BaseModel):
     workspace: Optional[str] = None
     pm_backend: Optional[str] = None
@@ -267,6 +293,14 @@ class Settings(BaseModel):
         data = update.model_dump(exclude_unset=True)
         for key, value in data.items():
             setattr(self, key, value)
+
+
+class AgentsApplyPayload(BaseModel):
+    draft_path: Optional[str] = None
+
+
+class AgentsFeedbackPayload(BaseModel):
+    text: str = ""
 
 
 @dataclass
@@ -792,6 +826,10 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
     ollama_path = resolve_artifact_path(workspace, cache_root, DEFAULT_OLLAMA)
     qa_path = resolve_artifact_path(workspace, cache_root, DEFAULT_QA)
     runlog_path = resolve_artifact_path(workspace, cache_root, DEFAULT_RUNLOG)
+    agents_draft_path = resolve_artifact_path(workspace, cache_root, AGENTS_DRAFT_REL)
+    agents_feedback_path = resolve_artifact_path(workspace, cache_root, AGENTS_FEEDBACK_REL)
+    agents_target_path = os.path.join(workspace, "AGENTS.md")
+    runtime_issues = build_runtime_issues(state.settings, workspace)
 
     file_entries = [
         ("PM_TASKS.json", pm_out),
@@ -809,6 +847,20 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         ("DIRECTOR_RESULT.json", resolve_artifact_path(workspace, cache_root, "state/ollama/DIRECTOR_RESULT.json")),
         ("DIALOGUE.jsonl", dialogue_path),
     ]
+
+    agents_review: Optional[Dict[str, Any]] = None
+    has_agents = os.path.isfile(agents_target_path)
+    has_draft = os.path.isfile(agents_draft_path)
+    has_feedback = os.path.isfile(agents_feedback_path)
+    if (not has_agents) or has_draft or has_feedback:
+        agents_review = {
+            "needs_review": not has_agents,
+            "has_agents": has_agents,
+            "draft_path": AGENTS_DRAFT_REL if has_draft else None,
+            "feedback_path": AGENTS_FEEDBACK_REL if has_feedback else None,
+            "draft_mtime": format_mtime(agents_draft_path) if has_draft else None,
+            "feedback_mtime": format_mtime(agents_feedback_path) if has_feedback else None,
+        }
 
     payload = read_json(pm_out)
     if payload is None:
@@ -831,6 +883,8 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         "pm_state": pm_state_data,
         "director_state": director_state_data,
         "git": git_status,
+        "agents_review": agents_review,
+        "runtime_issues": runtime_issues,
     }
 
 
@@ -1011,6 +1065,48 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             "mtime": format_mtime(full_path),
             "content": content,
         }
+
+    @app.post("/agents/apply")
+    def apply_agents(payload: AgentsApplyPayload, _: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        draft_rel = payload.draft_path or AGENTS_DRAFT_REL
+        draft_path = resolve_safe_path(workspace, cache_root, draft_rel)
+        target_path = os.path.join(workspace, "AGENTS.md")
+        if not os.path.isfile(draft_path):
+            raise HTTPException(status_code=404, detail="draft not found")
+        if os.path.isfile(target_path):
+            raise HTTPException(status_code=409, detail="AGENTS.md already exists")
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            shutil.copyfile(draft_path, target_path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed to copy AGENTS.md: {exc}")
+        return {"ok": True, "target_path": target_path}
+
+    @app.post("/agents/feedback")
+    def save_agents_feedback(payload: AgentsFeedbackPayload, _: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        feedback_path = resolve_artifact_path(workspace, cache_root, AGENTS_FEEDBACK_REL)
+        text = (payload.text or "").strip()
+        if not text:
+            # allow clearing feedback
+            try:
+                if os.path.isfile(feedback_path):
+                    os.remove(feedback_path)
+            except Exception:
+                pass
+            return {"ok": True, "cleared": True}
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        content = f"## {timestamp}\n{text}\n"
+        try:
+            os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+            with open(feedback_path, "w", encoding="utf-8") as handle:
+                handle.write(content)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed to save feedback: {exc}")
+        return {"ok": True, "path": feedback_path, "mtime": format_mtime(feedback_path)}
 
     @app.get("/memos/list")
     def list_memos(
@@ -1327,6 +1423,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             raise HTTPException(status_code=409, detail="director already running")
         require_lancedb()
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        agents_path = os.path.join(workspace, "AGENTS.md")
+        if not os.path.isfile(agents_path):
+            raise HTTPException(status_code=409, detail="AGENTS.md required. Review AGENTS.generated.md first.")
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         director_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
         cmd = director_command(state.settings)

@@ -1,5 +1,6 @@
 import { Bot, User, CheckCircle, MessageSquare, Activity, TrendingUp } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { DialoguePanelSkeleton } from './DialoguePanelSkeleton';
 
 export interface DialogueEvent {
   seq?: number;
@@ -17,6 +18,7 @@ export interface DialogueEvent {
 interface DialoguePanelProps {
   events: DialogueEvent[];
   live: boolean;
+  loading?: boolean;
 }
 
 const speakerStyles = {
@@ -57,7 +59,7 @@ const speakerStyles = {
   },
 };
 
-export function DialoguePanel({ events, live }: DialoguePanelProps) {
+export function DialoguePanel({ events, live, loading = false }: DialoguePanelProps) {
   const [filterSpeaker, setFilterSpeaker] = useState<string | null>(null);
 
   const filteredEvents = filterSpeaker
@@ -134,10 +136,12 @@ export function DialoguePanel({ events, live }: DialoguePanelProps) {
 
       {/* 对话列表 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {filteredEvents.length === 0 ? (
+        {loading ? (
+          <DialoguePanelSkeleton />
+        ) : filteredEvents.length === 0 ? (
           <div className="text-xs text-gray-500">(no dialogue events)</div>
         ) : null}
-        {filteredEvents.map((event, index) => {
+        {!loading && filteredEvents.map((event, index) => {
           const style = speakerStyles[event.speaker] ?? speakerStyles.System;
           const Icon = style.icon;
 
