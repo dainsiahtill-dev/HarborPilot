@@ -96,6 +96,7 @@ interface AgentsReviewInfo {
   feedback_path?: string | null;
   draft_mtime?: string | null;
   feedback_mtime?: string | null;
+  draft_failed?: boolean | null;
 }
 
 interface RuntimeIssue {
@@ -1459,6 +1460,11 @@ export default function App() {
   const agentsDraftReady = useMemo(() => {
     return Boolean(snapshot?.agents_review?.draft_path);
   }, [snapshot?.agents_review?.draft_path]);
+  const agentsDraftFailed = useMemo(() => {
+    if (agentsReview?.draft_failed) return true;
+    const lowered = (agentsDraftContent || '').toLowerCase();
+    return lowered.includes('generation failed') || lowered.includes('failed to write last message file');
+  }, [agentsDraftContent, agentsReview?.draft_failed]);
 
   const snapshotTasks = useMemo(() => {
     return Array.isArray(snapshot?.tasks) ? snapshot?.tasks : null;
@@ -1550,9 +1556,11 @@ export default function App() {
         directorToggleDisabled={(lancedbBlocked && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
         directorBlockedReason={
           agentsRequired && !directorStatus?.running
-            ? agentsDraftReady
-              ? '需要先确认 AGENTS.md'
-              : '请先运行 PM 生成 AGENTS 草稿'
+            ? agentsDraftFailed
+              ? 'AGENTS 草稿生成失败'
+              : agentsDraftReady
+                ? '需要先确认 AGENTS.md'
+                : '请先运行 PM 生成 AGENTS 草稿'
             : undefined
         }
         runOnceDisabled={lancedbBlocked || !!pmStatus?.running}
@@ -1713,21 +1721,37 @@ export default function App() {
       >
         <AlertDialogContent className="border border-emerald-500/30 bg-[#1f2125] max-w-3xl">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-emerald-200">AGENTS.md 草稿已生成</AlertDialogTitle>
+            <AlertDialogTitle className="text-emerald-200">
+              {agentsDraftFailed ? 'AGENTS.md 草稿生成失败' : 'AGENTS.md 草稿已生成'}
+            </AlertDialogTitle>
             <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
-              请审阅 AGENTS.md 草稿。如需修改，请填写反馈并提交，PM 将根据反馈重新生成草稿（窗口将暂时关闭）。
+              {agentsDraftFailed
+                ? '草稿生成失败（内容不完整或为空）。请先查看 PM 日志，修复后再重试生成。'
+                : '请审阅 AGENTS.md 草稿。如需修改，请填写反馈并提交，PM 将根据反馈重新生成草稿（窗口将暂时关闭）。'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <div className="flex items-center justify-between gap-2">
               <span>草稿: {agentsReview?.draft_path || 'state/ollama/AGENTS.generated.md'}</span>
-              <button
-                type="button"
-                onClick={openAgentsDraft}
-                className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
-              >
-                打开草稿
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLogsSourceId('pm-subprocess');
+                    setIsLogsOpen(true);
+                  }}
+                  className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
+                >
+                  查看日志
+                </button>
+                <button
+                  type="button"
+                  onClick={openAgentsDraft}
+                  className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
+                >
+                  打开草稿
+                </button>
+              </div>
             </div>
             <div>
               目标: {settings?.workspace ? `${settings.workspace}\\AGENTS.md` : 'workspace/AGENTS.md'}
@@ -1763,6 +1787,17 @@ export default function App() {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setIsAgentsDialogOpen(false)}>稍后</AlertDialogCancel>
+            {agentsDraftFailed ? (
+              <AlertDialogAction
+                onClick={(event) => {
+                  event.preventDefault();
+                  runPmOnce().catch(() => undefined);
+                }}
+                className="bg-blue-500 text-white hover:bg-blue-400"
+              >
+                重试生成
+              </AlertDialogAction>
+            ) : null}
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
@@ -1774,7 +1809,7 @@ export default function App() {
             </AlertDialogAction>
             <AlertDialogAction
               onClick={applyAgentsDraft}
-              disabled={agentsApplying}
+              disabled={agentsApplying || agentsDraftFailed}
               className="bg-emerald-500 text-white hover:bg-emerald-400"
             >
               {agentsApplying ? '复制中...' : '确认复制'}

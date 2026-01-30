@@ -780,6 +780,8 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         return {
             "schema_version": 1,
             "timestamp": stamp,
+            "timestamp_epoch": time.time(),
+            "timestamp_iso": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "run_id": state.current_run_id,
             "director_iteration": index,
             "pm_iteration": pm_iteration,

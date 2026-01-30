@@ -61,19 +61,28 @@ def build_codex_command(base_args: List[str], codex_path: str) -> List[str]:
 def _detect_encoding_violations(output: str) -> bool:
     if not output:
         return False
-    pattern = re.compile(r"(?i)Get-Content\\b(?![^\\r\\n]*-Encoding)")
-    return bool(pattern.search(output))
+    patterns = [
+        r"(?i)Get-Content\\b(?![^\r\n]*-Encoding)",
+        r"(?i)Set-Content\\b(?![^\r\n]*-Encoding)",
+        r"(?i)Add-Content\\b(?![^\r\n]*-Encoding)",
+        r"(?i)Out-File\\b(?![^\r\n]*-Encoding)",
+    ]
+    return any(re.search(p, output) for p in patterns)
+
+
+def _encoding_guardrail() -> str:
+    return (
+        "Encoding guardrail (HARD RULE): You MUST use UTF-8 for any PowerShell read/write.\n"
+        "- Reads: Get-Content -Encoding utf8 (or Get-Content -Raw -Encoding utf8).\n"
+        "- Writes: Set-Content -Encoding utf8, Add-Content -Encoding utf8, Out-File -Encoding utf8.\n"
+        "- Do NOT set global PowerShell defaults; just include -Encoding utf8 in each command.\n"
+        "- If you already ran a PowerShell command without UTF-8, re-run it immediately with the UTF-8 flags.\n"
+        "- Prefer repo tools (python tools.py repo_read_* ) over PowerShell reads when available.\n"
+    )
 
 
 def _retry_prompt_for_encoding(prompt: str) -> str:
-    guard = (
-        "Encoding guardrail (HARD RULE): You MUST use UTF-8 for any PowerShell read/write.\n"
-        "- Always use: Get-Content -Encoding utf8 (or -Raw -Encoding utf8) and Set-Content -Encoding utf8.\n"
-        "- Do NOT set global PowerShell defaults; just include -Encoding utf8 in each command.\n"
-        "- If you already ran a PowerShell command without UTF-8, re-run it immediately with the UTF-8 flags.\n"
-        "- Prefer repo tools (python tools.py repo_read_* ) over PowerShell reads.\n"
-    )
-    return guard + "\n" + prompt
+    return _encoding_guardrail() + "\n" + prompt
 
 
 def invoke_codex(
@@ -88,6 +97,8 @@ def invoke_codex(
     extra_env: Optional[Dict[str, str]] = None,
 ) -> str:
     codex_path = ensure_codex_available()
+    if not output_file:
+        output_file = os.path.join(workspace, "state", "ollama", "CODEX_LAST_MESSAGE.md")
     ensure_parent_dir(output_file)
 
     args = ["exec", "--cd", workspace, "--output-last-message", output_file, "--color", "never"]
@@ -161,7 +172,15 @@ def invoke_codex(
         return ""
 
     try:
-        output = _run_once(prompt)
+        use_guard = str(os.environ.get("HARBORPILOT_CODEX_UTF8_GUARD", "1")).strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+            "",
+        )
+        run_prompt = (_encoding_guardrail() + "\n" + prompt) if use_guard else prompt
+        output = _run_once(run_prompt)
         if capture_stdout and _detect_encoding_violations(output):
             output = _run_once(_retry_prompt_for_encoding(prompt))
     except subprocess.TimeoutExpired:

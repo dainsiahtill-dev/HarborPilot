@@ -598,6 +598,17 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
         return ""
 
 
+def read_file_head(path: str, max_chars: int = 20000) -> str:
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(max_chars if max_chars and max_chars > 0 else 20000)
+        return decode_bytes(data)
+    except Exception:
+        return ""
+
+
 def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -> List[str]:
     if not path or not os.path.isfile(path):
         return []
@@ -853,6 +864,11 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
     has_draft = os.path.isfile(agents_draft_path)
     has_feedback = os.path.isfile(agents_feedback_path)
     if (not has_agents) or has_draft or has_feedback:
+        draft_failed = False
+        if has_draft:
+            preview = read_file_head(agents_draft_path, max_chars=2000)
+            lowered = preview.lower()
+            draft_failed = ("generation failed" in lowered) or ("failed to write last message file" in lowered)
         agents_review = {
             "needs_review": not has_agents,
             "has_agents": has_agents,
@@ -860,6 +876,7 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
             "feedback_path": AGENTS_FEEDBACK_REL if has_feedback else None,
             "draft_mtime": format_mtime(agents_draft_path) if has_draft else None,
             "feedback_mtime": format_mtime(agents_feedback_path) if has_feedback else None,
+            "draft_failed": draft_failed,
         }
 
     payload = read_json(pm_out)
@@ -1425,6 +1442,15 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         agents_path = os.path.join(workspace, "AGENTS.md")
         if not os.path.isfile(agents_path):
+            cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+            draft_path = resolve_artifact_path(workspace, cache_root, AGENTS_DRAFT_REL)
+            if os.path.isfile(draft_path):
+                preview = read_file_head(draft_path, max_chars=2000).lower()
+                if ("generation failed" in preview) or ("failed to write last message file" in preview):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="AGENTS.md required. AGENTS.generated.md generation failed; retry PM to regenerate.",
+                    )
             raise HTTPException(status_code=409, detail="AGENTS.md required. Review AGENTS.generated.md first.")
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         director_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
