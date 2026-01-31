@@ -103,8 +103,6 @@ def test_director_end_to_end(tmp_path, monkeypatch):
 
     monkeypatch.setattr(loop_director, "invoke_ollama", _fake_invoke_ollama)
     monkeypatch.setattr(director_exec, "invoke_ollama", _fake_invoke_ollama)
-    monkeypatch.setattr(loop_director, "get_port_summary", lambda: "- 3180: free")
-    monkeypatch.setattr(loop_director, "plan_port_policy", lambda policy: {"policy": policy, "overrides": {}, "notes": [], "skips": []})
     monkeypatch.setattr(loop_director, "stop_requested", lambda _: False)
 
     log_path = state_dir / "RUNLOG.md"
@@ -133,8 +131,6 @@ def test_director_end_to_end(tmp_path, monkeypatch):
         show_output=False,
         model="fake",
         timeout=0,
-        kill_on_port_conflict=False,
-        port_policy="none",
         auto_pick_target=False,
         memory_backend="none",
         memory_enabled=False,

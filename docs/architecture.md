@@ -109,7 +109,7 @@ Director 的行为由 Policy 严格控制，支持多层级合并。
 **合并优先级 (高 -> 低):**
 1.  **CLI 参数**: `--risk-block-threshold 0`
 2.  **Task Overrides**: `PM_TASKS.json` 中的 `policy_overrides` 字段
-3.  **Policy 文件**: `state/ollama/director_policy.json`
+3.  **Policy 文件**: `.harborpilot/ollama/director_policy.json`
 4.  **环境变量**: `HARBORPILOT_...`
 5.  **代码默认值**
 
@@ -134,17 +134,9 @@ Director 的行为由 Policy 严格控制，支持多层级合并。
 ## 4. 并发与原子性约束
 
 ### 4.1 写入约束
-*   **Workspace 隔离**: 推荐将 `state/` 目录指向 RAMDISK，避免污染项目源码。
+*   **Workspace 隔离**: 推荐将 `.harborpilot/` 目录指向 RAMDISK，避免污染项目源码。
 *   **原子写入**: 关键状态文件 (如 `PM_TASKS.json`, `last_state.json`) 应尽量采用原子替换 (写临时文件 -> rename) 方式，防止读取到截断内容。
-*   **Dashboard 只读**: Dashboard 仅读取 `state/` 下的文件进行展示，**绝不** 直接修改任务或代码，确保“展示面”与“控制面”分离。
-
-### 4.2 端口策略
-*   系统会监控 `3180-3183`, `6379` 等端口。
-*   **Port Policy**:
-    *   `auto`: 尝试自动发现空闲端口。
-    *   `kill`: 启动前清理占用进程 (需 `--kill-on-port-conflict`)。
-
----
+*   **Dashboard 只读**: Dashboard 仅读取 `.harborpilot/` 下的文件进行展示，**绝不** 直接修改任务或代码，确保“展示面”与“控制面”分离。
 
 ## 5. Smart 视图解析架构 (Dashboard)
 

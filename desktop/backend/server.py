@@ -3,11 +3,16 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
 import traceback
+import uuid
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -22,24 +27,28 @@ SCRIPT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 LOOP_PM_PATH = os.path.join(PROJECT_ROOT, "loops", "loop-pm.py")
 DIRECTOR_SCRIPT = os.path.join(PROJECT_ROOT, "loops", "loop-director.py")
+LOOP_MODULE_DIR = os.path.join(PROJECT_ROOT, "modules", "harborpilot-loop")
 
 DEFAULT_MODEL = "modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest"
-DEFAULT_PLAN = "state/ollama/PLAN.md"
-DEFAULT_GAP = "state/ollama/GAP_REPORT.md"
-DEFAULT_QA = "state/ollama/QA_RESPONSE.md"
+ARTIFACT_ROOT = ".harborpilot"
+LEGACY_ARTIFACT_ROOT = "state"
+DEFAULT_PLAN = ".harborpilot/ollama/PLAN.md"
+DEFAULT_GAP = ".harborpilot/ollama/GAP_REPORT.md"
+DEFAULT_QA = ".harborpilot/ollama/QA_RESPONSE.md"
 DEFAULT_REQUIREMENTS = "docs/product/requirements.md"
-DEFAULT_PM_OUT = "state/ollama/PM_TASKS.json"
-DEFAULT_PM_REPORT = "state/ollama/PM_REPORT.md"
-DEFAULT_PM_LOG = "state/ollama/PM_LOG.jsonl"
-DEFAULT_PM_SUBPROCESS_LOG = "state/ollama/PM_SUBPROCESS.log"
-DEFAULT_DIRECTOR_SUBPROCESS_LOG = "state/ollama/DIRECTOR_SUBPROCESS.log"
-DEFAULT_DIRECTOR_STATUS = "state/ollama/DIRECTOR_STATUS.json"
-DEFAULT_PLANNER = "state/ollama/PLANNER_RESPONSE.md"
-DEFAULT_OLLAMA = "state/ollama/OLLAMA_RESPONSE.md"
-DEFAULT_RUNLOG = "state/ollama/RUNLOG.md"
-DEFAULT_DIALOGUE = "state/ollama/DIALOGUE.jsonl"
-AGENTS_DRAFT_REL = "state/ollama/AGENTS.generated.md"
-AGENTS_FEEDBACK_REL = "state/ollama/AGENTS.feedback.md"
+DEFAULT_PM_OUT = ".harborpilot/ollama/PM_TASKS.json"
+DEFAULT_PM_REPORT = ".harborpilot/ollama/PM_REPORT.md"
+DEFAULT_PM_LOG = ".harborpilot/ollama/PM_LOG.jsonl"
+DEFAULT_PM_SUBPROCESS_LOG = ".harborpilot/ollama/PM_SUBPROCESS.log"
+DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/ollama/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = ".harborpilot/ollama/DIRECTOR_STATUS.json"
+DEFAULT_PLANNER = ".harborpilot/ollama/PLANNER_RESPONSE.md"
+DEFAULT_OLLAMA = ".harborpilot/ollama/OLLAMA_RESPONSE.md"
+DEFAULT_RUNLOG = ".harborpilot/ollama/RUNLOG.md"
+DEFAULT_DIALOGUE = ".harborpilot/ollama/DIALOGUE.jsonl"
+AGENTS_DRAFT_REL = ".harborpilot/ollama/AGENTS.generated.md"
+AGENTS_FEEDBACK_REL = ".harborpilot/ollama/AGENTS.feedback.md"
+WORKSPACE_STATUS_REL = os.path.join(ARTIFACT_ROOT, "WORKSPACE_STATUS.json")
 STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 
 CHANNEL_FILES = {
@@ -82,6 +91,28 @@ def build_utf8_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
 
 enforce_utf8()
+
+
+def ensure_loop_modules() -> None:
+    if os.path.isdir(LOOP_MODULE_DIR) and LOOP_MODULE_DIR not in sys.path:
+        sys.path.insert(0, LOOP_MODULE_DIR)
+
+
+def load_llm_clients():
+    ensure_loop_modules()
+    invoke_codex = None
+    invoke_ollama = None
+    try:
+        from codex_utils import invoke_codex as _invoke_codex  # type: ignore
+        invoke_codex = _invoke_codex
+    except Exception:
+        invoke_codex = None
+    try:
+        from ollama_utils import invoke_ollama as _invoke_ollama  # type: ignore
+        invoke_ollama = _invoke_ollama
+    except Exception:
+        invoke_ollama = None
+    return invoke_codex, invoke_ollama
 
 
 def get_lancedb_status() -> Dict[str, Any]:
@@ -261,6 +292,12 @@ class SettingsUpdate(BaseModel):
     director_forever: Optional[bool] = None
     director_show_output: Optional[bool] = None
     qa_enabled: Optional[bool] = None
+    docs_init_model: Optional[str] = None
+    docs_init_provider: Optional[str] = None
+    docs_init_base_url: Optional[str] = None
+    docs_init_api_key: Optional[str] = None
+    docs_init_api_path: Optional[str] = None
+    docs_init_timeout: Optional[int] = None
 
 
 class Settings(BaseModel):
@@ -288,6 +325,12 @@ class Settings(BaseModel):
     director_forever: bool = False
     director_show_output: bool = True
     qa_enabled: bool = True
+    docs_init_model: str = DEFAULT_MODEL
+    docs_init_provider: str = "ollama"
+    docs_init_base_url: str = ""
+    docs_init_api_key: str = ""
+    docs_init_api_path: str = "/v1/chat/completions"
+    docs_init_timeout: int = 60
 
     def apply_update(self, update: SettingsUpdate) -> None:
         data = update.model_dump(exclude_unset=True)
@@ -301,6 +344,36 @@ class AgentsApplyPayload(BaseModel):
 
 class AgentsFeedbackPayload(BaseModel):
     text: str = ""
+
+
+class DocsInitPreviewPayload(BaseModel):
+    mode: str = "minimal"
+    goal: str = ""
+    in_scope: str = ""
+    out_of_scope: str = ""
+    constraints: str = ""
+    definition_of_done: str = ""
+    backlog: str = ""
+
+
+class DocsInitSuggestPayload(BaseModel):
+    goal: str = ""
+    in_scope: str = ""
+    out_of_scope: str = ""
+    constraints: str = ""
+    definition_of_done: str = ""
+    backlog: str = ""
+
+
+class DocsInitFile(BaseModel):
+    path: str
+    content: str
+
+
+class DocsInitApplyPayload(BaseModel):
+    mode: str = "minimal"
+    target_root: str = "docs"
+    files: List[DocsInitFile] = Field(default_factory=list)
 
 
 @dataclass
@@ -379,17 +452,37 @@ def state_to_ramdisk_enabled() -> bool:
     return value not in ("0", "false", "no", "off")
 
 
+def normalize_artifact_rel_path(rel_path: str) -> str:
+    if not rel_path:
+        return rel_path
+    p = rel_path.replace("\\", "/").lstrip("./")
+    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    if p.startswith(legacy_prefix):
+        p = f"{ARTIFACT_ROOT}/" + p[len(legacy_prefix):]
+    return p
+
+
+def legacy_artifact_rel_path(rel_path: str) -> str:
+    if not rel_path:
+        return ""
+    p = rel_path.replace("\\", "/").lstrip("./")
+    new_prefix = f"{ARTIFACT_ROOT}/"
+    if p.startswith(new_prefix):
+        return f"{LEGACY_ARTIFACT_ROOT}/" + p[len(new_prefix):]
+    return ""
+
+
 def is_hot_artifact_path(rel_path: str) -> bool:
-    p = (rel_path or "").replace("\\", "/").lstrip("./")
-    if p.startswith("state/") and state_to_ramdisk_enabled():
+    p = normalize_artifact_rel_path(rel_path)
+    if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         return True
-    if not p.startswith("state/ollama/"):
+    if not p.startswith(f"{ARTIFACT_ROOT}/ollama/"):
         return False
-    if "/runs/" in p or p.startswith("state/ollama/runs/"):
+    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/runs/"):
         return True
-    if "/memory/" in p or p.startswith("state/ollama/memory/"):
+    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/memory/"):
         return True
-    if "/evidence/" in p or p.startswith("state/ollama/evidence/"):
+    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/evidence/"):
         return True
     lowered = p.lower()
     if lowered.endswith("director_result.json"):
@@ -408,17 +501,21 @@ def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: s
         return ""
     if os.path.isabs(rel_path):
         return rel_path
-    p = (rel_path or "").replace("\\", "/").lstrip("./")
-    if p.startswith("state/") and state_to_ramdisk_enabled():
+    p = normalize_artifact_rel_path(rel_path)
+    if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         if not cache_root_full:
-            raise HTTPException(status_code=500, detail="state/ is configured for ramdisk only, but no ramdisk cache root is available")
-        return os.path.join(cache_root_full, rel_path)
-    base = cache_root_full if (cache_root_full and is_hot_artifact_path(rel_path)) else workspace_full
-    return os.path.join(base, rel_path)
+            raise HTTPException(
+                status_code=500,
+                detail=f"{ARTIFACT_ROOT}/ is configured for ramdisk only, but no ramdisk cache root is available",
+            )
+        return os.path.join(cache_root_full, p)
+    base = cache_root_full if (cache_root_full and is_hot_artifact_path(p)) else workspace_full
+    return os.path.join(base, p)
 
 
 def resolve_safe_path(workspace_full: str, cache_root_full: str, rel_path: str) -> str:
-    path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
+    normalized_rel = normalize_artifact_rel_path(rel_path)
+    path = resolve_artifact_path(workspace_full, cache_root_full, normalized_rel)
     if not path:
         raise HTTPException(status_code=400, detail="path is required")
     full = os.path.abspath(path)
@@ -431,12 +528,36 @@ def resolve_safe_path(workspace_full: str, cache_root_full: str, rel_path: str) 
                 return full
         except ValueError:
             continue
+    if not os.path.exists(full):
+        legacy_rel = legacy_artifact_rel_path(normalized_rel)
+        if legacy_rel:
+            candidates: List[str] = []
+            prefer_cache = bool(cache_root_full and state_to_ramdisk_enabled())
+            if prefer_cache and cache_root_full:
+                candidates.append(os.path.join(cache_root_full, legacy_rel))
+            candidates.append(os.path.join(workspace_full, legacy_rel))
+            if cache_root_full and not prefer_cache:
+                candidates.append(os.path.join(cache_root_full, legacy_rel))
+            for candidate in candidates:
+                if os.path.isfile(candidate) or os.path.isdir(candidate):
+                    full = os.path.abspath(candidate)
+                    for root in roots:
+                        try:
+                            if os.path.commonpath([root, full]) == root:
+                                return full
+                        except ValueError:
+                            continue
     raise HTTPException(status_code=400, detail="path outside workspace")
 
 
 def read_json(path: str) -> Optional[Dict[str, Any]]:
     if not path or not os.path.isfile(path):
-        return None
+        if not path:
+            return None
+        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
+        if legacy_path == path or not os.path.isfile(legacy_path):
+            return None
+        path = legacy_path
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -448,7 +569,10 @@ def read_director_status(workspace: str, cache_root: str) -> Optional[Dict[str, 
     candidates = []
     cache_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_STATUS)
     workspace_path = os.path.join(workspace, DEFAULT_DIRECTOR_STATUS)
-    for path in (cache_path, workspace_path):
+    legacy_rel = legacy_artifact_rel_path(DEFAULT_DIRECTOR_STATUS)
+    legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
+    legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
+    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path):
         if not path:
             continue
         if path in candidates:
@@ -471,9 +595,13 @@ def read_director_status(workspace: str, cache_root: str) -> Optional[Dict[str, 
 
 def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> Optional[str]:
     candidates: List[tuple[float, str]] = []
-    cache_path = resolve_artifact_path(workspace, cache_root, rel_path)
-    workspace_path = os.path.join(workspace, rel_path)
-    for path in (cache_path, workspace_path):
+    normalized = normalize_artifact_rel_path(rel_path)
+    cache_path = resolve_artifact_path(workspace, cache_root, normalized)
+    workspace_path = os.path.join(workspace, normalized)
+    legacy_rel = legacy_artifact_rel_path(normalized)
+    legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
+    legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
+    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path):
         if not path or not os.path.isfile(path):
             continue
         try:
@@ -506,7 +634,7 @@ def compute_success_stats(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_memory_payload(workspace: str, cache_root: str) -> Optional[Dict[str, Any]]:
-    path = select_latest_artifact(workspace, cache_root, "state/ollama/memory/last_state.json")
+    path = select_latest_artifact(workspace, cache_root, ".harborpilot/ollama/memory/last_state.json")
     if not path:
         return None
     content = read_file_tail(path, max_lines=200, max_chars=20000)
@@ -514,7 +642,7 @@ def build_memory_payload(workspace: str, cache_root: str) -> Optional[Dict[str, 
 
 
 def build_success_stats_payload(workspace: str, cache_root: str) -> Dict[str, Any]:
-    path = select_latest_artifact(workspace, cache_root, "state/ollama/DIRECTOR_RESULT.json")
+    path = select_latest_artifact(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_RESULT.json")
     result = read_json(path) if path else None
     return compute_success_stats(result)
 
@@ -600,7 +728,12 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
 
 def read_file_head(path: str, max_chars: int = 20000) -> str:
     if not path or not os.path.isfile(path):
-        return ""
+        if not path:
+            return ""
+        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
+        if legacy_path == path or not os.path.isfile(legacy_path):
+            return ""
+        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read(max_chars if max_chars and max_chars > 0 else 20000)
@@ -611,7 +744,12 @@ def read_file_head(path: str, max_chars: int = 20000) -> str:
 
 def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -> List[str]:
     if not path or not os.path.isfile(path):
-        return []
+        if not path:
+            return []
+        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
+        if legacy_path == path or not os.path.isfile(legacy_path):
+            return []
+        path = legacy_path
     try:
         size = os.path.getsize(path)
     except Exception:
@@ -668,9 +806,82 @@ def validate_workspace(path: str) -> str:
     full = os.path.abspath(path)
     if not os.path.isdir(full):
         raise HTTPException(status_code=400, detail="workspace path not found")
-    if not os.path.isdir(os.path.join(full, "docs")):
-        raise HTTPException(status_code=400, detail="workspace must include docs/")
     return full
+
+
+def workspace_has_docs(workspace: str) -> bool:
+    if not workspace:
+        return False
+    return os.path.isdir(os.path.join(workspace, "docs"))
+
+
+def workspace_status_path(workspace: str) -> str:
+    if not workspace:
+        return ""
+    return os.path.join(workspace, WORKSPACE_STATUS_REL)
+
+
+def read_workspace_status(workspace: str) -> Optional[Dict[str, Any]]:
+    path = workspace_status_path(workspace)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def write_workspace_status(
+    workspace: str,
+    *,
+    status: str,
+    reason: str,
+    actions: Optional[List[str]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not workspace:
+        return
+    payload: Dict[str, Any] = {
+        "status": status,
+        "reason": reason,
+        "actions": actions or [],
+        "workspace_path": os.path.abspath(workspace),
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    if isinstance(extra, dict):
+        payload.update(extra)
+    try:
+        os.makedirs(os.path.dirname(workspace_status_path(workspace)), exist_ok=True)
+        with open(workspace_status_path(workspace), "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def clear_workspace_status(workspace: str) -> None:
+    path = workspace_status_path(workspace)
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def ensure_docs_ready_or_raise(workspace: str) -> None:
+    if workspace_has_docs(workspace):
+        clear_workspace_status(workspace)
+        return
+    write_workspace_status(
+        workspace,
+        status="NEEDS_DOCS_INIT",
+        reason="docs/ directory not found",
+        actions=["INIT_DOCS_WIZARD"],
+    )
+    raise HTTPException(status_code=409, detail="workspace missing docs/. Run docs init first.")
 
 
 def get_abs_path(workspace: str, path: str) -> str:
@@ -684,6 +895,331 @@ def parse_int(value: Optional[str], fallback: int) -> int:
         return int(value) if value is not None else fallback
     except Exception:
         return fallback
+
+
+def write_text_atomic(path: str, text: str) -> None:
+    if not path:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        handle.write(text or "")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, path)
+
+
+def _split_items(value: str) -> List[str]:
+    if not value:
+        return []
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n").replace(",", "\n")
+    items: List[str] = []
+    for line in normalized.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        line = line.lstrip("-").strip()
+        if line:
+            items.append(line)
+    return items
+
+
+def _format_list(items: List[str], placeholder: str = "TBD") -> str:
+    if not items:
+        return f"- {placeholder}"
+    return "\n".join([f"- {item}" for item in items])
+
+
+def detect_project_profile(workspace: str) -> Dict[str, Any]:
+    profile: Dict[str, Any] = {
+        "python": False,
+        "node": False,
+        "go": False,
+        "rust": False,
+        "package_manager": None,
+    }
+    if not workspace:
+        return profile
+    def _exists(name: str) -> bool:
+        return os.path.isfile(os.path.join(workspace, name))
+    profile["python"] = _exists("pyproject.toml") or _exists("requirements.txt") or _exists("setup.py")
+    profile["node"] = _exists("package.json")
+    profile["go"] = _exists("go.mod")
+    profile["rust"] = _exists("Cargo.toml")
+    if profile["node"]:
+        if _exists("pnpm-lock.yaml"):
+            profile["package_manager"] = "pnpm"
+        elif _exists("yarn.lock"):
+            profile["package_manager"] = "yarn"
+        else:
+            profile["package_manager"] = "npm"
+    return profile
+
+
+def default_qa_commands(profile: Dict[str, Any]) -> List[str]:
+    commands: List[str] = []
+    if profile.get("python"):
+        commands.extend(["ruff check .", "mypy", "pytest"])
+    if profile.get("node"):
+        manager = profile.get("package_manager") or "npm"
+        commands.append(f"{manager} test")
+    if profile.get("go"):
+        commands.append("go test ./...")
+    if profile.get("rust"):
+        commands.append("cargo test")
+    if not commands:
+        commands.append("Add project-specific QA commands.")
+    return commands
+
+
+def read_readme_title(workspace: str) -> str:
+    if not workspace:
+        return ""
+    path = os.path.join(workspace, "README.md")
+    if not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                if text.startswith("#"):
+                    text = text.lstrip("#").strip()
+                return text[:120]
+    except Exception:
+        return ""
+    return ""
+
+
+def build_docs_templates(
+    workspace: str,
+    mode: str,
+    fields: Dict[str, str],
+    qa_commands: List[str],
+) -> Dict[str, str]:
+    goal = fields.get("goal") or ""
+    if mode == "import_readme" and not goal:
+        goal = read_readme_title(workspace)
+    goal_text = goal.strip() or "TBD"
+    in_scope_items = _split_items(fields.get("in_scope") or "")
+    out_scope_items = _split_items(fields.get("out_of_scope") or "")
+    constraints_items = _split_items(fields.get("constraints") or "")
+    dod_items = _split_items(fields.get("definition_of_done") or "")
+    backlog_items = _split_items(fields.get("backlog") or "")
+    readme_note = ""
+    if mode == "import_readme":
+        readme_note = "\n## README Reference\n- See README.md for additional context.\n"
+    docs: Dict[str, str] = {}
+    docs["docs/00_overview.md"] = (
+        "# Overview\n\n"
+        "## Goal\n"
+        f"{goal_text}\n\n"
+        "## In Scope\n"
+        f"{_format_list(in_scope_items)}\n\n"
+        "## Out of Scope\n"
+        f"{_format_list(out_scope_items)}\n"
+        f"{readme_note}"
+    )
+    docs["docs/10_requirements.md"] = (
+        "# Requirements\n\n"
+        "## Key Requirements\n"
+        f"{_format_list(in_scope_items)}\n\n"
+        "## Acceptance Criteria\n"
+        f"{_format_list(dod_items)}\n"
+    )
+    docs["docs/20_constraints.md"] = "# Constraints\n\n" + _format_list(constraints_items) + "\n"
+    docs["docs/30_backlog.md"] = "# Backlog\n\n" + _format_list(backlog_items) + "\n"
+    docs["docs/40_quality.md"] = (
+        "# Quality\n\n"
+        "## Definition of Done\n"
+        f"{_format_list(dod_items)}\n\n"
+        "## Default QA Commands\n"
+        f"{_format_list(qa_commands)}\n"
+    )
+    metadata = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "docs_mode": mode,
+        "requirements_path": "docs/10_requirements.md",
+    }
+    docs["docs/.harborpilot.json"] = json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
+    return docs
+
+
+def select_docs_target_root(workspace: str) -> str:
+    docs_dir = os.path.join(workspace, "docs")
+    if os.path.isdir(docs_dir):
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return os.path.join("docs", "_drafts", f"init-{stamp}").replace("\\", "/")
+    return "docs"
+
+
+def normalize_rel_path(rel_path: str) -> str:
+    raw = (rel_path or "").replace("\\", "/").lstrip("/")
+    norm = os.path.normpath(raw).replace("\\", "/")
+    return norm
+
+
+def is_safe_docs_path(rel_path: str, target_root: str) -> bool:
+    norm = normalize_rel_path(rel_path)
+    if not norm or norm == "." or norm.startswith(".."):
+        return False
+    if not norm.lower().startswith("docs/") and norm.lower() != "docs":
+        return False
+    target_norm = normalize_rel_path(target_root)
+    if target_norm and target_norm != "docs" and not norm.lower().startswith(target_norm.lower().rstrip("/") + "/"):
+        return False
+    return True
+
+
+def _extract_json_block(text: str) -> Optional[Dict[str, Any]]:
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    candidate = text[start : end + 1]
+    try:
+        data = json.loads(candidate)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _normalize_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        items: List[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                items.append(text)
+        return items
+    if isinstance(value, str):
+        return _split_items(value)
+    return [str(value).strip()]
+
+
+def _build_docs_ai_prompt(fields: Dict[str, str]) -> str:
+    goal = fields.get("goal") or ""
+    in_scope = fields.get("in_scope") or ""
+    out_scope = fields.get("out_of_scope") or ""
+    constraints = fields.get("constraints") or ""
+    definition_of_done = fields.get("definition_of_done") or ""
+    backlog = fields.get("backlog") or ""
+    return (
+        "You are helping draft initial project documentation. "
+        "Return ONLY a JSON object with keys: goal, in_scope, out_of_scope, constraints, definition_of_done, backlog. "
+        "Each value must be an array of short strings. Do not include markdown or extra text.\n\n"
+        f"Goal: {goal}\n"
+        f"In Scope: {in_scope}\n"
+        f"Out of Scope: {out_scope}\n"
+        f"Constraints: {constraints}\n"
+        f"Definition of Done: {definition_of_done}\n"
+        f"Backlog: {backlog}\n"
+    )
+
+
+def _invoke_custom_llm(prompt: str, settings: Settings) -> str:
+    base_url = (settings.docs_init_base_url or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    path = settings.docs_init_api_path or "/v1/chat/completions"
+    if not path.startswith("/"):
+        path = "/" + path
+    url = base_url + path
+    payload = {
+        "model": settings.docs_init_model,
+        "messages": [
+            {"role": "system", "content": "You output strict JSON only."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+    }
+    api_key = (settings.docs_init_api_key or "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=max(1, settings.docs_init_timeout or 60)) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return body
+    except Exception:
+        return ""
+    try:
+        payload = json.loads(body)
+        choices = payload.get("choices") or []
+        if choices and isinstance(choices, list):
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict) and isinstance(message.get("content"), str):
+                return message["content"]
+    except Exception:
+        pass
+    return body
+
+
+def generate_docs_ai_fields(workspace: str, settings: Settings, fields: Dict[str, str]) -> Optional[Dict[str, List[str]]]:
+    provider = (settings.docs_init_provider or "").strip().lower()
+    model = (settings.docs_init_model or "").strip()
+    if not provider:
+        return None
+    prompt = _build_docs_ai_prompt(fields)
+    invoke_codex, invoke_ollama = load_llm_clients()
+    output = ""
+    if provider == "codex":
+        if invoke_codex is None:
+            return None
+        output = invoke_codex(
+            prompt=prompt,
+            output_file=os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DOCS_INIT_AI.md"),
+            workspace=workspace,
+            show_output=False,
+            full_auto=True,
+            dangerous=False,
+            profile="",
+            timeout=max(1, settings.docs_init_timeout or 60),
+        )
+    elif provider == "ollama":
+        if invoke_ollama is None or not model:
+            return None
+        output = invoke_ollama(
+            prompt=prompt,
+            model=model,
+            workspace=workspace,
+            show_output=False,
+            timeout=max(1, settings.docs_init_timeout or 60),
+        )
+    elif provider == "custom":
+        if not model:
+            return None
+        output = _invoke_custom_llm(prompt, settings)
+    if not output:
+        return None
+    data = _extract_json_block(output)
+    if not data:
+        return None
+    return {
+        "goal": _normalize_list(data.get("goal")),
+        "in_scope": _normalize_list(data.get("in_scope")),
+        "out_of_scope": _normalize_list(data.get("out_of_scope")),
+        "constraints": _normalize_list(data.get("constraints")),
+        "definition_of_done": _normalize_list(data.get("definition_of_done")),
+        "backlog": _normalize_list(data.get("backlog")),
+    }
 
 
 def pm_command(settings: Settings, loop_mode: bool, resume: bool = False) -> List[str]:
@@ -741,6 +1277,8 @@ def build_process_env(settings: Settings) -> Dict[str, str]:
 def director_command(settings: Settings) -> List[str]:
     iterations = settings.director_iterations or 1
     cmd = [sys.executable, DIRECTOR_SCRIPT, "--workspace", settings.workspace or DEFAULT_WORKSPACE]
+    if settings.model:
+        cmd.extend(["--model", settings.model])
     if settings.prompt_profile:
         cmd.extend(["--prompt-profile", settings.prompt_profile])
     if settings.ramdisk_root:
@@ -798,10 +1336,45 @@ def terminate_process(handle: ProcessHandle) -> None:
         handle.log_handle = None
 
 
+def terminate_pid(pid: int) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        os.kill(pid, signal.SIGTERM)
+        try:
+            time.sleep(0.5)
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 def clear_stop_flag(workspace: str) -> None:
-    stop_flag = os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
+    stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
     try:
         if os.path.exists(stop_flag):
+            os.remove(stop_flag)
+    except Exception:
+        pass
+
+
+def director_stop_flag_path(workspace: str, cache_root: str) -> str:
+    return resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_STOP.flag")
+
+
+def clear_director_stop_flag(workspace: str, cache_root: str) -> None:
+    stop_flag = director_stop_flag_path(workspace, cache_root)
+    try:
+        if stop_flag and os.path.exists(stop_flag):
             os.remove(stop_flag)
     except Exception:
         pass
@@ -834,14 +1407,26 @@ def spawn_process(cmd: List[str], cwd: str, log_path: str, extra_env: Optional[D
 def build_snapshot(state: AppState) -> Dict[str, Any]:
     workspace = state.settings.workspace or DEFAULT_WORKSPACE
     cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+    docs_present = workspace_has_docs(workspace)
+    workspace_status = read_workspace_status(workspace)
+    if not docs_present and not workspace_status:
+        workspace_status = {
+            "status": "NEEDS_DOCS_INIT",
+            "reason": "docs/ directory not found",
+            "actions": ["INIT_DOCS_WIZARD"],
+            "workspace_path": os.path.abspath(workspace),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+    if docs_present and workspace_status and workspace_status.get("status") == "NEEDS_DOCS_INIT":
+        workspace_status = None
     pm_out = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_OUT)
     pm_report = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_REPORT)
     pm_log = resolve_artifact_path(workspace, cache_root, state.settings.json_log_path or DEFAULT_PM_LOG)
     pm_subprocess_log = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
     director_subprocess_log = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
     dialogue_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIALOGUE)
-    pm_state_path = resolve_artifact_path(workspace, cache_root, "state/ollama/PM_STATE.json")
-    director_state_path = resolve_artifact_path(workspace, cache_root, "state/ollama/memory/last_state.json")
+    pm_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_STATE.json")
+    director_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/memory/last_state.json")
     planner_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PLANNER)
     ollama_path = resolve_artifact_path(workspace, cache_root, DEFAULT_OLLAMA)
     qa_path = resolve_artifact_path(workspace, cache_root, DEFAULT_QA)
@@ -859,12 +1444,12 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         ("DIRECTOR_SUBPROCESS.log", director_subprocess_log),
         ("PM_STATE.json", pm_state_path),
         ("last_state.json", director_state_path),
-        ("PM_TASK_HISTORY.jsonl", resolve_artifact_path(workspace, cache_root, "state/ollama/PM_TASK_HISTORY.jsonl")),
+        ("PM_TASK_HISTORY.jsonl", resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_TASK_HISTORY.jsonl")),
         ("PLANNER_RESPONSE.md", planner_path),
         ("OLLAMA_RESPONSE.md", ollama_path),
         ("QA_RESPONSE.md", qa_path),
         ("RUNLOG.md", runlog_path),
-        ("DIRECTOR_RESULT.json", resolve_artifact_path(workspace, cache_root, "state/ollama/DIRECTOR_RESULT.json")),
+        ("DIRECTOR_RESULT.json", resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_RESULT.json")),
         ("DIALOGUE.jsonl", dialogue_path),
     ]
 
@@ -911,6 +1496,8 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         "git": git_status,
         "agents_review": agents_review,
         "runtime_issues": runtime_issues,
+        "workspace_status": workspace_status,
+        "docs_present": docs_present,
     }
 
 
@@ -1067,12 +1654,150 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         if payload.workspace:
             payload.workspace = validate_workspace(payload.workspace)
         state.settings.apply_update(payload)
+        if payload.workspace:
+            if workspace_has_docs(state.settings.workspace):
+                clear_workspace_status(state.settings.workspace)
+            else:
+                write_workspace_status(
+                    state.settings.workspace,
+                    status="NEEDS_DOCS_INIT",
+                    reason="docs/ directory not found",
+                    actions=["INIT_DOCS_WIZARD"],
+                )
         save_persisted_settings(state.settings)
         return state.settings.model_dump()
 
     @app.get("/state/snapshot")
     def state_snapshot(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         return build_snapshot(state)
+
+    @app.post("/docs/init/suggest")
+    def docs_init_suggest(payload: DocsInitSuggestPayload, _: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        fields = {
+            "goal": payload.goal or "",
+            "in_scope": payload.in_scope or "",
+            "out_of_scope": payload.out_of_scope or "",
+            "constraints": payload.constraints or "",
+            "definition_of_done": payload.definition_of_done or "",
+            "backlog": payload.backlog or "",
+        }
+        ai_fields = generate_docs_ai_fields(workspace, state.settings, fields)
+        if not ai_fields:
+            raise HTTPException(status_code=400, detail="LLM suggestion unavailable. Check provider/model settings.")
+        return {
+            "ok": True,
+            "fields": {
+                "goal": "\n".join(ai_fields.get("goal") or []),
+                "in_scope": "\n".join(ai_fields.get("in_scope") or []),
+                "out_of_scope": "\n".join(ai_fields.get("out_of_scope") or []),
+                "constraints": "\n".join(ai_fields.get("constraints") or []),
+                "definition_of_done": "\n".join(ai_fields.get("definition_of_done") or []),
+                "backlog": "\n".join(ai_fields.get("backlog") or []),
+            },
+        }
+
+    @app.post("/docs/init/preview")
+    def docs_init_preview(payload: DocsInitPreviewPayload, _: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        mode = str(payload.mode or "minimal").strip().lower()
+        if mode not in ("minimal", "import_readme", "ai"):
+            mode = "minimal"
+        profile = detect_project_profile(workspace)
+        qa_commands = default_qa_commands(profile)
+        fields = {
+            "goal": payload.goal or "",
+            "in_scope": payload.in_scope or "",
+            "out_of_scope": payload.out_of_scope or "",
+            "constraints": payload.constraints or "",
+            "definition_of_done": payload.definition_of_done or "",
+            "backlog": payload.backlog or "",
+        }
+        if mode == "ai":
+            ai_fields = generate_docs_ai_fields(workspace, state.settings, fields)
+            if ai_fields:
+                if ai_fields.get("goal"):
+                    fields["goal"] = "\n".join(ai_fields.get("goal") or [])
+                if ai_fields.get("in_scope"):
+                    fields["in_scope"] = "\n".join(ai_fields.get("in_scope") or [])
+                if ai_fields.get("out_of_scope"):
+                    fields["out_of_scope"] = "\n".join(ai_fields.get("out_of_scope") or [])
+                if ai_fields.get("constraints"):
+                    fields["constraints"] = "\n".join(ai_fields.get("constraints") or [])
+                if ai_fields.get("definition_of_done"):
+                    fields["definition_of_done"] = "\n".join(ai_fields.get("definition_of_done") or [])
+                if ai_fields.get("backlog"):
+                    fields["backlog"] = "\n".join(ai_fields.get("backlog") or [])
+        docs_map = build_docs_templates(workspace, mode, fields, qa_commands)
+        target_root = select_docs_target_root(workspace)
+        files: List[Dict[str, Any]] = []
+        for rel_path, content in docs_map.items():
+            suffix = rel_path.replace("docs/", "", 1)
+            target_path = target_root.rstrip("/") + "/" + suffix if target_root != "docs" else rel_path
+            full_path = os.path.join(workspace, normalize_rel_path(target_path))
+            files.append(
+                {
+                    "path": target_path.replace("\\", "/"),
+                    "content": content,
+                    "exists": os.path.isfile(full_path),
+                }
+            )
+        return {
+            "ok": True,
+            "mode": mode,
+            "target_root": target_root,
+            "docs_exists": workspace_has_docs(workspace),
+            "project": profile,
+            "files": files,
+        }
+
+    @app.post("/docs/init/apply")
+    def docs_init_apply(payload: DocsInitApplyPayload, _: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        target_root = normalize_rel_path(payload.target_root or "docs")
+        if not target_root or not target_root.lower().startswith("docs"):
+            raise HTTPException(status_code=400, detail="target_root must be under docs/")
+        files = payload.files or []
+        if not files:
+            raise HTTPException(status_code=400, detail="no files to write")
+        created: List[str] = []
+        for item in files:
+            rel_path = normalize_rel_path(item.path)
+            if not is_safe_docs_path(rel_path, target_root):
+                raise HTTPException(status_code=400, detail=f"invalid docs path: {item.path}")
+            full_path = os.path.abspath(os.path.join(workspace, rel_path))
+            if os.path.commonpath([os.path.abspath(workspace), full_path]) != os.path.abspath(workspace):
+                raise HTTPException(status_code=400, detail=f"path outside workspace: {item.path}")
+            write_text_atomic(full_path, item.content or "")
+            created.append(rel_path.replace("\\", "/"))
+        # Record init event (best effort)
+        try:
+            cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+            event_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/events.jsonl")
+            os.makedirs(os.path.dirname(event_path), exist_ok=True)
+            event_payload = {
+                "schema_version": 1,
+                "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "ts_epoch": time.time(),
+                "seq": 0,
+                "event_id": str(uuid.uuid4()),
+                "kind": "observation",
+                "actor": "System",
+                "name": "init_docs",
+                "refs": {"run_id": f"init-{int(time.time())}"},
+                "summary": "Initialized docs via onboarding wizard",
+                "meta": {},
+                "ok": True,
+                "output": {"artifacts": created},
+                "truncation": {"truncated": False},
+            }
+            with open(event_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        if workspace_has_docs(workspace):
+            clear_workspace_status(workspace)
+        return {"ok": True, "files": created}
 
     @app.get("/files/read")
     def read_file(
@@ -1141,8 +1866,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     ) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
-        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join("state", "ollama", "memos"))
-        index_path = resolve_artifact_path(workspace, cache_root, os.path.join("state", "ollama", "memos", "index.jsonl"))
+        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, "ollama", "memos"))
+        index_path = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, "ollama", "memos", "index.jsonl"))
         records: List[Dict[str, Any]] = []
         if os.path.isfile(index_path):
             try:
@@ -1168,7 +1893,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                         continue
                     if entry.name.lower().startswith("pm_memo_summary"):
                         continue
-                    rel_path = os.path.join("state", "ollama", "memos", entry.name).replace("\\", "/")
+                    rel_path = os.path.join(ARTIFACT_ROOT, "ollama", "memos", entry.name).replace("\\", "/")
                     records.append(
                         {
                             "timestamp": format_mtime(entry.path),
@@ -1308,10 +2033,11 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def pm_run_once(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.pm.process is not None and state.pm.process.poll() is None:
             raise HTTPException(status_code=409, detail="pm already running")
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        ensure_docs_ready_or_raise(workspace)
         require_lancedb()
         precheck_error = check_backend_available(state.settings)
         if precheck_error:
-            workspace = state.settings.workspace or DEFAULT_WORKSPACE
             cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
             pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
             try:
@@ -1327,9 +2053,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 log_path=pm_log_path,
             )
             raise HTTPException(status_code=500, detail=precheck_error)
-        workspace = state.settings.workspace or DEFAULT_WORKSPACE
         clear_stop_flag(workspace)
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        clear_director_stop_flag(workspace, cache_root)
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=False)
         try:
@@ -1352,7 +2078,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
+            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -1379,10 +2105,11 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def pm_start_loop(resume: bool = False, _: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.pm.process is not None and state.pm.process.poll() is None:
             raise HTTPException(status_code=409, detail="pm already running")
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        ensure_docs_ready_or_raise(workspace)
         require_lancedb()
         precheck_error = check_backend_available(state.settings)
         if precheck_error:
-            workspace = state.settings.workspace or DEFAULT_WORKSPACE
             cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
             pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
             try:
@@ -1398,9 +2125,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 log_path=pm_log_path,
             )
             raise HTTPException(status_code=500, detail=precheck_error)
-        workspace = state.settings.workspace or DEFAULT_WORKSPACE
         clear_stop_flag(workspace)
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        clear_director_stop_flag(workspace, cache_root)
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=True, resume=resume)
         try:
@@ -1423,7 +2150,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
+            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -1449,7 +2176,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     @app.post("/pm/stop")
     def pm_stop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
-        stop_flag = os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
+        stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
         try:
             os.makedirs(os.path.dirname(stop_flag), exist_ok=True)
             with open(stop_flag, "w", encoding="utf-8") as handle:
@@ -1466,8 +2193,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def director_start(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         if state.director.process is not None and state.director.process.poll() is None:
             raise HTTPException(status_code=409, detail="director already running")
-        require_lancedb()
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        ensure_docs_ready_or_raise(workspace)
+        require_lancedb()
         agents_path = os.path.join(workspace, "AGENTS.md")
         if not os.path.isfile(agents_path):
             cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
@@ -1481,6 +2209,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                     )
             raise HTTPException(status_code=409, detail="AGENTS.md required. Review AGENTS.generated.md first.")
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        clear_director_stop_flag(workspace, cache_root)
         director_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
         cmd = director_command(state.settings)
         state.director = spawn_process(cmd, PROJECT_ROOT, director_log_path, build_process_env(state.settings))
@@ -1489,6 +2218,54 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
 
     @app.post("/director/stop")
     def director_stop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
+        workspace = state.settings.workspace or DEFAULT_WORKSPACE
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        stop_flag = director_stop_flag_path(workspace, cache_root)
+        try:
+            if stop_flag:
+                os.makedirs(os.path.dirname(stop_flag), exist_ok=True)
+                with open(stop_flag, "w", encoding="utf-8") as handle:
+                    handle.write("stop\n")
+        except Exception:
+            pass
+        try:
+            workspace_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
+            if workspace_flag and workspace_flag != stop_flag:
+                os.makedirs(os.path.dirname(workspace_flag), exist_ok=True)
+                with open(workspace_flag, "w", encoding="utf-8") as handle:
+                    handle.write("stop\n")
+        except Exception:
+            pass
+        pm_status = read_director_status(workspace, cache_root)
+        if isinstance(pm_status, dict):
+            pid = pm_status.get("pid")
+            if isinstance(pid, int):
+                terminate_pid(pid)
+            status_payload = dict(pm_status)
+            status_path = status_payload.pop("path", None)
+            status_payload["running"] = False
+            status_payload["pid"] = None
+            status_payload["ended_at"] = time.time()
+            status_payload["updated_at"] = time.time()
+            if not status_payload.get("mode"):
+                status_payload["mode"] = "pm"
+            if not status_payload.get("log_path"):
+                status_payload["log_path"] = resolve_artifact_path(
+                    workspace,
+                    cache_root,
+                    DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                )
+            if status_path:
+                try:
+                    write_text_atomic(status_path, json.dumps(status_payload, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
+            else:
+                status_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_STATUS)
+                try:
+                    write_text_atomic(status_path, json.dumps(status_payload, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
         terminate_process(state.director)
         return {"ok": True}
 
@@ -1497,7 +2274,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         base_root = cache_root or workspace
-        runs_root = os.path.join(base_root, "state", "ollama", "runs")
+        runs_root = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs")
         
         runs = []
         if os.path.isdir(runs_root):

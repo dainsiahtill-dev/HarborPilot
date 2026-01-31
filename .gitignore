@@ -1,12 +1,17 @@
 __pycache__/
 *.pyc
+.trae/
+.codex/
+.*_cache/
+.venv/
 
 # State outputs
-state/ollama/*.md
-state/ollama/*.json
-state/ollama/*.jsonl
-state/ollama/memory/
-state/ollama/runs/
+.harborpilot/
+.harborpilot/ollama/*.md
+.harborpilot/ollama/*.json
+.harborpilot/ollama/*.jsonl
+.harborpilot/ollama/memory/
+.harborpilot/ollama/runs/
 
 # Desktop app
 /desktop/node_modules/

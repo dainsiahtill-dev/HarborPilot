@@ -9,8 +9,6 @@ from shared import normalize_path, unique_preserve
 def build_project_prompt(
     plan_text: str,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     return f"""You are a collaborative team:
@@ -35,13 +33,6 @@ Constraints:
 - Use concrete headings and consistent terminology.
 - Avoid exposing chain-of-thought; be concise.
 - If editing browser client code, avoid Node-only APIs (process.env/require/fs) unless explicitly required.
-- Unless the Plan explicitly targets ports, do not propose port-checking logic or port-related changes.
-
-Port guard:
-- Before starting any dev server, check if ports are already in use.
-- If a port is in use, do NOT start a duplicate server on the same port.
-- Prefer smoke/short commands over long-running `npm run dev:*` in loops.
-- If needed, use alternative ports via env vars (e.g., `PHYSICS_PORT`) and note them.
 
 Encoding guardrail (HARD RULE):
 - Any PowerShell read/write of text MUST include UTF-8.
@@ -57,10 +48,6 @@ Context references (must read before changes):
 - docs/ux/ui-ux.md
 - docs/engineering/engineering-notes.md
 - README.md
-
-Port status snapshot:
-{port_summary}
-{port_policy_note}
 
 Memory summary (previous run):
 {memory_summary}
@@ -78,8 +65,6 @@ def build_continuation_prompt(
     last_response: str,
     decision_number: int,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     return f"""You are a collaborative team:
@@ -101,14 +86,6 @@ Format:
 
 Constraints:
 - If editing browser client code, avoid Node-only APIs (process.env/require/fs) unless explicitly required.
-- Unless the Plan explicitly targets ports, do not propose port-checking logic or port-related changes.
-
-Port guard:
-- Before starting any dev server, check if ports are already in use.
-- If a port is in use, do NOT start a duplicate server on the same port.
-- Prefer smoke/short commands over long-running `npm run dev:*` in loops.
-- If needed, use alternative ports via env vars (e.g., `PHYSICS_PORT`) and note them.
-- Optional: the loop can be started with `-KillOnPortConflict` to force-kill processes on known ports.
 
 Encoding guardrail (HARD RULE):
 - Any PowerShell read/write of text MUST include UTF-8.
@@ -124,10 +101,6 @@ Context references (must read before changes):
 - docs/ux/ui-ux.md
 - docs/engineering/engineering-notes.md
 - README.md
-
-Port status snapshot:
-{port_summary}
-{port_policy_note}
 
 Memory summary (previous run):
 {memory_summary}
@@ -176,8 +149,6 @@ Instructions:
 def build_planner_prompt(
     plan_text: str,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     return f"""You are a planning-only coordinator.
@@ -200,13 +171,6 @@ Constraints:
 - Use concrete headings and consistent terminology.
 - Avoid chain-of-thought.
 - If editing browser client code, avoid Node-only APIs (process.env/require/fs) unless explicitly required.
-- Unless the Plan explicitly targets ports, do not propose port-checking logic or port-related changes.
-
-Port guard:
-- Before starting any dev server, check if ports are already in use.
-- If a port is in use, do NOT start a duplicate server on the same port.
-- Prefer smoke/short commands over long-running `npm run dev:*` in loops.
-- If needed, use alternative ports via env vars (e.g., `PHYSICS_PORT`) and note them.
 
 Context references (must read before changes):
 - docs/README.md
@@ -216,10 +180,6 @@ Context references (must read before changes):
 - docs/ux/ui-ux.md
 - docs/engineering/engineering-notes.md
 - README.md
-
-Port status snapshot:
-{port_summary}
-{port_policy_note}
 
 Memory summary (previous run):
 {memory_summary}

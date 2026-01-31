@@ -6,7 +6,7 @@ I will implement atomic file writing and improve JSONL appending with run-based 
 
    * Enhance `resolve_artifact_path` or introduce a new `resolve_run_path(run_id, filename)` helper to support the `state/runs/<run_id>/` directory structure.
 
-   * Update `append_jsonl_atomic` (and the buffered version) to support writing to run-specific paths while maintaining the global `state/ollama/events.jsonl` as a symlink or a "latest" copy if needed, OR fully migrate to run-specific event logs. Given the "Truth Stream" invariant, splitting `events.jsonl` by run is cleaner. I will modify it to write to `state/runs/<run_id>/events.jsonl`.
+   * Update `append_jsonl_atomic` (and the buffered version) to support writing to run-specific paths while maintaining the global `.harborpilot/ollama/events.jsonl` as a symlink or a "latest" copy if needed, OR fully migrate to run-specific event logs. Given the "Truth Stream" invariant, splitting `events.jsonl` by run is cleaner. I will modify it to write to `state/runs/<run_id>/events.jsonl`.
 
 2. **Update Loop Logic to Use Run Buckets**:
 
@@ -24,7 +24,7 @@ I will implement atomic file writing and improve JSONL appending with run-based 
 
 5. **Dashboard Compatibility (Note)**:
 
-   * The Dashboard currently reads from fixed paths like `state/ollama/events.jsonl`. I will need to ensure backward compatibility or update the Dashboard's reading logic (which is out of scope for this CLI-focused plan, but I will ensure the *old* paths are still updated or symlinked if possible, or provide a clear migration path). *Correction*: I will implement the "latest pointer" strategy so the Dashboard can eventually be updated to follow it, but for now, I might keep writing to the central file *or* purely rely on the split. The user's prompt suggests "Directory按 run\_id 分桶" is the goal. I will proceed with splitting.
+   * The Dashboard currently reads from fixed paths like `.harborpilot/ollama/events.jsonl`. I will need to ensure backward compatibility or update the Dashboard's reading logic (which is out of scope for this CLI-focused plan, but I will ensure the *old* paths are still updated or symlinked if possible, or provide a clear migration path). *Correction*: I will implement the "latest pointer" strategy so the Dashboard can eventually be updated to follow it, but for now, I might keep writing to the central file *or* purely rely on the split. The user's prompt suggests "Directory按 run\_id 分桶" is the goal. I will proceed with splitting.
 
 6. **Refinement**:
 

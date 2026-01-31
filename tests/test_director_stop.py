@@ -46,9 +46,9 @@ class TestDirectorStopPath(unittest.TestCase):
                 "--iterations",
                 "1",
                 "--plan-path",
-                "state/ollama/PLAN.md",
+                ".harborpilot/ollama/PLAN.md",
                 "--director-result-path",
-                "state/ollama/DIRECTOR_RESULT.json",
+                ".harborpilot/ollama/DIRECTOR_RESULT.json",
                 "--ramdisk-root",
                 ramdisk_dir,
             ]

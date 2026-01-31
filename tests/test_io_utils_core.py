@@ -30,13 +30,19 @@ class TestIoUtilsCore(unittest.TestCase):
         io_utils = _import_io_utils()
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaises(ValueError):
-                io_utils.resolve_workspace_path(temp_dir)
+                io_utils.resolve_workspace_path(temp_dir, require_docs=True)
+
+    def test_resolve_workspace_path_allows_missing_docs(self):
+        io_utils = _import_io_utils()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            resolved = io_utils.resolve_workspace_path(temp_dir, require_docs=False)
+            self.assertEqual(os.path.abspath(resolved), os.path.abspath(temp_dir))
 
     def test_is_hot_artifact_path(self):
         io_utils = _import_io_utils()
-        self.assertTrue(io_utils.is_hot_artifact_path("state/ollama/events.jsonl"))
-        self.assertTrue(io_utils.is_hot_artifact_path("state/ollama/RUNLOG.md"))
-        self.assertFalse(io_utils.is_hot_artifact_path("state/ollama/PM_TASKS.json"))
+        self.assertTrue(io_utils.is_hot_artifact_path(".harborpilot/ollama/events.jsonl"))
+        self.assertTrue(io_utils.is_hot_artifact_path(".harborpilot/ollama/RUNLOG.md"))
+        self.assertFalse(io_utils.is_hot_artifact_path(".harborpilot/ollama/PM_TASKS.json"))
 
     def test_resolve_artifact_path_routes_hot_files(self):
         io_utils = _import_io_utils()
@@ -44,9 +50,9 @@ class TestIoUtilsCore(unittest.TestCase):
             workspace = os.path.abspath(workspace_dir)
             cache_root = io_utils.build_cache_root(ramdisk_dir, workspace)
             self.assertTrue(cache_root)
-            hot = io_utils.resolve_artifact_path(workspace, cache_root, "state/ollama/events.jsonl")
+            hot = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/events.jsonl")
             self.assertTrue(os.path.commonpath([hot, cache_root]) == cache_root)
-            cold = io_utils.resolve_artifact_path(workspace, cache_root, "state/ollama/PM_TASKS.json")
+            cold = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_TASKS.json")
             self.assertTrue(os.path.commonpath([cold, workspace]) == workspace)
 
     def test_emit_event_and_dialogue(self):

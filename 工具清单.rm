@@ -96,7 +96,7 @@
 ## 11. 取证包（Evidence）
 
 - 每轮 ToolPlanner 取证会生成摘要包：
-  `state/ollama/evidence/EVIDENCE_<task_id>_<iter>.json`
+  `.harborpilot/ollama/evidence/EVIDENCE_<task_id>_<iter>.json`
 - 包含读过的文件、行范围、hash、truncated 等信息，便于回放与纠偏。
 
 ## 12. 运行期取证工具（tools.py 内置）
@@ -115,4 +115,4 @@
 ## 14. Policy 校验（tools.py 内置）
 
 - policy_validate：校验 director_policy.json 的字段与范围是否合法
-- 示例：`python tools.py policy_validate -- state/ollama/director_policy.json`
+- 示例：`python tools.py policy_validate -- .harborpilot/ollama/director_policy.json`

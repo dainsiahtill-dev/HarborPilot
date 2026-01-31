@@ -29,7 +29,7 @@ def write_trajectory(
     event_seq_end: int,
 ) -> str:
     base_root = getattr(state, "cache_root_full", "") or getattr(state, "workspace_full", "")
-    runs_dir = os.path.join(base_root, "state", "ollama", "runs", run_id)
+    runs_dir = os.path.join(base_root, ".harborpilot", "ollama", "runs", run_id)
     ensure_parent_dir(os.path.join(runs_dir, "trajectory.json"))
 
     span_start = event_seq_start if event_seq_start > 0 else event_seq_end

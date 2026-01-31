@@ -9,7 +9,7 @@ I will update the `loop-pm.py` script to:
     *   Load the `agents_prompt`.
     *   Render it with `docs_context` (from READMEs) and `feedback`.
     *   Invoke the configured backend (Ollama/Codex) to generate the content.
-    *   Write the result to `state/ollama/AGENTS.generated.md`.
+    *   Write the result to `.harborpilot/ollama/AGENTS.generated.md`.
 *   Update `wait_for_agents_confirmation` to pass necessary arguments (backend configuration) to the generation function.
 *   Update `run_once` to pass `args` to `wait_for_agents_confirmation`.
 

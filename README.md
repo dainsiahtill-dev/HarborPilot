@@ -59,7 +59,7 @@ npm run build
 ```
 
 在界面中：
-1. 选择 **Workspace** (必须包含 `docs/` 目录)
+1. 选择 **Workspace** (缺少 `docs/` 时会提示初始化向导)
 2. 设置 **PM Backend** (推荐 Codex) 和 **Director Model** (推荐 Ollama)
 3. 点击 **Start PM** 开始规划循环
 
@@ -99,7 +99,7 @@ graph LR
 
 ## 📁 产物说明
 
-所有运行产物默认生成在 workspace 下的 `state/ollama/` 目录 (建议配置 `state/runs/` 指向内存盘)：
+所有运行产物默认生成在 workspace 下的 `.harborpilot/ollama/` 目录 (建议配置 `.harborpilot/ollama/runs/` 指向内存盘)：
 
 | 📄 文件 | 📝 描述 |
 |--------|--------|

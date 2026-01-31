@@ -41,10 +41,10 @@ def build_utf8_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 SCRIPT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 PROMPT_PROFILE_ENV = "HARBORPILOT_PROMPT_PROFILE"
-DEFAULT_DIRECTOR_SUBPROCESS_LOG = "state/ollama/DIRECTOR_SUBPROCESS.log"
-DEFAULT_DIRECTOR_STATUS = "state/ollama/DIRECTOR_STATUS.json"
-AGENTS_DRAFT_REL = "state/ollama/AGENTS.generated.md"
-AGENTS_FEEDBACK_REL = "state/ollama/AGENTS.feedback.md"
+DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/ollama/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = ".harborpilot/ollama/DIRECTOR_STATUS.json"
+AGENTS_DRAFT_REL = ".harborpilot/ollama/AGENTS.generated.md"
+AGENTS_FEEDBACK_REL = ".harborpilot/ollama/AGENTS.feedback.md"
 REQUIRED_MODULE_FILES = (
     "decision.py",
     "codex_utils.py",
@@ -100,11 +100,16 @@ try:
         read_file_safe,
         resolve_artifact_path,
         resolve_ramdisk_root,
-    resolve_run_dir,
-    resolve_workspace_path,
-    state_to_ramdisk_enabled,
+        resolve_run_dir,
+        resolve_workspace_path,
+        state_to_ramdisk_enabled,
+        workspace_has_docs,
+        write_workspace_status,
+        clear_workspace_status,
         stop_flag_path,
         stop_requested,
+        director_stop_requested,
+        clear_director_stop_flag,
         update_latest_pointer,
         write_json_atomic,
         write_text_atomic,
@@ -195,6 +200,9 @@ def run_director_once(
     iteration: int,
     subprocess_log_path: str = "",
     director_log_path: str = "",
+    status_path: str = "",
+    status_payload: Optional[Dict[str, Any]] = None,
+    pid_holder: Optional[Dict[str, int]] = None,
 ) -> int:
     director_path = args.director_path or "loops/loop-director.py"
     director_path = resolve_director_path(director_path, workspace_full)
@@ -235,6 +243,24 @@ def run_director_once(
         append_director_log(subprocess_log_path, f"\n## {stamp} (iteration {iteration}) - start\n")
         append_director_log(subprocess_log_path, "[cmd] " + " ".join(cmd) + "\n")
 
+    def _terminate_process(proc: subprocess.Popen) -> None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=3)
+            except Exception:
+                pass
+
+    log_handle = None
     try:
         timeout_sec = 0
         if args.director_timeout and args.director_timeout > 0:
@@ -248,36 +274,76 @@ def run_director_once(
         extra_env: Dict[str, str] = {}
         if "HARBORPILOT_AUTO_PLAN" not in os.environ:
             extra_env["HARBORPILOT_AUTO_PLAN"] = "1"
-        result = subprocess.run(
+        stdout_target = subprocess.DEVNULL
+        if subprocess_log_path:
+            ensure_parent_dir(subprocess_log_path)
+            log_handle = open(subprocess_log_path, "a", encoding="utf-8", errors="ignore")
+            stdout_target = log_handle
+        process = subprocess.Popen(
             cmd,
             cwd=workspace_full,
-            stdout=subprocess.PIPE,
+            stdout=stdout_target,
             stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
             env=build_utf8_env(extra_env),
-            timeout=timeout_val,
         )
-        output = result.stdout or ""
-        if subprocess_log_path:
-            if output:
-                append_director_log(subprocess_log_path, output if output.endswith("\n") else output + "\n")
-            append_director_log(subprocess_log_path, f"[exit] {result.returncode}\n")
-        return result.returncode
-    except subprocess.TimeoutExpired:
-        if subprocess_log_path:
-            append_director_log(subprocess_log_path, "[error] director subprocess timeout\n")
-        return 124
+        if pid_holder is not None:
+            pid_holder["pid"] = process.pid
+        if status_path and isinstance(status_payload, dict):
+            payload = dict(status_payload)
+            payload["pid"] = process.pid
+            payload["running"] = True
+            payload["updated_at"] = time.time()
+            write_director_status(status_path, payload)
+        start = time.time()
+        stopped = False
+        while True:
+            if director_stop_requested(workspace_full):
+                clear_director_stop_flag(workspace_full)
+                stopped = True
+                if subprocess_log_path:
+                    append_director_log(subprocess_log_path, "[stop] Director stop requested; terminating\n")
+                _terminate_process(process)
+                break
+            if timeout_val is not None and timeout_val > 0 and time.time() - start > timeout_val:
+                if subprocess_log_path:
+                    append_director_log(subprocess_log_path, "[error] director subprocess timeout\n")
+                _terminate_process(process)
+                return 124
+            exit_code = process.poll()
+            if exit_code is not None:
+                if subprocess_log_path:
+                    append_director_log(subprocess_log_path, f"[exit] {exit_code}\n")
+                return exit_code
+            time.sleep(0.5)
+        exit_code = process.poll()
+        if exit_code is None:
+            exit_code = 1
+        if subprocess_log_path and not stopped:
+            append_director_log(subprocess_log_path, f"[exit] {exit_code}\n")
+        return 130 if stopped else exit_code
     except Exception as exc:
         if subprocess_log_path:
             append_director_log(subprocess_log_path, f"[error] {exc}\n")
         return 1
+    finally:
+        if log_handle is not None:
+            try:
+                log_handle.close()
+            except Exception:
+                pass
 
 
 def read_json_file(path: str) -> Any:
     if not path or not os.path.exists(path):
-        return None
+        if not path:
+            return None
+        legacy_path = path.replace(f"{os.sep}.harborpilot{os.sep}", f"{os.sep}state{os.sep}")
+        if legacy_path == path or not os.path.exists(legacy_path):
+            return None
+        path = legacy_path
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -329,7 +395,7 @@ def maybe_generate_agents_draft(
             "<INSTRUCTIONS>\n"
             "- Use docs/README.md as the documentation index.\n"
             "- Check docs/product/requirements.md for global requirements (if present).\n"
-            "- Keep state artifacts in state/ollama/ (ramdisk may be enabled).\n"
+            "- Keep state artifacts in .harborpilot/ollama/ (ramdisk may be enabled).\n"
             "- Always use UTF-8 when reading/writing text files.\n"
             "</INSTRUCTIONS>\n\n"
             + (body + "\n" if body else "")
@@ -390,7 +456,7 @@ def maybe_generate_agents_draft(
             codex_output = resolve_artifact_path(
                 workspace_full,
                 cache_root_full,
-                "state/ollama/AGENTS.codex.last_message.md",
+                ".harborpilot/ollama/AGENTS.codex.last_message.md",
             )
             output = invoke_codex(
                 prompt,
@@ -587,7 +653,7 @@ def normalize_pm_payload(raw_payload: Dict[str, Any], iteration: int, timestamp:
 
 
 def build_run_dir(workspace: str, cache_root: str, iteration: int) -> str:
-    rel = os.path.join("state", "ollama", "runs", f"pm-{iteration:05d}")
+    rel = os.path.join(".harborpilot", "ollama", "runs", f"pm-{iteration:05d}")
     return resolve_artifact_path(workspace, cache_root, rel)
 
 
@@ -878,7 +944,7 @@ def write_pm_memo(
     content: str,
 ) -> Tuple[str, str]:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    rel_path = os.path.join("state", "ollama", "memos", f"PM_MEMO-{run_id}-a{attempt}-{stamp}.md")
+    rel_path = os.path.join(".harborpilot", "ollama", "memos", f"PM_MEMO-{run_id}-a{attempt}-{stamp}.md")
     memo_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     write_text_atomic(memo_path, content)
     return memo_path, rel_path
@@ -897,7 +963,7 @@ def write_pm_memo_index(
     cache_root_full: str,
     record: Dict[str, Any],
 ) -> str:
-    rel_path = os.path.join("state", "ollama", "memos", "index.jsonl")
+    rel_path = os.path.join(".harborpilot", "ollama", "memos", "index.jsonl")
     index_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     append_jsonl(index_path, record)
     return index_path
@@ -908,7 +974,7 @@ def write_pm_memo_summary(
     cache_root_full: str,
     block: str,
 ) -> Tuple[str, str]:
-    rel_path = os.path.join("state", "ollama", "memos", "PM_MEMO_SUMMARY.md")
+    rel_path = os.path.join(".harborpilot", "ollama", "memos", "PM_MEMO_SUMMARY.md")
     summary_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     append_text(summary_path, block)
     export_path = os.path.join(workspace_full, "docs", "PM_MEMO_SUMMARY.md")
@@ -1031,13 +1097,30 @@ def preflight_director_plan(plan_path: str) -> Optional[str]:
     return f"PLAN.md was created. Edit {plan_path} and rerun."
 
 
+def ensure_docs_ready(workspace_full: str) -> Optional[int]:
+    if not workspace_has_docs(workspace_full):
+        write_workspace_status(
+            workspace_full,
+            status="NEEDS_DOCS_INIT",
+            reason="docs/ directory not found",
+            actions=["INIT_DOCS_WIZARD"],
+        )
+        print(f"[workspace] docs/ not found at {workspace_full}. Run docs init and retry.")
+        return 2
+    clear_workspace_status(workspace_full)
+    return None
+
+
 def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     backend = str(getattr(args, "pm_backend", "ollama") or "ollama").strip().lower()
+    workspace_full = resolve_workspace_path(args.workspace, require_docs=False)
+    docs_exit = ensure_docs_ready(workspace_full)
+    if docs_exit is not None:
+        return docs_exit
     if backend == "codex":
         ensure_codex_available()
     else:
         ensure_ollama_available()
-    workspace_full = resolve_workspace_path(args.workspace)
     ramdisk_root = resolve_ramdisk_root(getattr(args, "ramdisk_root", None))
     cache_root_full = build_cache_root(ramdisk_root, workspace_full) or ""
     if state_to_ramdisk_enabled() and not cache_root_full:
@@ -1388,12 +1471,43 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         matched_result: Optional[Dict[str, Any]] = None
         latest_result: Any = None
         last_dialogue_ts = 0.0
+        director_stop_seen = False
         if not plan_blocked and not agents_blocked:
-            for attempt in range(1, director_attempts + 1):
-                director_start_epoch = time.time()
+            if director_stop_requested(workspace_full):
+                clear_director_stop_flag(workspace_full)
+                pm_state["last_director_status"] = "blocked"
+                pm_state["last_director_error_code"] = "STOP_REQUESTED"
+                pm_state["last_director_error_detail"] = "Director stop requested."
+                write_json_atomic(pm_state_full, pm_state)
+                emit_dialogue(
+                    dialogue_full,
+                    speaker="PM",
+                    type="warning",
+                    text="Director stop requested. Skipping director run.",
+                    summary="Director stop requested",
+                    run_id=run_id,
+                    pm_iteration=iteration,
+                    refs={"task_id": expected_task_id or None},
+                    meta={"error_code": "STOP_REQUESTED"},
+                )
                 write_director_status(
                     director_status_full,
                     {
+                        "running": False,
+                        "started_at": director_start_epoch,
+                        "ended_at": time.time(),
+                        "updated_at": time.time(),
+                        "mode": "pm",
+                        "pm_iteration": iteration,
+                        "exit_code": 1,
+                        "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                    },
+                )
+                director_stop_seen = True
+            else:
+                for attempt in range(1, director_attempts + 1):
+                    director_start_epoch = time.time()
+                    status_payload = {
                         "running": True,
                         "started_at": director_start_epoch,
                         "updated_at": time.time(),
@@ -1402,257 +1516,286 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                         "director_attempt": attempt,
                         "director_attempts": director_attempts,
                         "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
-                    },
-                )
-                if director_attempts > 1:
-                    emit_dialogue(
-                        dialogue_full,
-                        speaker="PM",
-                        type="say",
-                        text=f"Director attempt {attempt}/{director_attempts}.",
-                        summary=f"Director attempt {attempt}/{director_attempts}",
-                        run_id=run_id,
-                        pm_iteration=iteration,
-                        refs={"task_id": expected_task_id or None},
-                    )
-                try:
-                    director_exit = run_director_once(args, workspace_full, iteration, subprocess_log_path=director_subprocess_log_full, director_log_path=run_director_log)
-                finally:
-                    write_director_status(
-                        director_status_full,
-                        {
-                            "running": False,
-                            "started_at": director_start_epoch,
-                            "ended_at": time.time(),
-                            "updated_at": time.time(),
-                            "mode": "pm",
-                            "pm_iteration": iteration,
-                            "director_attempt": attempt,
-                            "director_attempts": director_attempts,
-                            "exit_code": director_exit,
-                            "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
-                        },
-                    )
-                if director_exit is None or director_exit == 0:
-                    director_check = wait_for_director_result_mode(
-                        director_result_full,
-                        expected_task_ids,
-                        expected_run_id,
-                        director_start_epoch,
-                        args.director_result_timeout,
-                        match_mode,
-                    )
-                    matched_result = match_director_result_mode(
-                        director_check,
-                        expected_task_ids,
-                        expected_run_id,
-                        director_start_epoch,
-                        match_mode,
-                    )
-                latest_result = read_json_file(director_result_full)
-                latest_match = match_director_result_mode(
-                    latest_result,
-                    expected_task_ids,
-                    expected_run_id,
-                    director_start_epoch,
-                    match_mode,
-                )
-                if latest_match is not None:
-                    matched_result = latest_match
-                result_for_dialogue: Optional[Dict[str, Any]] = None
-                if isinstance(matched_result, dict):
-                    result_for_dialogue = matched_result
-                elif isinstance(latest_result, dict):
-                    result_for_dialogue = latest_result
-                if result_for_dialogue is not None:
-                    ts_epoch = result_timestamp_epoch(result_for_dialogue)
-                    if ts_epoch + 1.0 >= director_start_epoch and ts_epoch > last_dialogue_ts:
-                        pm_question, director_report, pm_review = emit_pm_director_conversation(
+                    }
+                    write_director_status(director_status_full, status_payload)
+                    if director_attempts > 1:
+                        emit_dialogue(
                             dialogue_full,
-                            run_id,
-                            iteration,
-                            result_for_dialogue,
-                            expected_task_id,
-                            expected_task_title,
-                            attempt,
-                            director_attempts,
-                            qa_enabled,
-                        )
-                        memo_content = build_pm_memo(
+                            speaker="PM",
+                            type="say",
+                            text=f"Director attempt {attempt}/{director_attempts}.",
+                            summary=f"Director attempt {attempt}/{director_attempts}",
                             run_id=run_id,
                             pm_iteration=iteration,
-                            attempt=attempt,
-                            attempts=director_attempts,
-                            expected_task_id=expected_task_id,
-                            expected_task_title=expected_task_title,
-                            result=result_for_dialogue,
-                            qa_enabled=qa_enabled,
-                            pm_question=pm_question,
-                            director_report=director_report,
-                            pm_review=pm_review,
+                            refs={"task_id": expected_task_id or None},
                         )
-                        try:
-                            memo_path, memo_rel = write_pm_memo(
-                                workspace_full,
-                                cache_root_full,
+                    director_pid_holder: Dict[str, int] = {}
+                    try:
+                        director_exit = run_director_once(
+                            args,
+                            workspace_full,
+                            iteration,
+                            subprocess_log_path=director_subprocess_log_full,
+                            director_log_path=run_director_log,
+                            status_path=director_status_full,
+                            status_payload=status_payload,
+                            pid_holder=director_pid_holder,
+                        )
+                    finally:
+                        write_director_status(
+                            director_status_full,
+                            {
+                                "running": False,
+                                "started_at": director_start_epoch,
+                                "ended_at": time.time(),
+                                "updated_at": time.time(),
+                                "mode": "pm",
+                                "pm_iteration": iteration,
+                                "director_attempt": attempt,
+                                "director_attempts": director_attempts,
+                                "exit_code": director_exit,
+                                "pid": director_pid_holder.get("pid"),
+                                "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                            },
+                        )
+                    if director_exit == 130:
+                        director_stop_seen = True
+                        pm_state["last_director_status"] = "blocked"
+                        pm_state["last_director_error_code"] = "STOP_REQUESTED"
+                        pm_state["last_director_error_detail"] = "Director stop requested."
+                        write_json_atomic(pm_state_full, pm_state)
+                        emit_dialogue(
+                            dialogue_full,
+                            speaker="PM",
+                            type="warning",
+                            text="Director stop requested. Terminating director run.",
+                            summary="Director stop requested",
+                            run_id=run_id,
+                            pm_iteration=iteration,
+                            refs={"task_id": expected_task_id or None},
+                            meta={"error_code": "STOP_REQUESTED"},
+                        )
+                        break
+                    if director_exit is None or director_exit == 0:
+                        director_check = wait_for_director_result_mode(
+                            director_result_full,
+                            expected_task_ids,
+                            expected_run_id,
+                            director_start_epoch,
+                            args.director_result_timeout,
+                            match_mode,
+                        )
+                        matched_result = match_director_result_mode(
+                            director_check,
+                            expected_task_ids,
+                            expected_run_id,
+                            director_start_epoch,
+                            match_mode,
+                        )
+                    latest_result = read_json_file(director_result_full)
+                    latest_match = match_director_result_mode(
+                        latest_result,
+                        expected_task_ids,
+                        expected_run_id,
+                        director_start_epoch,
+                        match_mode,
+                    )
+                    if latest_match is not None:
+                        matched_result = latest_match
+                    result_for_dialogue: Optional[Dict[str, Any]] = None
+                    if isinstance(matched_result, dict):
+                        result_for_dialogue = matched_result
+                    elif isinstance(latest_result, dict):
+                        result_for_dialogue = latest_result
+                    if result_for_dialogue is not None:
+                        ts_epoch = result_timestamp_epoch(result_for_dialogue)
+                        if ts_epoch + 1.0 >= director_start_epoch and ts_epoch > last_dialogue_ts:
+                            pm_question, director_report, pm_review = emit_pm_director_conversation(
+                                dialogue_full,
                                 run_id,
+                                iteration,
+                                result_for_dialogue,
+                                expected_task_id,
+                                expected_task_title,
                                 attempt,
-                                memo_content,
+                                director_attempts,
+                                qa_enabled,
                             )
-                            completion_summary = compact_text(
-                                str(result_for_dialogue.get("completion_summary") or ""),
-                                200,
+                            memo_content = build_pm_memo(
+                                run_id=run_id,
+                                pm_iteration=iteration,
+                                attempt=attempt,
+                                attempts=director_attempts,
+                                expected_task_id=expected_task_id,
+                                expected_task_title=expected_task_title,
+                                result=result_for_dialogue,
+                                qa_enabled=qa_enabled,
+                                pm_question=pm_question,
+                                director_report=director_report,
+                                pm_review=pm_review,
                             )
-                            if not completion_summary:
+                            try:
+                                memo_path, memo_rel = write_pm_memo(
+                                    workspace_full,
+                                    cache_root_full,
+                                    run_id,
+                                    attempt,
+                                    memo_content,
+                                )
                                 completion_summary = compact_text(
-                                    str(result_for_dialogue.get("qa_summary") or result_for_dialogue.get("reason") or ""),
+                                    str(result_for_dialogue.get("completion_summary") or ""),
                                     200,
                                 )
-                            record = {
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "run_id": run_id,
-                                "pm_iteration": iteration,
-                                "director_attempt": attempt,
-                                "director_attempts": director_attempts,
-                                "task_id": expected_task_id,
-                                "task_title": expected_task_title,
-                                "status": str(result_for_dialogue.get("status") or "").strip(),
-                                "acceptance": result_for_dialogue.get("acceptance"),
-                                "summary": completion_summary,
-                                "rel_path": memo_rel.replace("\\", "/"),
-                            }
-                            index_path = write_pm_memo_index(workspace_full, cache_root_full, record)
-                            summary_block = (
-                                f"## {record['timestamp']} {run_id}\n"
-                                f"- Task: {expected_task_id} {expected_task_title}\n"
-                                f"- Result: {record['acceptance']}/{record['status']}\n"
-                                f"- Summary: {completion_summary}\n"
-                                f"- Memo: {record['rel_path']}\n\n"
-                            )
-                            summary_path, export_path = write_pm_memo_summary(
-                                workspace_full,
-                                cache_root_full,
-                                summary_block,
-                            )
-                            emit_dialogue(
-                                dialogue_full,
-                                speaker="System",
-                                type="note",
-                                text=f"已生成 PM 备忘录：{memo_path}；索引：{index_path}；摘要：{summary_path}；导出：{export_path}",
-                                summary="PM memo saved",
-                                run_id=run_id,
-                                pm_iteration=iteration,
-                                refs={"task_id": expected_task_id or None, "phase": "memo"},
-                            )
-                        except Exception as exc:
-                            emit_dialogue(
-                                dialogue_full,
-                                speaker="System",
-                                type="warning",
-                                text=f"PM 备忘录写入失败：{exc}",
-                                summary="PM memo failed",
-                                run_id=run_id,
-                                pm_iteration=iteration,
-                                refs={"task_id": expected_task_id or None, "phase": "memo"},
-                            )
-                        last_dialogue_ts = ts_epoch
-                else:
-                    # Emit dialogue even when Director produced no result.
-                    now = datetime.now()
-                    now_epoch = now.timestamp()
-                    if now_epoch > last_dialogue_ts:
-                        fallback_result = {
-                            "timestamp": now.isoformat(),
-                            "status": "blocked",
-                            "acceptance": False,
-                            "error_code": "DIRECTOR_NO_RESULT",
-                            "reason": "Director did not produce a result for this attempt.",
-                            "task_id": expected_task_id,
-                            "task_title": expected_task_title,
-                        }
-                        pm_question, director_report, pm_review = emit_pm_director_conversation(
-                            dialogue_full,
-                            run_id,
-                            iteration,
-                            fallback_result,
-                            expected_task_id,
-                            expected_task_title,
-                            attempt,
-                            director_attempts,
-                            qa_enabled,
-                        )
-                        memo_content = build_pm_memo(
-                            run_id=run_id,
-                            pm_iteration=iteration,
-                            attempt=attempt,
-                            attempts=director_attempts,
-                            expected_task_id=expected_task_id,
-                            expected_task_title=expected_task_title,
-                            result=fallback_result,
-                            qa_enabled=qa_enabled,
-                            pm_question=pm_question,
-                            director_report=director_report,
-                            pm_review=pm_review,
-                        )
-                        try:
-                            memo_path, memo_rel = write_pm_memo(
-                                workspace_full,
-                                cache_root_full,
-                                run_id,
-                                attempt,
-                                memo_content,
-                            )
-                            record = {
-                                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                                "run_id": run_id,
-                                "pm_iteration": iteration,
-                                "director_attempt": attempt,
-                                "director_attempts": director_attempts,
-                                "task_id": expected_task_id,
-                                "task_title": expected_task_title,
+                                if not completion_summary:
+                                    completion_summary = compact_text(
+                                        str(result_for_dialogue.get("qa_summary") or result_for_dialogue.get("reason") or ""),
+                                        200,
+                                    )
+                                record = {
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "run_id": run_id,
+                                    "pm_iteration": iteration,
+                                    "director_attempt": attempt,
+                                    "director_attempts": director_attempts,
+                                    "task_id": expected_task_id,
+                                    "task_title": expected_task_title,
+                                    "status": str(result_for_dialogue.get("status") or "").strip(),
+                                    "acceptance": result_for_dialogue.get("acceptance"),
+                                    "summary": completion_summary,
+                                    "rel_path": memo_rel.replace("\\", "/"),
+                                }
+                                index_path = write_pm_memo_index(workspace_full, cache_root_full, record)
+                                summary_block = (
+                                    f"## {record['timestamp']} {run_id}\n"
+                                    f"- Task: {expected_task_id} {expected_task_title}\n"
+                                    f"- Result: {record['acceptance']}/{record['status']}\n"
+                                    f"- Summary: {completion_summary}\n"
+                                    f"- Memo: {record['rel_path']}\n\n"
+                                )
+                                summary_path, export_path = write_pm_memo_summary(
+                                    workspace_full,
+                                    cache_root_full,
+                                    summary_block,
+                                )
+                                emit_dialogue(
+                                    dialogue_full,
+                                    speaker="System",
+                                    type="note",
+                                    text=f"??? PM ????{memo_path}????{index_path}????{summary_path}????{export_path}",
+                                    summary="PM memo saved",
+                                    run_id=run_id,
+                                    pm_iteration=iteration,
+                                    refs={"task_id": expected_task_id or None, "phase": "memo"},
+                                )
+                            except Exception as exc:
+                                emit_dialogue(
+                                    dialogue_full,
+                                    speaker="System",
+                                    type="warning",
+                                    text=f"PM ????????{exc}",
+                                    summary="PM memo failed",
+                                    run_id=run_id,
+                                    pm_iteration=iteration,
+                                    refs={"task_id": expected_task_id or None, "phase": "memo"},
+                                )
+                            last_dialogue_ts = ts_epoch
+                    else:
+                        # Emit dialogue even when Director produced no result.
+                        now = datetime.now()
+                        now_epoch = now.timestamp()
+                        if now_epoch > last_dialogue_ts:
+                            fallback_result = {
+                                "timestamp": now.isoformat(),
                                 "status": "blocked",
                                 "acceptance": False,
-                                "summary": "Director did not produce a result for this attempt.",
-                                "rel_path": memo_rel.replace("\\", "/"),
+                                "error_code": "DIRECTOR_NO_RESULT",
+                                "reason": "Director did not produce a result for this attempt.",
+                                "task_id": expected_task_id,
+                                "task_title": expected_task_title,
                             }
-                            index_path = write_pm_memo_index(workspace_full, cache_root_full, record)
-                            summary_block = (
-                                f"## {record['timestamp']} {run_id}\n"
-                                f"- Task: {expected_task_id} {expected_task_title}\n"
-                                f"- Result: {record['acceptance']}/{record['status']}\n"
-                                f"- Summary: {record['summary']}\n"
-                                f"- Memo: {record['rel_path']}\n\n"
-                            )
-                            summary_path, export_path = write_pm_memo_summary(
-                                workspace_full,
-                                cache_root_full,
-                                summary_block,
-                            )
-                            emit_dialogue(
+                            pm_question, director_report, pm_review = emit_pm_director_conversation(
                                 dialogue_full,
-                                speaker="System",
-                                type="note",
-                                text=f"已生成 PM 备忘录：{memo_path}；索引：{index_path}；摘要：{summary_path}；导出：{export_path}",
-                                summary="PM memo saved",
+                                run_id,
+                                iteration,
+                                fallback_result,
+                                expected_task_id,
+                                expected_task_title,
+                                attempt,
+                                director_attempts,
+                                qa_enabled,
+                            )
+                            memo_content = build_pm_memo(
                                 run_id=run_id,
                                 pm_iteration=iteration,
-                                refs={"task_id": expected_task_id or None, "phase": "memo"},
+                                attempt=attempt,
+                                attempts=director_attempts,
+                                expected_task_id=expected_task_id,
+                                expected_task_title=expected_task_title,
+                                result=fallback_result,
+                                qa_enabled=qa_enabled,
+                                pm_question=pm_question,
+                                director_report=director_report,
+                                pm_review=pm_review,
                             )
-                        except Exception as exc:
-                            emit_dialogue(
-                                dialogue_full,
-                                speaker="System",
-                                type="warning",
-                                text=f"PM 澶囧繕褰曞啓鍏ュけ璐ワ細{exc}",
-                                summary="PM memo failed",
-                                run_id=run_id,
-                                pm_iteration=iteration,
-                                refs={"task_id": expected_task_id or None, "phase": "memo"},
-                            )
-                        last_dialogue_ts = now_epoch
-                if matched_result is not None and is_director_done(matched_result):
-                    break
-            if expected_task_ids and matched_result is None:
+                            try:
+                                memo_path, memo_rel = write_pm_memo(
+                                    workspace_full,
+                                    cache_root_full,
+                                    run_id,
+                                    attempt,
+                                    memo_content,
+                                )
+                                record = {
+                                    "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "run_id": run_id,
+                                    "pm_iteration": iteration,
+                                    "director_attempt": attempt,
+                                    "director_attempts": director_attempts,
+                                    "task_id": expected_task_id,
+                                    "task_title": expected_task_title,
+                                    "status": "blocked",
+                                    "acceptance": False,
+                                    "summary": "Director did not produce a result for this attempt.",
+                                    "rel_path": memo_rel.replace("\\", "/"),
+                                }
+                                index_path = write_pm_memo_index(workspace_full, cache_root_full, record)
+                                summary_block = (
+                                    f"## {record['timestamp']} {run_id}\n"
+                                    f"- Task: {expected_task_id} {expected_task_title}\n"
+                                    f"- Result: {record['acceptance']}/{record['status']}\n"
+                                    f"- Summary: {record['summary']}\n"
+                                    f"- Memo: {record['rel_path']}\n\n"
+                                )
+                                summary_path, export_path = write_pm_memo_summary(
+                                    workspace_full,
+                                    cache_root_full,
+                                    summary_block,
+                                )
+                                emit_dialogue(
+                                    dialogue_full,
+                                    speaker="System",
+                                    type="note",
+                                    text=f"??? PM ????{memo_path}????{index_path}????{summary_path}????{export_path}",
+                                    summary="PM memo saved",
+                                    run_id=run_id,
+                                    pm_iteration=iteration,
+                                    refs={"task_id": expected_task_id or None, "phase": "memo"},
+                                )
+                            except Exception as exc:
+                                emit_dialogue(
+                                    dialogue_full,
+                                    speaker="System",
+                                    type="warning",
+                                    text=f"PM ????????{exc}",
+                                    summary="PM memo failed",
+                                    run_id=run_id,
+                                    pm_iteration=iteration,
+                                    refs={"task_id": expected_task_id or None, "phase": "memo"},
+                                )
+                            last_dialogue_ts = now_epoch
+                    if matched_result is not None and is_director_done(matched_result):
+                        break
+            if expected_task_ids and matched_result is None and not director_stop_seen:
                 plan_hint = detect_plan_missing(plan_full, director_log_full, director_start_epoch)
                 pm_state["last_director_status"] = "blocked"
                 if plan_hint:
@@ -1712,11 +1855,11 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                     write_json_atomic(pm_state_full, pm_state)
             
             # Sync artifacts back to root/state for persistence/compatibility
-            archive_if_exists(run_director_result, os.path.join(workspace_full, "state", "ollama", "DIRECTOR_RESULT.json"))
-            archive_if_exists(run_planner_resp, os.path.join(workspace_full, "state", "ollama", "PLANNER_RESPONSE.md"))
-            archive_if_exists(run_ollama_resp, os.path.join(workspace_full, "state", "ollama", "OLLAMA_RESPONSE.md"))
-            archive_if_exists(run_qa_resp, os.path.join(workspace_full, "state", "ollama", "QA_RESPONSE.md"))
-            archive_if_exists(run_director_log, os.path.join(workspace_full, "state", "ollama", "RUNLOG.md"))
+            archive_if_exists(run_director_result, os.path.join(workspace_full, ".harborpilot", "ollama", "DIRECTOR_RESULT.json"))
+            archive_if_exists(run_planner_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "PLANNER_RESPONSE.md"))
+            archive_if_exists(run_ollama_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "OLLAMA_RESPONSE.md"))
+            archive_if_exists(run_qa_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "QA_RESPONSE.md"))
+            archive_if_exists(run_director_log, os.path.join(workspace_full, ".harborpilot", "ollama", "RUNLOG.md"))
 
             if args.loop or (args.max_iterations and args.max_iterations > 1):
                 with open(pm_report_full, "a", encoding="utf-8") as handle:
@@ -1784,15 +1927,15 @@ def main() -> int:
     parser.add_argument("--model", "-Model", default="modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest")
     parser.add_argument("--pm-backend", default="codex", choices=["codex", "ollama"])
     parser.add_argument("--timeout", "-Timeout", type=int, default=0)
-    parser.add_argument("--plan-path", "-PlanPath", default="state/ollama/PLAN.md")
-    parser.add_argument("--gap-report-path", "-GapReportPath", default="state/ollama/GAP_REPORT.md")
-    parser.add_argument("--qa-path", "-QaPath", default="state/ollama/QA_RESPONSE.md")
+    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/ollama/PLAN.md")
+    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/ollama/GAP_REPORT.md")
+    parser.add_argument("--qa-path", "-QaPath", default=".harborpilot/ollama/QA_RESPONSE.md")
     parser.add_argument("--requirements-path", "-RequirementsPath", default="docs/product/requirements.md")
-    parser.add_argument("--pm-out", "-PmOut", default="state/ollama/PM_TASKS.json")
-    parser.add_argument("--pm-report", "-PmReport", default="state/ollama/PM_REPORT.md")
-    parser.add_argument("--state-path", "-StatePath", default="state/ollama/PM_STATE.json")
-    parser.add_argument("--task-history-path", "-TaskHistoryPath", default="state/ollama/PM_TASK_HISTORY.jsonl")
-    parser.add_argument("--director-result-path", "-DirectorResultPath", default="state/ollama/DIRECTOR_RESULT.json")
+    parser.add_argument("--pm-out", "-PmOut", default=".harborpilot/ollama/PM_TASKS.json")
+    parser.add_argument("--pm-report", "-PmReport", default=".harborpilot/ollama/PM_REPORT.md")
+    parser.add_argument("--state-path", "-StatePath", default=".harborpilot/ollama/PM_STATE.json")
+    parser.add_argument("--task-history-path", "-TaskHistoryPath", default=".harborpilot/ollama/PM_TASK_HISTORY.jsonl")
+    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/ollama/DIRECTOR_RESULT.json")
     parser.add_argument("--loop", action="store_true", help="Run continuously until interrupted.")
     parser.add_argument("--interval", type=int, default=20, help="Seconds to wait between iterations.")
     parser.add_argument("--max-iterations", type=int, default=0, help="Stop after N iterations (0 = infinite).")
@@ -1817,9 +1960,9 @@ def main() -> int:
         choices=["strict", "any", "latest", "run_id"],
         help="How to match director results to a PM run.",
     )
-    parser.add_argument("--dialogue-path", default="state/ollama/DIALOGUE.jsonl")
+    parser.add_argument("--dialogue-path", default=".harborpilot/ollama/DIALOGUE.jsonl")
     parser.add_argument("--prompt-profile", default="demo_ming_armada", help="Prompt profile (e.g. demo_ming_armada, generic).")
-    parser.add_argument("--pm-last-message-path", default="state/ollama/PM_LAST_RESPONSE.md")
+    parser.add_argument("--pm-last-message-path", default=".harborpilot/ollama/PM_LAST_RESPONSE.md")
     parser.add_argument("--ramdisk-root", default="", help="Optional RAM-disk root (Windows default: X:). High-frequency artifacts will be written here.")
     parser.add_argument("--codex-profile", default="")
     parser.add_argument("--codex-full-auto", action=argparse.BooleanOptionalAction, default=True)
@@ -1830,7 +1973,10 @@ def main() -> int:
     try:
         if args.prompt_profile:
             os.environ[PROMPT_PROFILE_ENV] = str(args.prompt_profile).strip()
-        workspace_full = resolve_workspace_path(args.workspace)
+        workspace_full = resolve_workspace_path(args.workspace, require_docs=False)
+        docs_exit = ensure_docs_ready(workspace_full)
+        if docs_exit is not None:
+            return docs_exit
         ramdisk_root = resolve_ramdisk_root(getattr(args, "ramdisk_root", None))
         cache_root_full = build_cache_root(ramdisk_root, workspace_full) or ""
         if state_to_ramdisk_enabled() and not cache_root_full:
@@ -1841,7 +1987,7 @@ def main() -> int:
         dialogue_full = resolve_artifact_path(workspace_full, cache_root_full, args.dialogue_path) if args.dialogue_path else ""
         iterations = 0
         if args.loop:
-            state_full = os.path.join(resolve_workspace_path(args.workspace), args.state_path)
+            state_full = os.path.join(workspace_full, args.state_path)
             state_data = read_json_file(state_full)
             if isinstance(state_data, dict):
                 last_iter = state_data.get("pm_iteration")

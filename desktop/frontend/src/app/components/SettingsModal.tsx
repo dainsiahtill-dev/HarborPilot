@@ -1,5 +1,6 @@
-import { X, Save } from 'lucide-react';
+﻿import { X, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -8,6 +9,12 @@ interface SettingsModalProps {
     pm_backend?: string;
     model?: string;
     prompt_profile?: string;
+    docs_init_model?: string;
+    docs_init_provider?: string;
+    docs_init_base_url?: string;
+    docs_init_api_key?: string;
+    docs_init_api_path?: string;
+    docs_init_timeout?: number;
     interval?: number;
     timeout?: number;
     refresh_interval?: number;
@@ -33,6 +40,12 @@ interface SettingsModalProps {
     pm_backend?: string;
     model?: string;
     prompt_profile?: string;
+    docs_init_model?: string;
+    docs_init_provider?: string;
+    docs_init_base_url?: string;
+    docs_init_api_key?: string;
+    docs_init_api_path?: string;
+    docs_init_timeout?: number;
     interval?: number;
     timeout?: number;
     refresh_interval?: number;
@@ -61,6 +74,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const defaultProfile = 'demo_ming_armada';
   const [pmBackend, setPmBackend] = useState('codex');
   const [ollamaModel, setOllamaModel] = useState(defaultModel);
+  const [docsInitModel, setDocsInitModel] = useState(defaultModel);
+  const [docsInitProvider, setDocsInitProvider] = useState('ollama');
+  const [docsInitBaseUrl, setDocsInitBaseUrl] = useState('');
+  const [docsInitApiKey, setDocsInitApiKey] = useState('');
+  const [docsInitApiPath, setDocsInitApiPath] = useState('/v1/chat/completions');
+  const [docsInitTimeout, setDocsInitTimeout] = useState(60);
   const [promptProfile, setPromptProfile] = useState(defaultProfile);
   const [refreshInterval, setRefreshInterval] = useState(3);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -80,8 +99,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [directorShowOutput, setDirectorShowOutput] = useState(true);
   const [qaEnabled, setQaEnabled] = useState(true);
   const [ramdiskRoot, setRamdiskRoot] = useState('');
-  const [jsonLogPath, setJsonLogPath] = useState('state/ollama/PM_LOG.jsonl');
+  const [jsonLogPath, setJsonLogPath] = useState('.harborpilot/ollama/PM_LOG.jsonl');
   const [showMemory, setShowMemory] = useState(false);
+  const [activeTab, setActiveTab] = useState('general');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,6 +109,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     if (!settings) return;
     setPmBackend(settings.pm_backend || 'codex');
     setOllamaModel(settings.model || defaultModel);
+    setDocsInitModel(settings.docs_init_model || settings.model || defaultModel);
+    setDocsInitProvider(settings.docs_init_provider || 'ollama');
+    setDocsInitBaseUrl(settings.docs_init_base_url || '');
+    setDocsInitApiKey(settings.docs_init_api_key || '');
+    setDocsInitApiPath(settings.docs_init_api_path || '/v1/chat/completions');
+    setDocsInitTimeout(settings.docs_init_timeout ?? 60);
     setPromptProfile(settings.prompt_profile || defaultProfile);
     setRefreshInterval(settings.refresh_interval ?? 3);
     setAutoRefresh(settings.auto_refresh ?? true);
@@ -108,7 +134,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setDirectorShowOutput(settings.director_show_output ?? true);
     setQaEnabled(settings.qa_enabled ?? true);
     setRamdiskRoot(settings.ramdisk_root ?? '');
-    setJsonLogPath(settings.json_log_path ?? 'state/ollama/PM_LOG.jsonl');
+    setJsonLogPath(settings.json_log_path ?? '.harborpilot/ollama/PM_LOG.jsonl');
     setShowMemory(settings.show_memory ?? false);
   }, [settings]);
 
@@ -122,6 +148,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         pm_backend: pmBackend,
         model: ollamaModel,
         prompt_profile: promptProfile,
+        docs_init_model: docsInitModel,
+        docs_init_provider: docsInitProvider,
+        docs_init_base_url: docsInitBaseUrl,
+        docs_init_api_key: docsInitApiKey,
+        docs_init_api_path: docsInitApiPath,
+        docs_init_timeout: docsInitTimeout,
         refresh_interval: refreshInterval,
         auto_refresh: autoRefresh,
         interval: pmInterval,
@@ -140,7 +172,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         director_show_output: directorShowOutput,
         qa_enabled: qaEnabled,
         ramdisk_root: ramdiskRoot || '',
-        json_log_path: jsonLogPath || 'state/ollama/PM_LOG.jsonl',
+        json_log_path: jsonLogPath || '.harborpilot/ollama/PM_LOG.jsonl',
         show_memory: showMemory,
       });
       onClose();
@@ -166,342 +198,430 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         </div>
 
         {/* 内容 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4">
           {error ? (
             <div className="text-xs text-red-300 bg-red-950/40 border border-red-500/30 rounded p-2">
               {error}
             </div>
           ) : null}
 
-          {/* Backend 配置 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">后端配置</h3>
-            <div className="space-y-3">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
+            <TabsList className="bg-[#1e1e1e] border border-gray-700">
+              <TabsTrigger value="general">通用</TabsTrigger>
+              <TabsTrigger value="docs-ai">Docs 提示</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="general" className="mt-4 space-y-6">
+              {/* Backend 配置 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">PM Backend</label>
-                <select
-                  value={pmBackend}
-                  onChange={(e) => setPmBackend(e.target.value)}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                >
-                  <option value="codex">Codex (推荐 - 更智能)</option>
-                  <option value="ollama">Ollama (省成本)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">PM 用于任务规划和决策，推荐使用 Codex</p>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">后端配置</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">PM Backend</label>
+                    <select
+                      value={pmBackend}
+                      onChange={(e) => setPmBackend(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="codex">Codex (推荐 - 更智能)</option>
+                      <option value="ollama">Ollama (省成本)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">PM 用于任务规划和决策，推荐使用 Codex</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Model</label>
+                    <input
+                      type="text"
+                      value={ollamaModel}
+                      onChange={(e) => setOllamaModel(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
               </div>
 
+              {/* Prompt 模板 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Model</label>
-                <input
-                  type="text"
-                  value={ollamaModel}
-                  onChange={(e) => setOllamaModel(e.target.value)}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Prompt 模板 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">Prompt 模板</h3>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Profile</label>
-              <select
-                value={promptProfile}
-                onChange={(e) => setPromptProfile(e.target.value)}
-                className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="demo_ming_armada">demo_ming_armada (游戏开发团队)</option>
-                <option value="generic">generic (通用)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                定义多角色协作的提示词模板（Creative Director, Game Designer, etc.）
-              </p>
-            </div>
-          </div>
-
-          {/* 刷新设置 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">刷新设置</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="auto-refresh"
-                  checked={autoRefresh}
-                  onChange={(e) => setAutoRefresh(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="auto-refresh" className="text-sm text-gray-300">
-                  自动刷新
-                </label>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Prompt 模板</h3>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Profile</label>
+                  <select
+                    value={promptProfile}
+                    onChange={(e) => setPromptProfile(e.target.value)}
+                    className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="demo_ming_armada">demo_ming_armada (游戏开发团队)</option>
+                    <option value="generic">generic (通用)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    定义多角色协作的提示词模板（Creative Director, Game Designer, etc.）
+                  </p>
+                </div>
               </div>
 
+              {/* 刷新设置 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">刷新间隔（秒）</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={refreshInterval}
-                  onChange={(e) => setRefreshInterval(Math.max(1, Number(e.target.value) || 1))}
-                  disabled={!autoRefresh}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">建议 1-10 秒。</p>
-              </div>
-            </div>
-          </div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">刷新设置</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="auto-refresh"
+                      checked={autoRefresh}
+                      onChange={(e) => setAutoRefresh(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="auto-refresh" className="text-sm text-gray-300">
+                      自动刷新
+                    </label>
+                  </div>
 
-          {/* PM 运行设置 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 运行设置</h3>
-            <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">刷新间隔（秒）</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={refreshInterval}
+                      onChange={(e) => setRefreshInterval(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={!autoRefresh}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">建议 1-10 秒。</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* PM 运行设置 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">循环间隔（秒）</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmInterval}
-                  onChange={(e) => setPmInterval(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">PM 循环模式下每轮的等待间隔。</p>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 运行设置</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">循环间隔（秒）</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmInterval}
+                      onChange={(e) => setPmInterval(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">PM 循环模式下每轮的等待间隔。</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">单次超时（秒，0=不限）</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={pmTimeout}
+                      onChange={(e) => setPmTimeout(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">0 表示不限制。</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="pm-show-output"
+                      checked={pmShowOutput}
+                      onChange={(e) => setPmShowOutput(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="pm-show-output" className="text-sm text-gray-300">
+                      显示 PM 输出
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="pm-runs-director"
+                      checked={pmRunsDirector}
+                      onChange={(e) => setPmRunsDirector(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="pm-runs-director" className="text-sm text-gray-300">
+                      PM 触发 Director
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="pm-director-output"
+                      checked={pmDirectorShowOutput}
+                      onChange={(e) => setPmDirectorShowOutput(e.target.checked)}
+                      disabled={!pmRunsDirector}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="pm-director-output" className="text-sm text-gray-300">
+                      显示 Director 输出
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Director 结果超时（秒）</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmDirectorTimeout}
+                      onChange={(e) => setPmDirectorTimeout(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={!pmRunsDirector}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">仅在 PM 触发 Director 时生效。</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Director 尝试次数</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmDirectorIterations}
+                      onChange={(e) => setPmDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={!pmRunsDirector}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">同一任务允许 Director 重试次数。</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Director 结果匹配模式</label>
+                    <select
+                      value={pmDirectorMatchMode}
+                      onChange={(e) => setPmDirectorMatchMode(e.target.value)}
+                      disabled={!pmRunsDirector}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                    >
+                      <option value="latest">latest（推荐）</option>
+                      <option value="run_id">run_id</option>
+                      <option value="any">any</option>
+                      <option value="strict">strict</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">控制 PM 如何确认 Director 结果。</p>
+                  </div>
+                </div>
               </div>
 
+              {/* PM 限制 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">单次超时（秒，0=不限）</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={pmTimeout}
-                  onChange={(e) => setPmTimeout(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">0 表示不限制。</p>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 限制</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">最大失败次数</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmMaxFailures}
+                      onChange={(e) => setPmMaxFailures(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">最大阻塞次数</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmMaxBlocked}
+                      onChange={(e) => setPmMaxBlocked(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-400 mb-1.5">最大连续重复次数</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={pmMaxSame}
+                      onChange={(e) => setPmMaxSame(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="pm-show-output"
-                  checked={pmShowOutput}
-                  onChange={(e) => setPmShowOutput(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="pm-show-output" className="text-sm text-gray-300">
-                  显示 PM 输出
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="pm-runs-director"
-                  checked={pmRunsDirector}
-                  onChange={(e) => setPmRunsDirector(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="pm-runs-director" className="text-sm text-gray-300">
-                  PM 触发 Director
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="pm-director-output"
-                  checked={pmDirectorShowOutput}
-                  onChange={(e) => setPmDirectorShowOutput(e.target.checked)}
-                  disabled={!pmRunsDirector}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="pm-director-output" className="text-sm text-gray-300">
-                  显示 Director 输出
-                </label>
-              </div>
-
+              {/* Director 设置 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Director 结果超时（秒）</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmDirectorTimeout}
-                  onChange={(e) => setPmDirectorTimeout(Math.max(1, Number(e.target.value) || 1))}
-                  disabled={!pmRunsDirector}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">仅在 PM 触发 Director 时生效。</p>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Director 设置</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="director-qa"
+                      checked={qaEnabled}
+                      onChange={(e) => setQaEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="director-qa" className="text-sm text-gray-300">
+                      启用 QA 审核
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="director-forever"
+                      checked={directorForever}
+                      onChange={(e) => setDirectorForever(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="director-forever" className="text-sm text-gray-300">
+                      持续运行（忽略迭代次数）
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">迭代次数</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={directorIterations}
+                      onChange={(e) => setDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
+                      disabled={directorForever}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">关闭“持续运行”后生效。</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="director-output"
+                      checked={directorShowOutput}
+                      onChange={(e) => setDirectorShowOutput(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="director-output" className="text-sm text-gray-300">
+                      显示 Director 输出
+                    </label>
+                  </div>
+                </div>
               </div>
 
+              {/* 存储与日志 */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Director 尝试次数</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmDirectorIterations}
-                  onChange={(e) => setPmDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
-                  disabled={!pmRunsDirector}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">同一任务允许 Director 重试次数。</p>
-              </div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">存储与日志</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">RAMDisk 根目录（可选）</label>
+                    <input
+                      type="text"
+                      value={ramdiskRoot}
+                      onChange={(e) => setRamdiskRoot(e.target.value)}
+                      placeholder="X:\\"
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">留空禁用；示例：X:\</p>
+                  </div>
 
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">JSON 日志路径</label>
+                    <input
+                      type="text"
+                      value={jsonLogPath}
+                      onChange={(e) => setJsonLogPath(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">相对 Workspace 的路径。</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="show-memory"
+                      checked={showMemory}
+                      onChange={(e) => setShowMemory(e.target.checked)}
+                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                    />
+                    <label htmlFor="show-memory" className="text-sm text-gray-300">
+                      显示 Memory 面板
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500">开启后右侧显示 memory 视图。</p>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="docs-ai" className="mt-4 space-y-6">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Director 结果匹配模式</label>
-                <select
-                  value={pmDirectorMatchMode}
-                  onChange={(e) => setPmDirectorMatchMode(e.target.value)}
-                  disabled={!pmRunsDirector}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                >
-                  <option value="latest">latest（推荐）</option>
-                  <option value="run_id">run_id</option>
-                  <option value="any">any</option>
-                  <option value="strict">strict</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">控制 PM 如何确认 Director 结果。</p>
-              </div>
-            </div>
-          </div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Docs 提示模型</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  用于 Docs 向导里的 Goal 自动补全/润色。只读仓库不受影响。
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">LLM Provider</label>
+                    <select
+                      value={docsInitProvider}
+                      onChange={(e) => setDocsInitProvider(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="ollama">Ollama</option>
+                      <option value="codex">Codex CLI</option>
+                      <option value="custom">其他 (OpenAI 兼容)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">用于 Goal 生成提示。</p>
+                  </div>
 
-          {/* PM 限制 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 限制</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">最大失败次数</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmMaxFailures}
-                  onChange={(e) => setPmMaxFailures(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">最大阻塞次数</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmMaxBlocked}
-                  onChange={(e) => setPmMaxBlocked(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-400 mb-1.5">最大连续重复次数</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={pmMaxSame}
-                  onChange={(e) => setPmMaxSame(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Model</label>
+                    <input
+                      type="text"
+                      value={docsInitModel}
+                      onChange={(e) => setDocsInitModel(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
 
-          {/* Director 设置 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">Director 设置</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="director-qa"
-                  checked={qaEnabled}
-                  onChange={(e) => setQaEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="director-qa" className="text-sm text-gray-300">
-                  启用 QA 审核
-                </label>
-              </div>
+                  {docsInitProvider === 'custom' ? (
+                    <>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1.5">Base URL</label>
+                        <input
+                          type="text"
+                          value={docsInitBaseUrl}
+                          onChange={(e) => setDocsInitBaseUrl(e.target.value)}
+                          placeholder="http://localhost:8000"
+                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1.5">API Key</label>
+                        <input
+                          type="password"
+                          value={docsInitApiKey}
+                          onChange={(e) => setDocsInitApiKey(e.target.value)}
+                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1.5">API Path</label>
+                        <input
+                          type="text"
+                          value={docsInitApiPath}
+                          onChange={(e) => setDocsInitApiPath(e.target.value)}
+                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">默认 /v1/chat/completions</p>
+                      </div>
+                    </>
+                  ) : null}
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="director-forever"
-                  checked={directorForever}
-                  onChange={(e) => setDirectorForever(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="director-forever" className="text-sm text-gray-300">
-                  持续运行（忽略迭代次数）
-                </label>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">超时（秒）</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={docsInitTimeout}
+                      onChange={(e) => setDocsInitTimeout(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">迭代次数</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={directorIterations}
-                  onChange={(e) => setDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
-                  disabled={directorForever}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">关闭“持续运行”后生效。</p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="director-output"
-                  checked={directorShowOutput}
-                  onChange={(e) => setDirectorShowOutput(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="director-output" className="text-sm text-gray-300">
-                  显示 Director 输出
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* 存储与日志 */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">存储与日志</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">RAMDisk 根目录（可选）</label>
-                <input
-                  type="text"
-                  value={ramdiskRoot}
-                  onChange={(e) => setRamdiskRoot(e.target.value)}
-                  placeholder="X:\\"
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">留空禁用；示例：X:\</p>
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">JSON 日志路径</label>
-                <input
-                  type="text"
-                  value={jsonLogPath}
-                  onChange={(e) => setJsonLogPath(e.target.value)}
-                  className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">相对 Workspace 的路径。</p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="show-memory"
-                  checked={showMemory}
-                  onChange={(e) => setShowMemory(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                />
-                <label htmlFor="show-memory" className="text-sm text-gray-300">
-                  显示 Memory 面板
-                </label>
-              </div>
-              <p className="text-xs text-gray-500">开启后右侧显示 memory 视图。</p>
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* 底部按钮 */}

@@ -10,6 +10,7 @@ import { SettingsModal } from '@/app/components/SettingsModal';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
+import { DocsInitDialog, type WorkspaceStatus } from '@/app/components/DocsInitDialog';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
@@ -32,6 +33,12 @@ interface BackendSettings {
   pm_backend: string;
   model: string;
   prompt_profile: string;
+  docs_init_model?: string;
+  docs_init_provider?: string;
+  docs_init_base_url?: string;
+  docs_init_api_key?: string;
+  docs_init_api_path?: string;
+  docs_init_timeout?: number;
   interval: number;
   timeout: number;
   refresh_interval: number;
@@ -89,6 +96,8 @@ interface SnapshotPayload {
     present?: boolean;
     root?: string;
   };
+  workspace_status?: WorkspaceStatus | null;
+  docs_present?: boolean;
 }
 
 interface AgentsReviewInfo {
@@ -126,15 +135,15 @@ const LIVE_CHANNELS = [
 ] as const;
 
 const CHANNEL_TO_PATH: Record<string, string> = {
-  dialogue: 'state/ollama/DIALOGUE.jsonl',
-  pm_report: 'state/ollama/PM_REPORT.md',
-  pm_log: 'state/ollama/PM_LOG.jsonl',
-  pm_subprocess: 'state/ollama/PM_SUBPROCESS.log',
-  director_console: 'state/ollama/DIRECTOR_SUBPROCESS.log',
-  planner: 'state/ollama/PLANNER_RESPONSE.md',
-  ollama: 'state/ollama/OLLAMA_RESPONSE.md',
-  qa: 'state/ollama/QA_RESPONSE.md',
-  runlog: 'state/ollama/RUNLOG.md',
+  dialogue: '.harborpilot/ollama/DIALOGUE.jsonl',
+  pm_report: '.harborpilot/ollama/PM_REPORT.md',
+  pm_log: '.harborpilot/ollama/PM_LOG.jsonl',
+  pm_subprocess: '.harborpilot/ollama/PM_SUBPROCESS.log',
+  director_console: '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log',
+  planner: '.harborpilot/ollama/PLANNER_RESPONSE.md',
+  ollama: '.harborpilot/ollama/OLLAMA_RESPONSE.md',
+  qa: '.harborpilot/ollama/QA_RESPONSE.md',
+  runlog: '.harborpilot/ollama/RUNLOG.md',
 };
 
 function appendLiveContent(prev: string, incoming: string, maxLines = 2000) {
@@ -238,6 +247,7 @@ export default function App() {
     path: string;
   } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDocsInitOpen, setIsDocsInitOpen] = useState(false);
   const [isInterventionOpen, setIsInterventionOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -404,7 +414,7 @@ export default function App() {
 
   const refreshSuccessStats = async () => {
     try {
-      const res = await apiFetch('/files/read?path=state/ollama/DIRECTOR_RESULT.json&tail_lines=200');
+      const res = await apiFetch('/files/read?path=.harborpilot/ollama/DIRECTOR_RESULT.json&tail_lines=200');
       if (!res.ok) return;
       const payload = (await res.json()) as FilePayload;
       if (!payload.content) return;
@@ -442,7 +452,7 @@ export default function App() {
     setMemoryLoading(true);
     setMemoryError(null);
     try {
-      const res = await apiFetch('/files/read?path=state/ollama/memory/last_state.json&tail_lines=200');
+      const res = await apiFetch('/files/read?path=.harborpilot/ollama/memory/last_state.json&tail_lines=200');
       if (!res.ok) {
         throw new Error('Failed to read memory');
       }
@@ -838,7 +848,7 @@ export default function App() {
 
   useEffect(() => {
     if (wsLive || dialogueEvents.length > 0) return;
-    apiFetch('/files/read?path=state/ollama/DIALOGUE.jsonl&tail_lines=200')
+    apiFetch('/files/read?path=.harborpilot/ollama/DIALOGUE.jsonl&tail_lines=200')
       .then(async (res) => {
         if (!res.ok) return;
         const payload = (await res.json()) as FilePayload;
@@ -902,7 +912,7 @@ export default function App() {
       });
 
     if (selectedFile.id === 'qa' || selectedFile.id === 'director-result') {
-      apiFetch('/files/read?path=state/ollama/DIRECTOR_RESULT.json&tail_lines=200')
+      apiFetch('/files/read?path=.harborpilot/ollama/DIRECTOR_RESULT.json&tail_lines=200')
         .then(async (res) => {
           if (controller.signal.aborted) return;
           if (!res.ok) return;
@@ -1018,7 +1028,7 @@ export default function App() {
           const statusRes = await apiFetch('/pm/status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as BackendStatus;
-            const logPath = status.log_path || 'state/ollama/PM_SUBPROCESS.log';
+            const logPath = status.log_path || '.harborpilot/ollama/PM_SUBPROCESS.log';
             const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
             if (tailRes.ok) {
               const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1107,7 +1117,7 @@ export default function App() {
           const statusRes = await apiFetch('/pm/status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as BackendStatus;
-            const logPath = status.log_path || 'state/ollama/PM_SUBPROCESS.log';
+            const logPath = status.log_path || '.harborpilot/ollama/PM_SUBPROCESS.log';
             const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
             if (tailRes.ok) {
               const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1187,7 +1197,7 @@ export default function App() {
             const statusRes = await apiFetch('/director/status');
             if (statusRes.ok) {
               const status = (await statusRes.json()) as BackendStatus;
-              const logPath = status.log_path || 'state/ollama/DIRECTOR_SUBPROCESS.log';
+              const logPath = status.log_path || '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log';
               const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
               if (tailRes.ok) {
                 const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1231,7 +1241,7 @@ export default function App() {
     let reportTail = '';
     let logTail = '';
     try {
-      const reportRes = await apiFetch('/files/read?path=state/ollama/PM_REPORT.md&tail_lines=200');
+      const reportRes = await apiFetch('/files/read?path=.harborpilot/ollama/PM_REPORT.md&tail_lines=200');
       if (reportRes.ok) {
         const payload = (await reportRes.json()) as FilePayload;
         reportTail = payload.content || '';
@@ -1240,7 +1250,7 @@ export default function App() {
       // ignore
     }
     try {
-      const logRes = await apiFetch('/files/read?path=state/ollama/PM_SUBPROCESS.log&tail_lines=200');
+      const logRes = await apiFetch('/files/read?path=.harborpilot/ollama/PM_SUBPROCESS.log&tail_lines=200');
       if (logRes.ok) {
         const payload = (await logRes.json()) as FilePayload;
         logTail = payload.content || '';
@@ -1429,7 +1439,7 @@ export default function App() {
     setSelectedFile({
       id: 'plan',
       name: 'PLAN.md',
-      path: 'state/ollama/PLAN.md',
+      path: '.harborpilot/ollama/PLAN.md',
     });
     setIsPlanDialogOpen(false);
   };
@@ -1438,6 +1448,12 @@ export default function App() {
     pm_backend?: string;
     model?: string;
     prompt_profile?: string;
+    docs_init_model?: string;
+    docs_init_provider?: string;
+    docs_init_base_url?: string;
+    docs_init_api_key?: string;
+    docs_init_api_path?: string;
+    docs_init_timeout?: number;
     interval?: number;
     timeout?: number;
     refresh_interval?: number;
@@ -1489,6 +1505,15 @@ export default function App() {
   const gitPresent = useMemo(() => {
     return snapshot?.git?.present ?? null;
   }, [snapshot]);
+
+  const workspaceStatus = useMemo(() => {
+    return snapshot?.workspace_status ?? null;
+  }, [snapshot]);
+
+  const docsMissing = useMemo(() => {
+    if (snapshot?.docs_present === false) return true;
+    return workspaceStatus?.status === 'NEEDS_DOCS_INIT';
+  }, [snapshot?.docs_present, workspaceStatus?.status]);
 
   const agentsRequired = useMemo(() => {
     return Boolean(snapshot?.agents_review?.needs_review);
@@ -1588,18 +1613,20 @@ export default function App() {
         workspace={settings?.workspace || ''}
         pmRunning={!!pmStatus?.running}
         directorRunning={!!directorStatus?.running}
-        pmToggleDisabled={lancedbBlocked && !pmStatus?.running}
-        directorToggleDisabled={(lancedbBlocked && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
+        pmToggleDisabled={(lancedbBlocked || docsMissing) && !pmStatus?.running}
+        directorToggleDisabled={((lancedbBlocked || docsMissing) && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
         directorBlockedReason={
-          agentsRequired && !directorStatus?.running
-            ? agentsDraftFailed
-              ? 'AGENTS 草稿生成失败'
-              : agentsDraftReady
-                ? '需要先确认 AGENTS.md'
-                : '请先运行 PM 生成 AGENTS 草稿'
-            : undefined
+          docsMissing && !directorStatus?.running
+            ? 'docs/ missing'
+            : agentsRequired && !directorStatus?.running
+              ? agentsDraftFailed
+                ? 'AGENTS 草稿生成失败'
+                : agentsDraftReady
+                  ? '需要先确认 AGENTS.md'
+                  : '请先运行 PM 生成 AGENTS 草稿'
+              : undefined
         }
-        runOnceDisabled={lancedbBlocked || !!pmStatus?.running}
+        runOnceDisabled={lancedbBlocked || docsMissing || !!pmStatus?.running}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onWorkspaceCommit={handleWorkspaceCommit}
         onPickWorkspace={handlePickWorkspace}
@@ -1616,6 +1643,26 @@ export default function App() {
         isStoppingDirector={isStoppingDirector}
         isStoppingOllama={isStoppingOllama}
       />
+
+      {docsMissing ? (
+        <div className="mx-4 mb-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-emerald-100">Docs initialization required</div>
+              <div className="text-xs text-emerald-200/80">
+                {workspaceStatus?.reason || 'docs/ directory not found'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsDocsInitOpen(true)}
+              className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-400"
+            >
+              Initialize docs
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <SnapshotPanel
         timestamp={snapshot?.timestamp ?? null}
@@ -1737,6 +1784,18 @@ export default function App() {
         onSave={saveSettings}
       />
 
+      <DocsInitDialog
+        open={isDocsInitOpen}
+        onOpenChange={setIsDocsInitOpen}
+        workspace={settings?.workspace}
+        workspaceStatus={workspaceStatus}
+        docsPresent={snapshot?.docs_present}
+        onApplied={() => {
+          refreshSnapshot().catch(() => undefined);
+          refreshSettings().catch(() => undefined);
+        }}
+      />
+
       <LogsModal
         isOpen={isLogsOpen}
         onClose={() => {
@@ -1770,7 +1829,7 @@ export default function App() {
           </AlertDialogHeader>
           <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <div className="flex items-center justify-between gap-2">
-              <span>草稿: {agentsReview?.draft_path || 'state/ollama/AGENTS.generated.md'}</span>
+              <span>草稿: {agentsReview?.draft_path || '.harborpilot/ollama/AGENTS.generated.md'}</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -1909,7 +1968,7 @@ export default function App() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-100">
-            <div>路径: state/ollama/PLAN.md</div>
+            <div>路径: .harborpilot/ollama/PLAN.md</div>
             <div>建议：补充清晰的下一步计划/任务。</div>
           </div>
           <AlertDialogFooter>

@@ -33,7 +33,7 @@ This starts Vite at `http://localhost:5173` and Electron will auto-connect.
 ## Environment variables
 
 - `HARBORPILOT_PYTHON`: Python executable for Electron to spawn (default: `python`)
-- `HARBORPILOT_WORKSPACE`: workspace root (must include `docs/`)
+- `HARBORPILOT_WORKSPACE`: workspace root (if `docs/` is missing, initialize docs first)
 - `HARBORPILOT_DEV_SERVER_URL`: override renderer URL (dev)
 - `HARBORPILOT_TOKEN`: backend auth token (optional)
 - `HARBORPILOT_CORS_ORIGINS`: comma-separated CORS allowlist

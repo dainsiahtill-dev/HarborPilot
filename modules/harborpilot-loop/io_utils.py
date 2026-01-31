@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 _JSONL_LOCK_STALE_SEC = float(os.environ.get("HARBORPILOT_JSONL_LOCK_STALE_SEC", "120") or 120)
 _RAMDISK_ENV = "HARBORPILOT_RAMDISK_ROOT"
 _STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
+ARTIFACT_ROOT = ".harborpilot"
+LEGACY_ARTIFACT_ROOT = "state"
 
 
 def enforce_utf8() -> None:
@@ -57,7 +59,7 @@ def find_workspace_root(start: str) -> str:
     return ""
 
 
-def resolve_workspace_path(path: str) -> str:
+def resolve_workspace_path(path: str, *, require_docs: bool = True) -> str:
     start = (path or "").strip()
     if not start:
         start = os.getcwd()
@@ -66,10 +68,92 @@ def resolve_workspace_path(path: str) -> str:
         raise ValueError(f"Workspace path does not exist: {start}")
     root = find_workspace_root(start)
     if not root:
-        raise ValueError(f"No docs/ directory found at or above workspace: {start}")
+        if require_docs:
+            raise ValueError(f"No docs/ directory found at or above workspace: {start}")
+        return start
     if os.path.abspath(root) != start:
         print(f"[workspace] Using '{root}' (found docs/ above '{start}').")
     return root
+
+
+WORKSPACE_STATUS_REL = os.path.join(ARTIFACT_ROOT, "WORKSPACE_STATUS.json")
+
+
+def normalize_artifact_rel_path(rel_path: str) -> str:
+    if not rel_path:
+        return rel_path
+    p = rel_path.replace("\\", "/").lstrip("./")
+    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    if p.startswith(legacy_prefix):
+        p = f"{ARTIFACT_ROOT}/" + p[len(legacy_prefix):]
+    return p
+
+
+def legacy_artifact_rel_path(rel_path: str) -> str:
+    if not rel_path:
+        return ""
+    p = rel_path.replace("\\", "/").lstrip("./")
+    new_prefix = f"{ARTIFACT_ROOT}/"
+    if p.startswith(new_prefix):
+        return f"{LEGACY_ARTIFACT_ROOT}/" + p[len(new_prefix):]
+    return ""
+
+
+def workspace_has_docs(workspace: str) -> bool:
+    if not workspace:
+        return False
+    return os.path.isdir(os.path.join(workspace, "docs"))
+
+
+def workspace_status_path(workspace: str) -> str:
+    if not workspace:
+        return ""
+    return os.path.join(workspace, WORKSPACE_STATUS_REL)
+
+
+def write_workspace_status(
+    workspace: str,
+    *,
+    status: str,
+    reason: str,
+    actions: Optional[List[str]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not workspace:
+        return
+    payload: Dict[str, Any] = {
+        "status": status,
+        "reason": reason,
+        "actions": actions or [],
+        "workspace_path": os.path.abspath(workspace),
+        "timestamp": utc_iso_now(),
+    }
+    if isinstance(extra, dict):
+        payload.update(extra)
+    write_json_atomic(workspace_status_path(workspace), payload)
+
+
+def clear_workspace_status(workspace: str) -> None:
+    path = workspace_status_path(workspace)
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def read_workspace_status(workspace: str) -> Optional[Dict[str, Any]]:
+    path = workspace_status_path(workspace)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def normalize_ramdisk_root(value: str) -> str:
@@ -126,16 +210,16 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
 
 
 def is_hot_artifact_path(rel_path: str) -> bool:
-    p = (rel_path or "").replace("\\", "/").lstrip("./")
-    if p.startswith("state/") and state_to_ramdisk_enabled():
+    p = normalize_artifact_rel_path(rel_path)
+    if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         return True
-    if not p.startswith("state/ollama/"):
+    if not p.startswith(f"{ARTIFACT_ROOT}/ollama/"):
         return False
-    if "/runs/" in p or p.startswith("state/ollama/runs/"):
+    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/runs/"):
         return True
-    if "/memory/" in p or p.startswith("state/ollama/memory/"):
+    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/memory/"):
         return True
-    if "/evidence/" in p or p.startswith("state/ollama/evidence/"):
+    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/evidence/"):
         return True
     lowered = p.lower()
     if lowered.endswith("director_result.json"):
@@ -153,18 +237,18 @@ def resolve_run_dir(workspace_full: str, cache_root_full: str, run_id: str) -> s
     if not run_id:
         return ""
     base_root = cache_root_full or workspace_full
-    return os.path.join(base_root, "state", "ollama", "runs", run_id)
+    return os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs", run_id)
 
 
 def update_latest_pointer(workspace_full: str, cache_root_full: str, run_id: str) -> None:
     if not run_id:
         return
     base_root = cache_root_full or workspace_full
-    latest_dir = os.path.join(base_root, "state", "ollama", "runs", "latest")
+    latest_dir = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs", "latest")
     run_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
     
     # Update latest_run.json for Windows compatibility (and Dashboard reading)
-    pointer_path = os.path.join(base_root, "state", "ollama", "latest_run.json")
+    pointer_path = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "latest_run.json")
     write_json_atomic(pointer_path, {"run_id": run_id, "path": run_dir})
 
     # Try to create symlink if possible (best effort)
@@ -198,13 +282,13 @@ def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: s
         basename = os.path.basename(rel_path)
         return os.path.join(run_dir, basename)
 
-    p = (rel_path or "").replace("\\", "/").lstrip("./")
-    if p.startswith("state/") and state_to_ramdisk_enabled():
+    p = normalize_artifact_rel_path(rel_path)
+    if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         if not cache_root_full:
-            raise ValueError("state/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root_full, rel_path)
-    base = cache_root_full if (cache_root_full and is_hot_artifact_path(rel_path)) else workspace_full
-    return os.path.join(base, rel_path)
+            raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
+        return os.path.join(cache_root_full, p)
+    base = cache_root_full if (cache_root_full and is_hot_artifact_path(p)) else workspace_full
+    return os.path.join(base, p)
 
 
 def is_run_artifact(rel_path: str) -> bool:
@@ -261,9 +345,9 @@ def stop_flag_path(workspace: str) -> str:
     if state_to_ramdisk_enabled():
         cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
         if not cache_root:
-            raise ValueError("state/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root, "state", "ollama", "PM_STOP.flag")
-    return os.path.join(workspace, "state", "ollama", "PM_STOP.flag")
+            raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
+        return os.path.join(cache_root, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+    return os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
 
 
 def stop_requested(workspace: str) -> bool:
@@ -275,6 +359,31 @@ def stop_requested(workspace: str) -> bool:
 
 def clear_stop_flag(workspace: str) -> None:
     path = stop_flag_path(workspace)
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def director_stop_flag_path(workspace: str) -> str:
+    if state_to_ramdisk_enabled():
+        cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
+        if not cache_root:
+            raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
+        return os.path.join(cache_root, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
+    return os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
+
+
+def director_stop_requested(workspace: str) -> bool:
+    try:
+        return os.path.exists(director_stop_flag_path(workspace))
+    except Exception:
+        return False
+
+
+def clear_director_stop_flag(workspace: str) -> None:
+    path = director_stop_flag_path(workspace)
     try:
         if os.path.exists(path):
             os.remove(path)
@@ -798,7 +907,10 @@ def _decode_text_bytes(data: bytes) -> str:
 
 def read_file_safe(path: str) -> str:
     if not os.path.exists(path):
-        return ""
+        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
+        if legacy_path == path or not os.path.exists(legacy_path):
+            return ""
+        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read()
@@ -809,7 +921,10 @@ def read_file_safe(path: str) -> str:
 
 def read_memory_snapshot(path: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
-        return None
+        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
+        if legacy_path == path or not os.path.exists(legacy_path):
+            return None
+        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read()

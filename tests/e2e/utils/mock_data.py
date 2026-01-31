@@ -217,11 +217,11 @@ class MockDataGenerator:
     def generate_artifacts(self) -> List[str]:
         """Generate artifact paths"""
         artifacts = [
-            "state/ollama/RUNLOG.md",
-            "state/ollama/QA_RESPONSE.md",
-            "state/ollama/REVIEW_RESPONSE.md",
-            "state/ollama/events.jsonl",
-            "state/ollama/trajectory.json"
+            ".harborpilot/ollama/RUNLOG.md",
+            ".harborpilot/ollama/QA_RESPONSE.md",
+            ".harborpilot/ollama/REVIEW_RESPONSE.md",
+            ".harborpilot/ollama/events.jsonl",
+            ".harborpilot/ollama/trajectory.json"
         ]
         return random.sample(artifacts, random.randint(2, 5))
     

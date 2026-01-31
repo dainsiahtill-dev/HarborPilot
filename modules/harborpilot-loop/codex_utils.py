@@ -98,7 +98,7 @@ def invoke_codex(
 ) -> str:
     codex_path = ensure_codex_available()
     if not output_file:
-        output_file = os.path.join(workspace, "state", "ollama", "CODEX_LAST_MESSAGE.md")
+        output_file = os.path.join(workspace, ".harborpilot", "ollama", "CODEX_LAST_MESSAGE.md")
     ensure_parent_dir(output_file)
 
     args = ["exec", "--cd", workspace, "--output-last-message", output_file, "--color", "never"]

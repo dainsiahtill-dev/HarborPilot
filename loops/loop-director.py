@@ -40,7 +40,6 @@ REQUIRED_MODULE_FILES = (
     "io_utils.py",
     "policy.py",
     "ollama_utils.py",
-    "ports.py",
     "prompts.py",
     "shared.py",
 )
@@ -84,6 +83,9 @@ try:
         resolve_ramdisk_root,
         resolve_run_dir,
         state_to_ramdisk_enabled,
+        workspace_has_docs,
+        write_workspace_status,
+        clear_workspace_status,
         ensure_memory_dir,
         ensure_ollama_available,
         ensure_parent_dir,
@@ -101,12 +103,13 @@ try:
         set_dialogue_seq,
         set_event_seq,
         stop_requested,
+        director_stop_requested,
+        clear_director_stop_flag,
         update_latest_pointer,
         write_json_atomic,
         write_text_atomic,
     )
     from ollama_utils import invoke_ollama
-    from ports import PORTS, plan_port_policy, stop_port_process
     from policy import (
         apply_overrides,
         apply_task_overrides,
@@ -151,16 +154,6 @@ except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
 
-def get_port_summary() -> str:
-    try:
-        from ports import get_port_summary as _get_port_summary  # type: ignore
-    except Exception:
-        return "- 3180: unknown"
-    try:
-        return _get_port_summary()
-    except Exception:
-        return "- 3180: unknown"
-
 @dataclass
 class State:
     """State container for the loop execution."""
@@ -179,8 +172,6 @@ class State:
     show_output: bool
     model: str
     timeout: int
-    kill_on_port_conflict: bool
-    port_policy: str
     auto_pick_target: bool
     memory_backend: str
     memory_enabled: bool
@@ -673,36 +664,9 @@ def build_required_tool_plan(required: Dict[str, Any]) -> List[Dict[str, Any]]:
                     )
     return plan
 
-def plan_mentions_ports(plan_text: str) -> bool:
-    if not plan_text:
-        return False
-    lowered = plan_text.lower()
-    if "port" in lowered or "ports" in lowered:
-        return True
-    if re.search(r"[\u7aef\u53e3]", plan_text):
-        return True
-    return False
 
-
-def is_port_focused(payload: Dict[str, Any]) -> bool:
-    brief = payload.get("brief") or ""
-    notes = ""
-    raw_payload = payload.get("payload")
-    if isinstance(raw_payload, dict):
-        notes = raw_payload.get("notes") or ""
-    text = f"{brief}\n{notes}".lower()
-    if "port" in text or "ports" in text or "端口" in text:
-        return True
-    files = payload.get("files") or []
-    for path in files:
-        if "vite.config" in path or "physics-lab" in path:
-            if "port" in text or "端口" in text:
-                return True
-    return False
-
-
-def run_planner(state: State, plan_text: str, memory_summary: str, port_summary: str, port_policy_note: str, target_note: str) -> str:
-    prompt = build_planner_prompt(plan_text, memory_summary, port_summary, port_policy_note, target_note)
+def run_planner(state: State, plan_text: str, memory_summary: str, target_note: str) -> str:
+    prompt = build_planner_prompt(plan_text, memory_summary, target_note)
     output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
     write_text(state.planner_full, output)
     append_log(state.log_full, "[PLANNER]\n" + strip_ansi(output) + "\n")
@@ -799,6 +763,43 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "changed_files": changed_files or [],
         }
 
+    if director_stop_requested(state.workspace_full):
+        clear_director_stop_flag(state.workspace_full)
+        append_log(log_path, "[INFO] Director stop requested. Exiting before run.\n")
+        run_id = f"pm-{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"dir-{index:05d}"
+        emit_dialogue(
+            state.dialogue_full,
+            speaker="System",
+            type="warning",
+            text="Director stop requested. Exiting.",
+            summary="Director stop requested",
+            run_id=run_id,
+            pm_iteration=pm_iteration,
+            director_iteration=index,
+        )
+        write_director_result(
+            state,
+            build_result(
+                "blocked",
+                "Stop requested",
+                acceptance=None,
+                task_id=pm_task_id,
+                task_fingerprint=pm_task_fingerprint,
+                task_title=pm_task_title,
+                task_goal=pm_task_goal,
+                pm_iteration=pm_iteration,
+                error_code="STOP_REQUESTED",
+                duration=0,
+            ),
+        )
+        return {
+            "ok": False,
+            "acceptance": None,
+            "changed_files": [],
+            "error": "Stop requested",
+            "duration": 0,
+        }
+
     if stop_requested(state.workspace_full):
         append_log(log_path, "[INFO] Stop requested. Exiting before run.\n")
         run_id = f"pm-{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"dir-{index:05d}"
@@ -833,22 +834,6 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "error": "Stop requested",
             "duration": 0,
         }
-
-    if state.kill_on_port_conflict:
-        for port in PORTS:
-            if stop_port_process(port):
-                append_log(log_path, f"[INFO] Killed process on port {port}.\n")
-
-    port_plan = plan_port_policy(state.port_policy)
-    port_policy_note = ""
-    if port_plan.get("policy"):
-        header = f"Port policy: {port_plan['policy']}"
-        if port_plan.get("notes"):
-            port_policy_note = header + "\n" + "\n".join(port_plan["notes"])
-        else:
-            port_policy_note = header
-    if port_policy_note:
-        append_log(log_path, port_policy_note + "\n")
 
     plan_text = read_file_safe(state.plan_full).strip()
     if not plan_text:
@@ -885,7 +870,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     pm_task_goal = ""
     pm_task_acceptance: List[str] = []
     pm_iteration = None
-    pm_task_path = state.pm_task_path or os.path.join(state.workspace_full, "scripts", "state", "ollama", "PM_TASKS.json")
+    pm_task_path = state.pm_task_path or os.path.join(state.workspace_full, "scripts", ".harborpilot", "ollama", "PM_TASKS.json")
     try:
         if os.path.isfile(pm_task_path):
             pm_payload = parse_json_payload(read_file_safe(pm_task_path))
@@ -1286,41 +1271,6 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "changed_files": [],
             "error": "Missing file list",
             "duration": time.time() - run_start
-        }
-
-    if is_port_focused(planner_payload) and not plan_mentions_ports(plan_text):
-        append_log(log_path, "[ERROR] Planner focused on ports but plan did not mention ports. Skipping.\n")
-        duration = time.time() - run_start
-        write_director_result(
-            state,
-            build_result(
-                "blocked",
-                "Port-focused plan blocked",
-                acceptance=None,
-                task_id=pm_task_id,
-                task_fingerprint=pm_task_fingerprint,
-                task_title=pm_task_title,
-                task_goal=pm_task_goal,
-                pm_iteration=pm_iteration,
-                error_code="POLICY_BLOCKED",
-                failure_code="POLICY_BLOCKED",
-                duration=duration,
-            ),
-        )
-        if state.continue_on_error:
-            return {
-                "ok": True,
-                "acceptance": None,
-                "changed_files": [],
-                "error": "Port-focused plan blocked",
-                "duration": time.time() - run_start,
-            }
-        return {
-            "ok": False,
-            "acceptance": None,
-            "changed_files": [],
-            "error": "Port-focused plan blocked",
-            "duration": time.time() - run_start,
         }
 
     plan_event = _compact_plan_for_event(plan_payload)
@@ -1743,7 +1693,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="HarborPilot Director loop (Ollama)")
-    parser.add_argument("--plan-path", "-PlanPath", default="state/ollama/PLAN.md")
+    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/ollama/PLAN.md")
     default_auto_plan = str(os.environ.get("HARBORPILOT_AUTO_PLAN", "1")).strip().lower() not in (
         "0",
         "false",
@@ -1763,13 +1713,13 @@ def main() -> int:
         action="store_false",
         help="Require manual PLAN.md; exit after generating template.",
     )
-    parser.add_argument("--log-path", "-LogPath", default="state/ollama/RUNLOG.md")
-    parser.add_argument("--planner-response-path", "-PlannerResponsePath", default="state/ollama/PLANNER_RESPONSE.md")
-    parser.add_argument("--ollama-response-path", "-OllamaResponsePath", default="state/ollama/OLLAMA_RESPONSE.md")
-    parser.add_argument("--qa-response-path", "-QaResponsePath", default="state/ollama/QA_RESPONSE.md")
-    parser.add_argument("--reviewer-response-path", "-ReviewerResponsePath", default="state/ollama/REVIEW_RESPONSE.md")
-    parser.add_argument("--director-result-path", "-DirectorResultPath", default="state/ollama/DIRECTOR_RESULT.json")
-    parser.add_argument("--policy-path", default="state/ollama/director_policy.json")
+    parser.add_argument("--log-path", "-LogPath", default=".harborpilot/ollama/RUNLOG.md")
+    parser.add_argument("--planner-response-path", "-PlannerResponsePath", default=".harborpilot/ollama/PLANNER_RESPONSE.md")
+    parser.add_argument("--ollama-response-path", "-OllamaResponsePath", default=".harborpilot/ollama/OLLAMA_RESPONSE.md")
+    parser.add_argument("--qa-response-path", "-QaResponsePath", default=".harborpilot/ollama/QA_RESPONSE.md")
+    parser.add_argument("--reviewer-response-path", "-ReviewerResponsePath", default=".harborpilot/ollama/REVIEW_RESPONSE.md")
+    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/ollama/DIRECTOR_RESULT.json")
+    parser.add_argument("--policy-path", default=".harborpilot/ollama/director_policy.json")
     parser.add_argument("--workspace", "-Workspace", default=os.getcwd())
     parser.add_argument("--iterations", "-Iterations", type=int, default=1)
     parser.add_argument("--delay-seconds", "-DelaySeconds", type=int, default=0)
@@ -1803,11 +1753,9 @@ def main() -> int:
     parser.add_argument("--show-output", "-ShowOutput", action="store_true")
     parser.add_argument("--model", "-Model", default="modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest")
     parser.add_argument("--timeout", "-Timeout", type=int, default=0)
-    parser.add_argument("--kill-on-port-conflict", "-KillOnPortConflict", action="store_true")
-    parser.add_argument("--port-policy", "-PortPolicy", default="auto")
     parser.add_argument("--auto-pick-target", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--memory-backend", "-MemoryBackend", default="lancedb")
-    parser.add_argument("--memory-dir", "-MemoryDir", default="state/ollama/memory")
+    parser.add_argument("--memory-dir", "-MemoryDir", default=".harborpilot/ollama/memory")
     parser.add_argument("--memory-max-chars", "-MemoryMaxChars", type=int, default=2000)
     parser.add_argument("--run-npm", dest="run_npm", action=argparse.BooleanOptionalAction, default=False)
     default_npm_timeout = _read_int_env("HARBORPILOT_NPM_TIMEOUT", 600)
@@ -1815,13 +1763,13 @@ def main() -> int:
         default_npm_timeout = 0
     parser.add_argument("--npm-timeout", "-NpmTimeout", type=int, default=default_npm_timeout)
     parser.add_argument("--gap-review", dest="gap_review", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--gap-report-path", "-GapReportPath", default="state/ollama/GAP_REPORT.md")
+    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/ollama/GAP_REPORT.md")
     parser.add_argument("--gap-max-headings", "-GapMaxHeadings", type=int, default=200)
     parser.add_argument("--gap-max-files", "-GapMaxFiles", type=int, default=200)
     parser.add_argument("--gap-write-plan", dest="gap_write_plan", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--pm-task-path", "-PmTaskPath", default="state/ollama/PM_TASKS.json")
-    parser.add_argument("--dialogue-path", "-DialoguePath", default="state/ollama/DIALOGUE.jsonl")
-    parser.add_argument("--events-path", "-EventsPath", default="state/ollama/events.jsonl")
+    parser.add_argument("--pm-task-path", "-PmTaskPath", default=".harborpilot/ollama/PM_TASKS.json")
+    parser.add_argument("--dialogue-path", "-DialoguePath", default=".harborpilot/ollama/DIALOGUE.jsonl")
+    parser.add_argument("--events-path", "-EventsPath", default=".harborpilot/ollama/events.jsonl")
     parser.add_argument("--prompt-profile", default="demo_ming_armada", help="Prompt profile (e.g. demo_ming_armada, generic).")
     parser.add_argument("--default-tools", dest="default_tools", action=argparse.BooleanOptionalAction, default=True, help="Run default QA tool chain (ruff/mypy/pytest) when PatchPlanner provides no tool_commands.")
     parser.add_argument("--ramdisk-root", default="", help="Optional RAM-disk root (Windows default: X:). High-frequency artifacts will be written here.")
@@ -1835,12 +1783,22 @@ def main() -> int:
     try:
         if args.prompt_profile:
             os.environ[PROMPT_PROFILE_ENV] = str(args.prompt_profile).strip()
-        ensure_ollama_available()
         stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         mode = "forever" if args.forever else f"iterations={args.iterations}"
         print(f"[director] {stamp} start {mode}")
         sys.stdout.flush()
-        workspace_full = resolve_workspace_path(args.workspace)
+        workspace_full = resolve_workspace_path(args.workspace, require_docs=False)
+        if not workspace_has_docs(workspace_full):
+            write_workspace_status(
+                workspace_full,
+                status="NEEDS_DOCS_INIT",
+                reason="docs/ directory not found",
+                actions=["INIT_DOCS_WIZARD"],
+            )
+            print(f"[workspace] docs/ not found at {workspace_full}. Run docs init and retry.")
+            return 2
+        clear_workspace_status(workspace_full)
+        ensure_ollama_available()
         os.chdir(workspace_full)
 
         ramdisk_root = resolve_ramdisk_root(getattr(args, "ramdisk_root", None))
@@ -1923,8 +1881,6 @@ def main() -> int:
             show_output=args.show_output,
             model=args.model,
             timeout=args.timeout,
-            kill_on_port_conflict=args.kill_on_port_conflict,
-            port_policy=args.port_policy,
             auto_pick_target=args.auto_pick_target,
             memory_backend=memory_backend,
             memory_enabled=memory_enabled,

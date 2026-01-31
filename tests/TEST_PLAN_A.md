@@ -60,7 +60,6 @@ Tests: `tests/test_tools_repo_io.py`
 Coverage: repo_read_* slices and repo_rg hit detection
 
 Component: Ports
-Tests: `tests/test_ports.py`
 Coverage: port policy recommendations and summary formatting (mocked)
 
 Component: External Adapters (Safe Unit Coverage)

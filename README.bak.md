@@ -61,7 +61,7 @@ python loops/loop-director.py --workspace /path/to/repo --iterations 1
 
 ## 2. 产物在哪里看？
 
-所有运行产物默认生成在 workspace 下的 `state/ollama/` 目录 (建议配置 `state/runs/` 指向内存盘)：
+所有运行产物默认生成在 workspace 下的 `.harborpilot/ollama/` 目录 (建议配置 `.harborpilot/ollama/runs/` 指向内存盘)：
 
 *   **任务与计划**: `PM_TASKS.json`, `PLAN.md`
 *   **执行结果**: `DIRECTOR_RESULT.json`, `RUNLOG.md`

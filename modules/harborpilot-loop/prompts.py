@@ -9,8 +9,6 @@ from io_utils import ensure_parent_dir, read_file_safe
 def build_project_prompt(
     plan_text: str,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     template = get_template("project_prompt")
@@ -19,8 +17,6 @@ def build_project_prompt(
         {
             "plan_text": plan_text,
             "memory_summary": memory_summary,
-            "port_summary": port_summary,
-            "port_policy_note": port_policy_note,
             "target_note": target_note,
         },
     )
@@ -31,8 +27,6 @@ def build_continuation_prompt(
     last_response: str,
     decision_number: int,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     template = get_template("continuation_prompt")
@@ -43,8 +37,6 @@ def build_continuation_prompt(
             "last_response": last_response,
             "decision_number": decision_number,
             "memory_summary": memory_summary,
-            "port_summary": port_summary,
-            "port_policy_note": port_policy_note,
             "target_note": target_note,
         },
     )
@@ -65,8 +57,6 @@ def build_repair_prompt(plan_text: str, last_response: str, reason: str) -> str:
 def build_planner_prompt(
     plan_text: str,
     memory_summary: str,
-    port_summary: str,
-    port_policy_note: str,
     target_note: str,
 ) -> str:
     template = get_template("planner_prompt")
@@ -75,8 +65,6 @@ def build_planner_prompt(
         {
             "plan_text": plan_text,
             "memory_summary": memory_summary,
-            "port_summary": port_summary,
-            "port_policy_note": port_policy_note,
             "target_note": target_note,
         },
     )

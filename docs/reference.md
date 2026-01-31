@@ -16,7 +16,6 @@ harborpilot/
     prompts.py           # Prompt 组装
     prompt_loader.py     # 模板加载
     decision.py          # 任务决策逻辑
-    ports.py             # 端口检测
     codex_utils.py       # Codex 后端适配
     ollama_utils.py      # Ollama 后端适配
     shared.py            # 公共工具
@@ -26,7 +25,7 @@ harborpilot/
   prompts/
     demo_ming_armada.json # 默认角色模板
     generic.json          # 通用模板
-  state/ollama/          # 默认产物目录 (推荐指向 RAMDISK)
+  .harborpilot/ollama/          # 默认产物目录 (推荐指向 RAMDISK)
     memos/               # 备忘录归档
     evidence/            # 取证数据
     runs/                # 历史运行归档
@@ -36,7 +35,7 @@ harborpilot/
 
 ## 2. 运行产物索引
 
-所有产物默认位于 `workspace/state/ollama/` 下：
+所有产物默认位于 `workspace/.harborpilot/ollama/` 下：
 
 | 文件名 | 说明 | 消费者 |
 | :--- | :--- | :--- |
@@ -66,7 +65,7 @@ harborpilot/
 *   `failure_code`: 失败原因分类码。
     *   `QA_FAIL`: 所有的测试或验证未通过。
     *   `RISK_BLOCKED`: 风险评分过高，触发阻断阈值。
-    *   `POLICY_BLOCKED`: 违反了端口或安全策略。
+*   `POLICY_BLOCKED`: 违反了安全策略。
     *   `TOOL_BUDGET_EXCEEDED`: 工具调用次数或行数超出预算。
     *   `PLANNER_FAILURE`: 无法生成有效计划。
 *   `patch_risk`: 代码变更风险评估。
@@ -86,7 +85,7 @@ harborpilot/
 
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `--workspace` | **[必填]** 目标仓库路径 (需含 `docs/`) | - |
+| `--workspace` | **[必填]** 目标仓库路径 (缺少 `docs/` 会进入初始化流程) | - |
 | `--pm-backend` | 后端选择: `codex` \| `ollama` | `codex` |
 | `--requirements-path` | 需求文档路径 | `docs/product/requirements.md` |
 | `--run-director` | 是否自动拉起 Director | `False` |
@@ -157,7 +156,7 @@ HarborPilot 内置了 `tools.py` 统一入口。
 
 | 变量 | 说明 |
 | :--- | :--- |
-| `HARBORPILOT_STATE_TO_RAMDISK` | 设为 `1` 强制将 `state/` 指向内存盘 (X:\) |
+| `HARBORPILOT_STATE_TO_RAMDISK` | 设为 `1` 强制将 `.harborpilot/` 指向内存盘 (X:\) |
 | `HARBORPILOT_PM_BACKEND` | 默认 PM 后端 (`codex`\|`ollama`) |
 | `HARBORPILOT_DIRECTOR_MODEL` | 默认 Director 模型 |
 
@@ -183,7 +182,7 @@ python -c "import os; print('OK' if os.path.exists('X:\\') else 'MISSING')"
 
 PM Loop 通过 `--director-match-mode` 参数控制如何寻找 Director 的产物：
 
-*   **`latest` (默认)**: 读取 `state/runs/latest` 软链或指针，始终获取最近一次运行的结果。适合单机串行模式。
+*   **`latest` (默认)**: 读取 `.harborpilot/ollama/runs/latest` 软链或指针，始终获取最近一次运行的结果。适合单机串行模式。
 *   **`run_id`**: 必须匹配当前 PM 分配的 `run_id`。适合严格的流水线集成。
 *   **`any`**: 只要有任何 `DIRECTOR_RESULT.json` 就读取。适合调试或松散耦合。
 *   **`strict`**: 类似 `run_id`，但如果未找到会抛出错误而不是等待。

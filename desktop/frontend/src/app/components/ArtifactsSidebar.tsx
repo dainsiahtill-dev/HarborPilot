@@ -18,43 +18,43 @@ const artifactGroups: ArtifactGroup[] = [
   {
     name: 'PM 产物',
     items: [
-      { id: 'pm-tasks', name: 'PM_TASKS.json', icon: FileJson, path: 'state/ollama/PM_TASKS.json', badge: 'Contract' },
-      { id: 'pm-report', name: 'PM_REPORT.md', icon: FileText, path: 'state/ollama/PM_REPORT.md' },
-      { id: 'plan', name: 'PLAN.md', icon: FileText, path: 'state/ollama/PLAN.md' },
-      { id: 'pm-state', name: 'PM_STATE.json', icon: FileJson, path: 'state/ollama/PM_STATE.json' },
+      { id: 'pm-tasks', name: 'PM_TASKS.json', icon: FileJson, path: '.harborpilot/ollama/PM_TASKS.json', badge: 'Contract' },
+      { id: 'pm-report', name: 'PM_REPORT.md', icon: FileText, path: '.harborpilot/ollama/PM_REPORT.md' },
+      { id: 'plan', name: 'PLAN.md', icon: FileText, path: '.harborpilot/ollama/PLAN.md' },
+      { id: 'pm-state', name: 'PM_STATE.json', icon: FileJson, path: '.harborpilot/ollama/PM_STATE.json' },
     ],
   },
   {
     name: 'Director 产物',
     items: [
-      { id: 'director-result', name: 'DIRECTOR_RESULT.json', icon: FileJson, path: 'state/ollama/DIRECTOR_RESULT.json', badge: 'Result' },
-      { id: 'planner', name: 'PLANNER_RESPONSE.md', icon: FileText, path: 'state/ollama/PLANNER_RESPONSE.md' },
-      { id: 'ollama', name: 'OLLAMA_RESPONSE.md', icon: FileText, path: 'state/ollama/OLLAMA_RESPONSE.md' },
-      { id: 'runlog', name: 'RUNLOG.md', icon: FileText, path: 'state/ollama/RUNLOG.md' },
-      { id: 'director-subprocess', name: 'DIRECTOR_SUBPROCESS.log', icon: FileText, path: 'state/ollama/DIRECTOR_SUBPROCESS.log' },
+      { id: 'director-result', name: 'DIRECTOR_RESULT.json', icon: FileJson, path: '.harborpilot/ollama/DIRECTOR_RESULT.json', badge: 'Result' },
+      { id: 'planner', name: 'PLANNER_RESPONSE.md', icon: FileText, path: '.harborpilot/ollama/PLANNER_RESPONSE.md' },
+      { id: 'ollama', name: 'OLLAMA_RESPONSE.md', icon: FileText, path: '.harborpilot/ollama/OLLAMA_RESPONSE.md' },
+      { id: 'runlog', name: 'RUNLOG.md', icon: FileText, path: '.harborpilot/ollama/RUNLOG.md' },
+      { id: 'director-subprocess', name: 'DIRECTOR_SUBPROCESS.log', icon: FileText, path: '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log' },
     ],
   },
   {
     name: 'QA & Review',
     items: [
-      { id: 'qa', name: 'QA_RESPONSE.md', icon: FileText, path: 'state/ollama/QA_RESPONSE.md', badge: 'QA' },
-      { id: 'review', name: 'REVIEW_RESPONSE.md', icon: FileText, path: 'state/ollama/REVIEW_RESPONSE.md' },
-      { id: 'gap', name: 'GAP_REPORT.md', icon: FileText, path: 'state/ollama/GAP_REPORT.md' },
+      { id: 'qa', name: 'QA_RESPONSE.md', icon: FileText, path: '.harborpilot/ollama/QA_RESPONSE.md', badge: 'QA' },
+      { id: 'review', name: 'REVIEW_RESPONSE.md', icon: FileText, path: '.harborpilot/ollama/REVIEW_RESPONSE.md' },
+      { id: 'gap', name: 'GAP_REPORT.md', icon: FileText, path: '.harborpilot/ollama/GAP_REPORT.md' },
     ],
   },
   {
     name: '事件流',
     items: [
-      { id: 'dialogue', name: 'DIALOGUE.jsonl', icon: MessageSquare, path: 'state/ollama/DIALOGUE.jsonl' },
-      { id: 'events', name: 'events.jsonl', icon: Activity, path: 'state/ollama/events.jsonl' },
-      { id: 'trajectory', name: 'trajectory.json', icon: FileJson, path: 'state/ollama/trajectory.json' },
+      { id: 'dialogue', name: 'DIALOGUE.jsonl', icon: MessageSquare, path: '.harborpilot/ollama/DIALOGUE.jsonl' },
+      { id: 'events', name: 'events.jsonl', icon: Activity, path: '.harborpilot/ollama/events.jsonl' },
+      { id: 'trajectory', name: 'trajectory.json', icon: FileJson, path: '.harborpilot/ollama/trajectory.json' },
     ],
   },
   {
     name: 'Config & Memory',
     items: [
-      { id: 'policy', name: 'director_policy.json', icon: FileJson, path: 'state/ollama/director_policy.json' },
-      { id: 'memory', name: 'last_state.json', icon: FileJson, path: 'state/ollama/memory/last_state.json' },
+      { id: 'policy', name: 'director_policy.json', icon: FileJson, path: '.harborpilot/ollama/director_policy.json' },
+      { id: 'memory', name: 'last_state.json', icon: FileJson, path: '.harborpilot/ollama/memory/last_state.json' },
     ],
   },
 ];
@@ -88,7 +88,7 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
     <div className="h-full bg-[#1e1e1e] border-r border-gray-800 flex flex-col">
       <div className="px-4 py-3 border-b border-gray-800">
         <h2 className="text-sm font-semibold text-gray-300">运行产物</h2>
-        <p className="text-xs text-gray-500 mt-1">state/ollama/</p>
+        <p className="text-xs text-gray-500 mt-1">.harborpilot/ollama/</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
