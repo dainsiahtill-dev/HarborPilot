@@ -90,6 +90,11 @@ npm run dev
 2.  设置 **PM Backend** (推荐 Codex) 和 **Director Model** (推荐 Ollama)。
 3.  点击 **Start PM** 开始规划循环。
 
+Dashboard 提供本地后端 API（FastAPI）用于：
+*   启动/停止 PM 与 Director 子进程、查看运行历史与产物
+*   通过 WebSocket 推送状态与日志增量
+*   应用 AGENTS 草稿到 workspace（落地为 `AGENTS.md`）
+
 ### 1.2 CLI 运行
 
 如果你喜欢命令行：
@@ -143,7 +148,7 @@ python loops/loop-director.py --workspace /path/to/repo --iterations 1
     所有产物、引用 (refs)、备忘录 (memo)、轨迹 (trajectory) 都必须以 `run_id` 为主键串联。无 `run_id` 的孤儿数据将被视为无效。
 
 4.  **观测优先 (UI Read-Only)**
-    Dashboard UI **只读**。UI 不产生决策、不修改状态、不直接操作代码。所有状态变更必须由 CLI Loop 产生。
+    Dashboard 负责观测与触发（启动/停止 Loop、查看日志/产物），但 **不直接修改 workspace 源码**。所有代码变更必须由 Director Loop 产生，并写入 `events.jsonl` 便于回放与审计。
 
 5.  **可回放 (Replayable)**
     仅依靠 `events.jsonl` + `trajectory.json` + `artifacts paths` 必须能完全重建关键过程。不应依赖任何未记录的外部状态。

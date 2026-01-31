@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import subprocess
 import sys
@@ -58,12 +58,19 @@ def get_port_status(port: int) -> str:
         return f"in use (PID {pid})"
 
     try:
+        timeout_sec = 0
+        try:
+            timeout_sec = int(str(os.environ.get("HARBORPILOT_NETSTAT_TIMEOUT", "3")).strip())
+        except Exception:
+            timeout_sec = 3
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         output = subprocess.check_output(
             ["netstat", "-ano", "-p", "tcp"],
             text=True,
             encoding="utf-8",
             errors="ignore",
             env=_build_utf8_env(),
+            timeout=timeout_val,
         )
         for line in output.splitlines():
             line = line.strip()
@@ -166,12 +173,19 @@ def stop_port_process(port: int) -> bool:
         pid = None
 
     try:
+        timeout_sec = 0
+        try:
+            timeout_sec = int(str(os.environ.get("HARBORPILOT_NETSTAT_TIMEOUT", "3")).strip())
+        except Exception:
+            timeout_sec = 3
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         output = subprocess.check_output(
             ["netstat", "-ano", "-p", "tcp"],
             text=True,
             encoding="utf-8",
             errors="ignore",
             env=_build_utf8_env(),
+            timeout=timeout_val,
         )
         for line in output.splitlines():
             line = line.strip()
@@ -194,6 +208,7 @@ def stop_port_process(port: int) -> bool:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=_build_utf8_env(),
+                timeout=timeout_val,
             )
             return True
         except Exception:

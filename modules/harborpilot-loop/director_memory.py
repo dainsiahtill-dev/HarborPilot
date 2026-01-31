@@ -92,6 +92,12 @@ def invoke_lancedb_store(db_dir: str, json_path: str, log_path: str) -> Optional
         write_loop_warning(log_path, f"LanceDB store script missing: {script_path}")
         return "LANCEDB_STORE_SCRIPT_MISSING"
     try:
+        timeout_sec = 0
+        try:
+            timeout_sec = int(str(os.environ.get("HARBORPILOT_LANCEDB_STORE_TIMEOUT", "60")).strip())
+        except Exception:
+            timeout_sec = 60
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         result = subprocess.run(
             [sys.executable, script_path, "--db", db_dir, "--json", json_path],
             stdout=subprocess.PIPE,
@@ -100,10 +106,14 @@ def invoke_lancedb_store(db_dir: str, json_path: str, log_path: str) -> Optional
             encoding="utf-8",
             errors="replace",
             env=_build_utf8_env(),
+            timeout=timeout_val,
         )
         if result.stderr:
             write_loop_warning(log_path, f"LanceDB store stderr: {result.stderr}")
             return "LANCEDB_STORE_STDERR"
+    except subprocess.TimeoutExpired:
+        write_loop_warning(log_path, "LanceDB store timeout")
+        return "LANCEDB_STORE_TIMEOUT"
     except Exception as exc:
         write_loop_warning(log_path, f"LanceDB store failed: {exc}")
         return "LANCEDB_STORE_FAILED"

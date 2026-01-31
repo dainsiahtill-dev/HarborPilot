@@ -479,10 +479,35 @@ def filter_npm_commands(commands: List[str]) -> List[str]:
         normalized = cmd.strip()
         if not normalized:
             continue
-        lowered = normalized.lower()
-        if lowered.startswith("npm "):
+        tokens = normalize_npm_command(normalized)
+        if tokens:
             allowed.append(normalized)
     return allowed
+
+
+def normalize_npm_command(cmd: str) -> List[str]:
+    if not cmd:
+        return []
+    normalized = cmd.strip()
+    if not normalized:
+        return []
+    if "\n" in normalized or "\r" in normalized:
+        return []
+    for ch in ("&", "|", ";", ">", "<"):
+        if ch in normalized:
+            return []
+    try:
+        tokens = shlex.split(normalized, posix=os.name != "nt")
+    except ValueError:
+        return []
+    if not tokens:
+        return []
+    exe_name = os.path.basename(tokens[0]).lower()
+    if exe_name not in ("npm", "npm.cmd", "npm.exe"):
+        return []
+    if len(tokens) < 2:
+        return []
+    return tokens
 
 
 def normalize_tool_command(cmd: str) -> List[str]:
@@ -692,11 +717,20 @@ def run_npm_commands(state: Any, commands: List[str], log_path: str) -> List[Dic
     results: List[Dict[str, Any]] = []
     if not commands:
         return results
-    safe_commands = filter_npm_commands(commands)
+    safe_commands: List[Dict[str, Any]] = []
+    for cmd in commands:
+        normalized = cmd.strip()
+        if not normalized:
+            continue
+        tokens = normalize_npm_command(normalized)
+        if tokens:
+            safe_commands.append({"command": normalized, "tokens": tokens})
     if not safe_commands:
         _append_log(log_path, "[WARN] No npm commands to run (filtered by safety rules).\n")
         return results
-    for cmd in safe_commands:
+    for item in safe_commands:
+        cmd = item["command"]
+        tokens = item["tokens"]
         emit_event(
             getattr(state, "events_full", ""),
             kind="action",
@@ -710,8 +744,7 @@ def run_npm_commands(state: Any, commands: List[str], log_path: str) -> List[Dic
         try:
             start_ts = time.time()
             result = subprocess.run(
-                cmd,
-                shell=True,
+                tokens,
                 cwd=state.workspace_full,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

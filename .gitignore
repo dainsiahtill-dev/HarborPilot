@@ -12,4 +12,5 @@ state/ollama/runs/
 /desktop/node_modules/
 /desktop/frontend/dist/
 /desktop/frontend/.vite/
+/desktop/frontend/node_modules/
 /desktop/*.log

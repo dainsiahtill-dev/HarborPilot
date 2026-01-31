@@ -667,6 +667,12 @@ def resolve_codex_path() -> Optional[str]:
     path = shutil.which("codex")
     if path:
         return path
+    timeout_sec = 0
+    try:
+        timeout_sec = int(str(os.environ.get("HARBORPILOT_PATH_RESOLVE_TIMEOUT", "3")).strip())
+    except Exception:
+        timeout_sec = 3
+    timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
     try:
         output = subprocess.check_output(
             ["where", "codex"],
@@ -674,6 +680,7 @@ def resolve_codex_path() -> Optional[str]:
             encoding="utf-8",
             errors="ignore",
             env=build_utf8_env(),
+            timeout=timeout_val,
         )
         for line in output.splitlines():
             line = line.strip()
@@ -693,6 +700,7 @@ def resolve_codex_path() -> Optional[str]:
             encoding="utf-8",
             errors="ignore",
             env=build_utf8_env(),
+            timeout=timeout_val,
         )
         for line in output.splitlines():
             line = line.strip()
@@ -714,6 +722,12 @@ def resolve_ollama_path() -> Optional[str]:
     path = shutil.which("ollama")
     if path:
         return path
+    timeout_sec = 0
+    try:
+        timeout_sec = int(str(os.environ.get("HARBORPILOT_PATH_RESOLVE_TIMEOUT", "3")).strip())
+    except Exception:
+        timeout_sec = 3
+    timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
     try:
         output = subprocess.check_output(
             ["where", "ollama"],
@@ -721,6 +735,7 @@ def resolve_ollama_path() -> Optional[str]:
             encoding="utf-8",
             errors="ignore",
             env=build_utf8_env(),
+            timeout=timeout_val,
         )
         for line in output.splitlines():
             line = line.strip()

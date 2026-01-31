@@ -1785,6 +1785,14 @@ def main() -> int:
         "no",
         "off",
     )
+    def _read_int_env(name: str, default: int) -> int:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        try:
+            return int(str(raw).strip())
+        except Exception:
+            return default
     parser.add_argument("--qa", dest="qa_enabled", action="store_true", default=default_qa_enabled)
     parser.add_argument("--no-qa", dest="qa_enabled", action="store_false")
     parser.add_argument("--risk-block-threshold", type=int, default=0, help="Block run when patch risk score >= threshold (0 disables).")
@@ -1801,8 +1809,11 @@ def main() -> int:
     parser.add_argument("--memory-backend", "-MemoryBackend", default="lancedb")
     parser.add_argument("--memory-dir", "-MemoryDir", default="state/ollama/memory")
     parser.add_argument("--memory-max-chars", "-MemoryMaxChars", type=int, default=2000)
-    parser.add_argument("--run-npm", dest="run_npm", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--npm-timeout", "-NpmTimeout", type=int, default=0)
+    parser.add_argument("--run-npm", dest="run_npm", action=argparse.BooleanOptionalAction, default=False)
+    default_npm_timeout = _read_int_env("HARBORPILOT_NPM_TIMEOUT", 600)
+    if default_npm_timeout < 0:
+        default_npm_timeout = 0
+    parser.add_argument("--npm-timeout", "-NpmTimeout", type=int, default=default_npm_timeout)
     parser.add_argument("--gap-review", dest="gap_review", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gap-report-path", "-GapReportPath", default="state/ollama/GAP_REPORT.md")
     parser.add_argument("--gap-max-headings", "-GapMaxHeadings", type=int, default=200)

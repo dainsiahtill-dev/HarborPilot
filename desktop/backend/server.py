@@ -811,16 +811,23 @@ def spawn_process(cmd: List[str], cwd: str, log_path: str, extra_env: Optional[D
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log_handle = open(log_path, "a", encoding="utf-8", errors="ignore")
     env = build_utf8_env(extra_env)
-    process = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-    )
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+    except Exception:
+        try:
+            log_handle.close()
+        except Exception:
+            pass
+        raise
     return ProcessHandle(process=process, log_handle=log_handle, log_path=log_path, started_at=time.time())
 
 
@@ -1213,6 +1220,12 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def list_ollama_models() -> List[str]:
         if not shutil.which("ollama"):
             raise HTTPException(status_code=500, detail="ollama command not found in PATH.")
+        timeout_sec = 0
+        try:
+            timeout_sec = int(str(os.environ.get("HARBORPILOT_OLLAMA_CLI_TIMEOUT", "15")).strip())
+        except Exception:
+            timeout_sec = 15
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         try:
             result = subprocess.run(
                 ["ollama", "ps"],
@@ -1223,7 +1236,10 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 encoding="utf-8",
                 errors="replace",
                 env=build_utf8_env(),
+                timeout=timeout_val,
             )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=500, detail="ollama ps timeout")
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"ollama ps failed: {exc}")
         if result.returncode != 0:
@@ -1250,6 +1266,12 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         models = list_ollama_models()
         if not models:
             return {"ok": True, "stopped": [], "failed": [], "models": []}
+        timeout_sec = 0
+        try:
+            timeout_sec = int(str(os.environ.get("HARBORPILOT_OLLAMA_CLI_TIMEOUT", "15")).strip())
+        except Exception:
+            timeout_sec = 15
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         stopped: List[str] = []
         failed: List[Dict[str, str]] = []
         for name in models:
@@ -1263,7 +1285,11 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                     encoding="utf-8",
                     errors="replace",
                     env=build_utf8_env(),
+                    timeout=timeout_val,
                 )
+            except subprocess.TimeoutExpired:
+                failed.append({"model": name, "error": "timeout"})
+                continue
             except Exception as exc:
                 failed.append({"model": name, "error": str(exc)})
                 continue

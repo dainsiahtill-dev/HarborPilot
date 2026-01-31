@@ -236,6 +236,15 @@ def run_director_once(
         append_director_log(subprocess_log_path, "[cmd] " + " ".join(cmd) + "\n")
 
     try:
+        timeout_sec = 0
+        if args.director_timeout and args.director_timeout > 0:
+            timeout_sec = int(args.director_timeout) + 30
+        else:
+            try:
+                timeout_sec = int(str(os.environ.get("HARBORPILOT_DIRECTOR_RUN_TIMEOUT", "3600")).strip())
+            except Exception:
+                timeout_sec = 3600
+        timeout_val = timeout_sec if timeout_sec and timeout_sec > 0 else None
         extra_env: Dict[str, str] = {}
         if "HARBORPILOT_AUTO_PLAN" not in os.environ:
             extra_env["HARBORPILOT_AUTO_PLAN"] = "1"
@@ -248,6 +257,7 @@ def run_director_once(
             encoding="utf-8",
             errors="replace",
             env=build_utf8_env(extra_env),
+            timeout=timeout_val,
         )
         output = result.stdout or ""
         if subprocess_log_path:
@@ -255,6 +265,10 @@ def run_director_once(
                 append_director_log(subprocess_log_path, output if output.endswith("\n") else output + "\n")
             append_director_log(subprocess_log_path, f"[exit] {result.returncode}\n")
         return result.returncode
+    except subprocess.TimeoutExpired:
+        if subprocess_log_path:
+            append_director_log(subprocess_log_path, "[error] director subprocess timeout\n")
+        return 124
     except Exception as exc:
         if subprocess_log_path:
             append_director_log(subprocess_log_path, f"[error] {exc}\n")

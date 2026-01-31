@@ -20,8 +20,9 @@ harborpilot/
     codex_utils.py       # Codex 后端适配
     ollama_utils.py      # Ollama 后端适配
     shared.py            # 公共工具
-  ui/
-    pm-dashboard.py      # 可视化面板 (Flet)
+  desktop/
+    backend/server.py    # Dashboard 本地后端 (FastAPI)
+    electron/main.cjs    # Electron 主进程入口
   prompts/
     demo_ming_armada.json # 默认角色模板
     generic.json          # 通用模板
@@ -110,6 +111,7 @@ harborpilot/
 | `--gap-review` | 启用 Gap Review (差异扫描) | `False` |
 | `--risk-block-threshold` | 风险阻断阈值 (0为关闭) | `0` |
 | `--run-npm` | 允许运行 npm 命令 | `False` |
+| `--npm-timeout` | npm/tool 子进程超时 (秒；0 为不设超时) | `600` |
 | `--default-tools` | 启用默认 QA 工具链 (ruff/mypy/pytest) | `True` |
 
 ---
