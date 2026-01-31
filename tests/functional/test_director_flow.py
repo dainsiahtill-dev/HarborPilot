@@ -73,7 +73,7 @@ def test_director_end_to_end(tmp_path, monkeypatch):
     (workspace / "src").mkdir(parents=True, exist_ok=True)
     (workspace / "src" / "example.py").write_text("# placeholder\n", encoding="utf-8")
 
-    state_dir = workspace / "state" / "ollama"
+    state_dir = workspace / ".harborpilot" / "runtime"
     state_dir.mkdir(parents=True, exist_ok=True)
 
     plan_path = state_dir / "PLAN.md"

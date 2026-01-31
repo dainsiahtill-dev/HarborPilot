@@ -41,10 +41,10 @@ def build_utf8_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 SCRIPT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 PROMPT_PROFILE_ENV = "HARBORPILOT_PROMPT_PROFILE"
-DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/ollama/DIRECTOR_SUBPROCESS.log"
-DEFAULT_DIRECTOR_STATUS = ".harborpilot/ollama/DIRECTOR_STATUS.json"
-AGENTS_DRAFT_REL = ".harborpilot/ollama/AGENTS.generated.md"
-AGENTS_FEEDBACK_REL = ".harborpilot/ollama/AGENTS.feedback.md"
+DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/runtime/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = ".harborpilot/runtime/DIRECTOR_STATUS.json"
+AGENTS_DRAFT_REL = ".harborpilot/runtime/AGENTS.generated.md"
+AGENTS_FEEDBACK_REL = ".harborpilot/runtime/AGENTS.feedback.md"
 REQUIRED_MODULE_FILES = (
     "decision.py",
     "codex_utils.py",
@@ -340,10 +340,20 @@ def read_json_file(path: str) -> Any:
     if not path or not os.path.exists(path):
         if not path:
             return None
-        legacy_path = path.replace(f"{os.sep}.harborpilot{os.sep}", f"{os.sep}state{os.sep}")
-        if legacy_path == path or not os.path.exists(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}.harborpilot{os.sep}runtime{os.sep}",
+            f"{os.sep}.harborpilot{os.sep}ollama{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}.harborpilot{os.sep}runtime{os.sep}",
+            f"{os.sep}state{os.sep}ollama{os.sep}",
+        )
+        if legacy_dot != path and os.path.exists(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.exists(legacy_state):
+            path = legacy_state
+        else:
             return None
-        path = legacy_path
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -395,7 +405,7 @@ def maybe_generate_agents_draft(
             "<INSTRUCTIONS>\n"
             "- Use docs/README.md as the documentation index.\n"
             "- Check docs/product/requirements.md for global requirements (if present).\n"
-            "- Keep state artifacts in .harborpilot/ollama/ (ramdisk may be enabled).\n"
+            "- Keep state artifacts in .harborpilot/runtime/ (ramdisk may be enabled).\n"
             "- Always use UTF-8 when reading/writing text files.\n"
             "</INSTRUCTIONS>\n\n"
             + (body + "\n" if body else "")
@@ -456,7 +466,7 @@ def maybe_generate_agents_draft(
             codex_output = resolve_artifact_path(
                 workspace_full,
                 cache_root_full,
-                ".harborpilot/ollama/AGENTS.codex.last_message.md",
+                ".harborpilot/runtime/AGENTS.codex.last_message.md",
             )
             output = invoke_codex(
                 prompt,
@@ -653,7 +663,7 @@ def normalize_pm_payload(raw_payload: Dict[str, Any], iteration: int, timestamp:
 
 
 def build_run_dir(workspace: str, cache_root: str, iteration: int) -> str:
-    rel = os.path.join(".harborpilot", "ollama", "runs", f"pm-{iteration:05d}")
+    rel = os.path.join(".harborpilot", "runtime", "runs", f"pm-{iteration:05d}")
     return resolve_artifact_path(workspace, cache_root, rel)
 
 
@@ -944,7 +954,7 @@ def write_pm_memo(
     content: str,
 ) -> Tuple[str, str]:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    rel_path = os.path.join(".harborpilot", "ollama", "memos", f"PM_MEMO-{run_id}-a{attempt}-{stamp}.md")
+    rel_path = os.path.join(".harborpilot", "runtime", "memos", f"PM_MEMO-{run_id}-a{attempt}-{stamp}.md")
     memo_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     write_text_atomic(memo_path, content)
     return memo_path, rel_path
@@ -963,7 +973,7 @@ def write_pm_memo_index(
     cache_root_full: str,
     record: Dict[str, Any],
 ) -> str:
-    rel_path = os.path.join(".harborpilot", "ollama", "memos", "index.jsonl")
+    rel_path = os.path.join(".harborpilot", "runtime", "memos", "index.jsonl")
     index_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     append_jsonl(index_path, record)
     return index_path
@@ -974,7 +984,7 @@ def write_pm_memo_summary(
     cache_root_full: str,
     block: str,
 ) -> Tuple[str, str]:
-    rel_path = os.path.join(".harborpilot", "ollama", "memos", "PM_MEMO_SUMMARY.md")
+    rel_path = os.path.join(".harborpilot", "runtime", "memos", "PM_MEMO_SUMMARY.md")
     summary_path = resolve_artifact_path(workspace_full, cache_root_full, rel_path)
     append_text(summary_path, block)
     export_path = os.path.join(workspace_full, "docs", "PM_MEMO_SUMMARY.md")
@@ -1681,7 +1691,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                     dialogue_full,
                                     speaker="System",
                                     type="note",
-                                    text=f"??? PM ????{memo_path}????{index_path}????{summary_path}????{export_path}",
+                                    text=f"PM memo saved: {memo_path} | {index_path} | {summary_path} | {export_path}",
                                     summary="PM memo saved",
                                     run_id=run_id,
                                     pm_iteration=iteration,
@@ -1692,7 +1702,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                     dialogue_full,
                                     speaker="System",
                                     type="warning",
-                                    text=f"PM ????????{exc}",
+                                    text=f"PM memo failed: {exc}",
                                     summary="PM memo failed",
                                     run_id=run_id,
                                     pm_iteration=iteration,
@@ -1775,7 +1785,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                     dialogue_full,
                                     speaker="System",
                                     type="note",
-                                    text=f"??? PM ????{memo_path}????{index_path}????{summary_path}????{export_path}",
+                                    text=f"PM memo saved: {memo_path} | {index_path} | {summary_path} | {export_path}",
                                     summary="PM memo saved",
                                     run_id=run_id,
                                     pm_iteration=iteration,
@@ -1786,7 +1796,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                     dialogue_full,
                                     speaker="System",
                                     type="warning",
-                                    text=f"PM ????????{exc}",
+                                    text=f"PM memo failed: {exc}",
                                     summary="PM memo failed",
                                     run_id=run_id,
                                     pm_iteration=iteration,
@@ -1853,13 +1863,39 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                     pm_state["last_director_task_fingerprint"] = str(latest_result.get("task_fingerprint") or "").strip()
                     pm_state.pop("last_director_error_code", None)
                     write_json_atomic(pm_state_full, pm_state)
+
+            if isinstance(matched_result, dict):
+                result_status = str(matched_result.get("status") or "").strip().lower()
+                if result_status in ("success", "pass", "passed"):
+                    task_id = str(matched_result.get("task_id") or expected_task_id or "").strip()
+                    task_title = str(matched_result.get("task_title") or expected_task_title or "").strip()
+                    task_key = task_id or task_title
+                    if task_key:
+                        record = {
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "run_id": run_id,
+                            "pm_iteration": iteration,
+                            "director_attempt": attempt,
+                            "task_id": task_id,
+                            "task_title": task_title,
+                            "status": result_status,
+                        }
+                        append_jsonl(pm_history_full, record)
+                        completed = pm_state.get("completed_task_ids")
+                        if not isinstance(completed, list):
+                            completed = []
+                        if task_key not in completed:
+                            completed.append(task_key)
+                        pm_state["completed_task_ids"] = completed
+                        pm_state["completed_task_count"] = len(completed)
+                        write_json_atomic(pm_state_full, pm_state)
             
             # Sync artifacts back to root/state for persistence/compatibility
-            archive_if_exists(run_director_result, os.path.join(workspace_full, ".harborpilot", "ollama", "DIRECTOR_RESULT.json"))
-            archive_if_exists(run_planner_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "PLANNER_RESPONSE.md"))
-            archive_if_exists(run_ollama_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "OLLAMA_RESPONSE.md"))
-            archive_if_exists(run_qa_resp, os.path.join(workspace_full, ".harborpilot", "ollama", "QA_RESPONSE.md"))
-            archive_if_exists(run_director_log, os.path.join(workspace_full, ".harborpilot", "ollama", "RUNLOG.md"))
+            archive_if_exists(run_director_result, os.path.join(workspace_full, ".harborpilot", "runtime", "DIRECTOR_RESULT.json"))
+            archive_if_exists(run_planner_resp, os.path.join(workspace_full, ".harborpilot", "runtime", "PLANNER_RESPONSE.md"))
+            archive_if_exists(run_ollama_resp, os.path.join(workspace_full, ".harborpilot", "runtime", "OLLAMA_RESPONSE.md"))
+            archive_if_exists(run_qa_resp, os.path.join(workspace_full, ".harborpilot", "runtime", "QA_RESPONSE.md"))
+            archive_if_exists(run_director_log, os.path.join(workspace_full, ".harborpilot", "runtime", "RUNLOG.md"))
 
             if args.loop or (args.max_iterations and args.max_iterations > 1):
                 with open(pm_report_full, "a", encoding="utf-8") as handle:
@@ -1927,15 +1963,15 @@ def main() -> int:
     parser.add_argument("--model", "-Model", default="modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest")
     parser.add_argument("--pm-backend", default="codex", choices=["codex", "ollama"])
     parser.add_argument("--timeout", "-Timeout", type=int, default=0)
-    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/ollama/PLAN.md")
-    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/ollama/GAP_REPORT.md")
-    parser.add_argument("--qa-path", "-QaPath", default=".harborpilot/ollama/QA_RESPONSE.md")
+    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/runtime/PLAN.md")
+    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/runtime/GAP_REPORT.md")
+    parser.add_argument("--qa-path", "-QaPath", default=".harborpilot/runtime/QA_RESPONSE.md")
     parser.add_argument("--requirements-path", "-RequirementsPath", default="docs/product/requirements.md")
-    parser.add_argument("--pm-out", "-PmOut", default=".harborpilot/ollama/PM_TASKS.json")
-    parser.add_argument("--pm-report", "-PmReport", default=".harborpilot/ollama/PM_REPORT.md")
-    parser.add_argument("--state-path", "-StatePath", default=".harborpilot/ollama/PM_STATE.json")
-    parser.add_argument("--task-history-path", "-TaskHistoryPath", default=".harborpilot/ollama/PM_TASK_HISTORY.jsonl")
-    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/ollama/DIRECTOR_RESULT.json")
+    parser.add_argument("--pm-out", "-PmOut", default=".harborpilot/runtime/PM_TASKS.json")
+    parser.add_argument("--pm-report", "-PmReport", default=".harborpilot/runtime/PM_REPORT.md")
+    parser.add_argument("--state-path", "-StatePath", default=".harborpilot/runtime/PM_STATE.json")
+    parser.add_argument("--task-history-path", "-TaskHistoryPath", default=".harborpilot/runtime/PM_TASK_HISTORY.jsonl")
+    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/runtime/DIRECTOR_RESULT.json")
     parser.add_argument("--loop", action="store_true", help="Run continuously until interrupted.")
     parser.add_argument("--interval", type=int, default=20, help="Seconds to wait between iterations.")
     parser.add_argument("--max-iterations", type=int, default=0, help="Stop after N iterations (0 = infinite).")
@@ -1960,9 +1996,9 @@ def main() -> int:
         choices=["strict", "any", "latest", "run_id"],
         help="How to match director results to a PM run.",
     )
-    parser.add_argument("--dialogue-path", default=".harborpilot/ollama/DIALOGUE.jsonl")
+    parser.add_argument("--dialogue-path", default=".harborpilot/runtime/DIALOGUE.jsonl")
     parser.add_argument("--prompt-profile", default="demo_ming_armada", help="Prompt profile (e.g. demo_ming_armada, generic).")
-    parser.add_argument("--pm-last-message-path", default=".harborpilot/ollama/PM_LAST_RESPONSE.md")
+    parser.add_argument("--pm-last-message-path", default=".harborpilot/runtime/PM_LAST_RESPONSE.md")
     parser.add_argument("--ramdisk-root", default="", help="Optional RAM-disk root (Windows default: X:). High-frequency artifacts will be written here.")
     parser.add_argument("--codex-profile", default="")
     parser.add_argument("--codex-full-auto", action=argparse.BooleanOptionalAction, default=True)

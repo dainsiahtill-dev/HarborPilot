@@ -870,7 +870,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     pm_task_goal = ""
     pm_task_acceptance: List[str] = []
     pm_iteration = None
-    pm_task_path = state.pm_task_path or os.path.join(state.workspace_full, "scripts", ".harborpilot", "ollama", "PM_TASKS.json")
+    pm_task_path = state.pm_task_path or os.path.join(state.workspace_full, "scripts", ".harborpilot", "runtime", "PM_TASKS.json")
     try:
         if os.path.isfile(pm_task_path):
             pm_payload = parse_json_payload(read_file_safe(pm_task_path))
@@ -1693,7 +1693,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="HarborPilot Director loop (Ollama)")
-    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/ollama/PLAN.md")
+    parser.add_argument("--plan-path", "-PlanPath", default=".harborpilot/runtime/PLAN.md")
     default_auto_plan = str(os.environ.get("HARBORPILOT_AUTO_PLAN", "1")).strip().lower() not in (
         "0",
         "false",
@@ -1713,13 +1713,13 @@ def main() -> int:
         action="store_false",
         help="Require manual PLAN.md; exit after generating template.",
     )
-    parser.add_argument("--log-path", "-LogPath", default=".harborpilot/ollama/RUNLOG.md")
-    parser.add_argument("--planner-response-path", "-PlannerResponsePath", default=".harborpilot/ollama/PLANNER_RESPONSE.md")
-    parser.add_argument("--ollama-response-path", "-OllamaResponsePath", default=".harborpilot/ollama/OLLAMA_RESPONSE.md")
-    parser.add_argument("--qa-response-path", "-QaResponsePath", default=".harborpilot/ollama/QA_RESPONSE.md")
-    parser.add_argument("--reviewer-response-path", "-ReviewerResponsePath", default=".harborpilot/ollama/REVIEW_RESPONSE.md")
-    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/ollama/DIRECTOR_RESULT.json")
-    parser.add_argument("--policy-path", default=".harborpilot/ollama/director_policy.json")
+    parser.add_argument("--log-path", "-LogPath", default=".harborpilot/runtime/RUNLOG.md")
+    parser.add_argument("--planner-response-path", "-PlannerResponsePath", default=".harborpilot/runtime/PLANNER_RESPONSE.md")
+    parser.add_argument("--ollama-response-path", "-OllamaResponsePath", default=".harborpilot/runtime/OLLAMA_RESPONSE.md")
+    parser.add_argument("--qa-response-path", "-QaResponsePath", default=".harborpilot/runtime/QA_RESPONSE.md")
+    parser.add_argument("--reviewer-response-path", "-ReviewerResponsePath", default=".harborpilot/runtime/REVIEW_RESPONSE.md")
+    parser.add_argument("--director-result-path", "-DirectorResultPath", default=".harborpilot/runtime/DIRECTOR_RESULT.json")
+    parser.add_argument("--policy-path", default=".harborpilot/runtime/director_policy.json")
     parser.add_argument("--workspace", "-Workspace", default=os.getcwd())
     parser.add_argument("--iterations", "-Iterations", type=int, default=1)
     parser.add_argument("--delay-seconds", "-DelaySeconds", type=int, default=0)
@@ -1755,7 +1755,7 @@ def main() -> int:
     parser.add_argument("--timeout", "-Timeout", type=int, default=0)
     parser.add_argument("--auto-pick-target", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--memory-backend", "-MemoryBackend", default="lancedb")
-    parser.add_argument("--memory-dir", "-MemoryDir", default=".harborpilot/ollama/memory")
+    parser.add_argument("--memory-dir", "-MemoryDir", default=".harborpilot/runtime/memory")
     parser.add_argument("--memory-max-chars", "-MemoryMaxChars", type=int, default=2000)
     parser.add_argument("--run-npm", dest="run_npm", action=argparse.BooleanOptionalAction, default=False)
     default_npm_timeout = _read_int_env("HARBORPILOT_NPM_TIMEOUT", 600)
@@ -1763,13 +1763,13 @@ def main() -> int:
         default_npm_timeout = 0
     parser.add_argument("--npm-timeout", "-NpmTimeout", type=int, default=default_npm_timeout)
     parser.add_argument("--gap-review", dest="gap_review", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/ollama/GAP_REPORT.md")
+    parser.add_argument("--gap-report-path", "-GapReportPath", default=".harborpilot/runtime/GAP_REPORT.md")
     parser.add_argument("--gap-max-headings", "-GapMaxHeadings", type=int, default=200)
     parser.add_argument("--gap-max-files", "-GapMaxFiles", type=int, default=200)
     parser.add_argument("--gap-write-plan", dest="gap_write_plan", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--pm-task-path", "-PmTaskPath", default=".harborpilot/ollama/PM_TASKS.json")
-    parser.add_argument("--dialogue-path", "-DialoguePath", default=".harborpilot/ollama/DIALOGUE.jsonl")
-    parser.add_argument("--events-path", "-EventsPath", default=".harborpilot/ollama/events.jsonl")
+    parser.add_argument("--pm-task-path", "-PmTaskPath", default=".harborpilot/runtime/PM_TASKS.json")
+    parser.add_argument("--dialogue-path", "-DialoguePath", default=".harborpilot/runtime/DIALOGUE.jsonl")
+    parser.add_argument("--events-path", "-EventsPath", default=".harborpilot/runtime/events.jsonl")
     parser.add_argument("--prompt-profile", default="demo_ming_armada", help="Prompt profile (e.g. demo_ming_armada, generic).")
     parser.add_argument("--default-tools", dest="default_tools", action=argparse.BooleanOptionalAction, default=True, help="Run default QA tool chain (ruff/mypy/pytest) when PatchPlanner provides no tool_commands.")
     parser.add_argument("--ramdisk-root", default="", help="Optional RAM-disk root (Windows default: X:). High-frequency artifacts will be written here.")

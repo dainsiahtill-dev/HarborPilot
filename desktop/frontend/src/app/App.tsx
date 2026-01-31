@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, connectWebSocket, openPath, pickWorkspace } from '@/api';
 import { ControlPanel } from '@/app/components/ControlPanel';
 import { ArtifactsSidebar } from '@/app/components/ArtifactsSidebar';
-import { FileViewer } from '@/app/components/FileViewer';
 import { DialoguePanel, type DialogueEvent } from '@/app/components/DialoguePanel';
 import { SnapshotPanel } from '@/app/components/SnapshotPanel';
 import { StatusBar } from '@/app/components/StatusBar';
@@ -11,6 +10,7 @@ import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import { DocsInitDialog, type WorkspaceStatus } from '@/app/components/DocsInitDialog';
+import { ProjectProgressPanel } from '@/app/components/ProjectProgressPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
@@ -135,15 +135,15 @@ const LIVE_CHANNELS = [
 ] as const;
 
 const CHANNEL_TO_PATH: Record<string, string> = {
-  dialogue: '.harborpilot/ollama/DIALOGUE.jsonl',
-  pm_report: '.harborpilot/ollama/PM_REPORT.md',
-  pm_log: '.harborpilot/ollama/PM_LOG.jsonl',
-  pm_subprocess: '.harborpilot/ollama/PM_SUBPROCESS.log',
-  director_console: '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log',
-  planner: '.harborpilot/ollama/PLANNER_RESPONSE.md',
-  ollama: '.harborpilot/ollama/OLLAMA_RESPONSE.md',
-  qa: '.harborpilot/ollama/QA_RESPONSE.md',
-  runlog: '.harborpilot/ollama/RUNLOG.md',
+  dialogue: '.harborpilot/runtime/DIALOGUE.jsonl',
+  pm_report: '.harborpilot/runtime/PM_REPORT.md',
+  pm_log: '.harborpilot/runtime/PM_LOG.jsonl',
+  pm_subprocess: '.harborpilot/runtime/PM_SUBPROCESS.log',
+  director_console: '.harborpilot/runtime/DIRECTOR_SUBPROCESS.log',
+  planner: '.harborpilot/runtime/PLANNER_RESPONSE.md',
+  ollama: '.harborpilot/runtime/OLLAMA_RESPONSE.md',
+  qa: '.harborpilot/runtime/QA_RESPONSE.md',
+  runlog: '.harborpilot/runtime/RUNLOG.md',
 };
 
 function appendLiveContent(prev: string, incoming: string, maxLines = 2000) {
@@ -270,6 +270,8 @@ export default function App() {
   const [memoData, setMemoData] = useState<FilePayload>({ content: '', mtime: '' });
   const [memoLoading, setMemoLoading] = useState(false);
   const [memoError, setMemoError] = useState<string | null>(null);
+  const [memoCollapsed, setMemoCollapsed] = useState(false);
+  const [memoryCollapsed, setMemoryCollapsed] = useState(false);
   const [agentsReview, setAgentsReview] = useState<AgentsReviewInfo | null>(null);
   const [agentsDraftContent, setAgentsDraftContent] = useState('');
   const [agentsDraftMtime, setAgentsDraftMtime] = useState('');
@@ -414,7 +416,7 @@ export default function App() {
 
   const refreshSuccessStats = async () => {
     try {
-      const res = await apiFetch('/files/read?path=.harborpilot/ollama/DIRECTOR_RESULT.json&tail_lines=200');
+      const res = await apiFetch('/files/read?path=.harborpilot/runtime/DIRECTOR_RESULT.json&tail_lines=200');
       if (!res.ok) return;
       const payload = (await res.json()) as FilePayload;
       if (!payload.content) return;
@@ -452,7 +454,7 @@ export default function App() {
     setMemoryLoading(true);
     setMemoryError(null);
     try {
-      const res = await apiFetch('/files/read?path=.harborpilot/ollama/memory/last_state.json&tail_lines=200');
+      const res = await apiFetch('/files/read?path=.harborpilot/runtime/memory/last_state.json&tail_lines=200');
       if (!res.ok) {
         throw new Error('Failed to read memory');
       }
@@ -848,7 +850,7 @@ export default function App() {
 
   useEffect(() => {
     if (wsLive || dialogueEvents.length > 0) return;
-    apiFetch('/files/read?path=.harborpilot/ollama/DIALOGUE.jsonl&tail_lines=200')
+    apiFetch('/files/read?path=.harborpilot/runtime/DIALOGUE.jsonl&tail_lines=200')
       .then(async (res) => {
         if (!res.ok) return;
         const payload = (await res.json()) as FilePayload;
@@ -912,7 +914,7 @@ export default function App() {
       });
 
     if (selectedFile.id === 'qa' || selectedFile.id === 'director-result') {
-      apiFetch('/files/read?path=.harborpilot/ollama/DIRECTOR_RESULT.json&tail_lines=200')
+      apiFetch('/files/read?path=.harborpilot/runtime/DIRECTOR_RESULT.json&tail_lines=200')
         .then(async (res) => {
           if (controller.signal.aborted) return;
           if (!res.ok) return;
@@ -1028,7 +1030,7 @@ export default function App() {
           const statusRes = await apiFetch('/pm/status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as BackendStatus;
-            const logPath = status.log_path || '.harborpilot/ollama/PM_SUBPROCESS.log';
+            const logPath = status.log_path || '.harborpilot/runtime/PM_SUBPROCESS.log';
             const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
             if (tailRes.ok) {
               const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1117,7 +1119,7 @@ export default function App() {
           const statusRes = await apiFetch('/pm/status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as BackendStatus;
-            const logPath = status.log_path || '.harborpilot/ollama/PM_SUBPROCESS.log';
+            const logPath = status.log_path || '.harborpilot/runtime/PM_SUBPROCESS.log';
             const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
             if (tailRes.ok) {
               const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1197,7 +1199,7 @@ export default function App() {
             const statusRes = await apiFetch('/director/status');
             if (statusRes.ok) {
               const status = (await statusRes.json()) as BackendStatus;
-              const logPath = status.log_path || '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log';
+              const logPath = status.log_path || '.harborpilot/runtime/DIRECTOR_SUBPROCESS.log';
               const tailRes = await apiFetch(`/files/read?path=${encodeURIComponent(logPath)}&tail_lines=200`);
               if (tailRes.ok) {
                 const tailPayload = (await tailRes.json()) as FilePayload;
@@ -1241,7 +1243,7 @@ export default function App() {
     let reportTail = '';
     let logTail = '';
     try {
-      const reportRes = await apiFetch('/files/read?path=.harborpilot/ollama/PM_REPORT.md&tail_lines=200');
+      const reportRes = await apiFetch('/files/read?path=.harborpilot/runtime/PM_REPORT.md&tail_lines=200');
       if (reportRes.ok) {
         const payload = (await reportRes.json()) as FilePayload;
         reportTail = payload.content || '';
@@ -1250,7 +1252,7 @@ export default function App() {
       // ignore
     }
     try {
-      const logRes = await apiFetch('/files/read?path=.harborpilot/ollama/PM_SUBPROCESS.log&tail_lines=200');
+      const logRes = await apiFetch('/files/read?path=.harborpilot/runtime/PM_SUBPROCESS.log&tail_lines=200');
       if (logRes.ok) {
         const payload = (await logRes.json()) as FilePayload;
         logTail = payload.content || '';
@@ -1439,7 +1441,7 @@ export default function App() {
     setSelectedFile({
       id: 'plan',
       name: 'PLAN.md',
-      path: '.harborpilot/ollama/PLAN.md',
+      path: '.harborpilot/runtime/PLAN.md',
     });
     setIsPlanDialogOpen(false);
   };
@@ -1694,14 +1696,15 @@ export default function App() {
         </div>
 
         {/* 中间：文件内容查看器 */}
-        <div className="flex-1 min-w-0">
-          <FileViewer
-            selectedFile={selectedFile}
-            content={fileData.content}
-            mtime={fileData.mtime}
-            loading={fileLoading}
-            error={fileError}
-            badge={fileBadge}
+        <div className="flex-1 min-w-0 flex flex-col">
+          <ProjectProgressPanel
+            tasks={snapshotTasks || []}
+            pmState={snapshot?.pm_state ?? null}
+            focus={snapshot?.focus ?? null}
+            notes={snapshot?.notes ?? null}
+            successStats={successStats}
+            pmRunning={!!pmStatus?.running}
+            className="flex-1 min-h-0"
           />
         </div>
 
@@ -1710,7 +1713,7 @@ export default function App() {
           <div className="flex-1 min-h-0">
             <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
           </div>
-          <div className="h-64 border-t border-gray-800">
+          <div className={`border-t border-gray-800 transition-all duration-300 overflow-hidden ${memoCollapsed ? 'h-12' : 'h-64'}`}>
             <MemoPanel
               items={memoItems}
               selected={memoSelected}
@@ -1719,15 +1722,19 @@ export default function App() {
               loading={memoLoading}
               error={memoError}
               onSelect={(item) => setMemoSelected(item)}
+              collapsed={memoCollapsed}
+              onToggle={() => setMemoCollapsed((prev) => !prev)}
             />
           </div>
           {settings?.show_memory ? (
-            <div className="h-52 border-t border-gray-800">
+            <div className={`border-t border-gray-800 transition-all duration-300 overflow-hidden ${memoryCollapsed ? 'h-12' : 'h-52'}`}>
               <MemoryPanel
                 content={memoryData.content}
                 mtime={memoryData.mtime}
                 loading={memoryLoading}
                 error={memoryError}
+                collapsed={memoryCollapsed}
+                onToggle={() => setMemoryCollapsed((prev) => !prev)}
               />
             </div>
           ) : null}
@@ -1829,7 +1836,7 @@ export default function App() {
           </AlertDialogHeader>
           <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <div className="flex items-center justify-between gap-2">
-              <span>草稿: {agentsReview?.draft_path || '.harborpilot/ollama/AGENTS.generated.md'}</span>
+              <span>草稿: {agentsReview?.draft_path || '.harborpilot/runtime/AGENTS.generated.md'}</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -1968,7 +1975,7 @@ export default function App() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-100">
-            <div>路径: .harborpilot/ollama/PLAN.md</div>
+            <div>路径: .harborpilot/runtime/PLAN.md</div>
             <div>建议：补充清晰的下一步计划/任务。</div>
           </div>
           <AlertDialogFooter>

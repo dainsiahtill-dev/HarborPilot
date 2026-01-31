@@ -26,10 +26,10 @@
       "errors": []
     },
     "artifacts": [
-      ".harborpilot/ollama/RUNLOG.md",
-      ".harborpilot/ollama/QA_RESPONSE.md",
-      ".harborpilot/ollama/events.jsonl",
-      ".harborpilot/ollama/trajectory.json"
+      ".harborpilot/runtime/RUNLOG.md",
+      ".harborpilot/runtime/QA_RESPONSE.md",
+      ".harborpilot/runtime/events.jsonl",
+      ".harborpilot/runtime/trajectory.json"
     ],
     "metrics": {
       "cpu_usage_percent": 25.5,

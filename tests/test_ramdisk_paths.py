@@ -23,16 +23,16 @@ class TestRamdiskPaths(unittest.TestCase):
             cache_root = io_utils.build_cache_root(ramdisk_dir, workspace)
             self.assertTrue(cache_root)
 
-            hot_jsonl = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/events.jsonl")
+            hot_jsonl = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/events.jsonl")
             self.assertTrue(os.path.commonpath([hot_jsonl, cache_root]) == cache_root)
 
-            hot_runlog = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/RUNLOG.md")
+            hot_runlog = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/RUNLOG.md")
             self.assertTrue(os.path.commonpath([hot_runlog, cache_root]) == cache_root)
 
-            hot_memory = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/memory/last_state.json")
+            hot_memory = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/memory/last_state.json")
             self.assertTrue(os.path.commonpath([hot_memory, cache_root]) == cache_root)
 
-            cold = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_TASKS.json")
+            cold = io_utils.resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_TASKS.json")
             self.assertTrue(os.path.commonpath([cold, workspace]) == workspace)
 
 

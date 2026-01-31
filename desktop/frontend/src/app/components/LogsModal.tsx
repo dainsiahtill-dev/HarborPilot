@@ -2,6 +2,7 @@ import { RefreshCw, X, FileText, Activity, AlertTriangle, TerminalSquare, Wrench
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, connectWebSocket } from '@/api';
 import { CodexCliStreamParser, parseCodexCliLines, type LogEvent } from '@/app/components/logs/CodexCliStreamParser';
+import { HarborPilotTerminalRenderer } from '@/app/components/HarborPilotTerminalRenderer';
 
 interface LogsModalProps {
   isOpen: boolean;
@@ -14,14 +15,14 @@ interface LogsModalProps {
 }
 
 const DEFAULT_LOG_SOURCES = [
-  { id: 'pm-subprocess', label: 'PM Subprocess', path: '.harborpilot/ollama/PM_SUBPROCESS.log', channel: 'pm_subprocess' },
-  { id: 'pm-report', label: 'PM Report', path: '.harborpilot/ollama/PM_REPORT.md', channel: 'pm_report' },
-  { id: 'pm-log', label: 'PM Log (jsonl)', path: '.harborpilot/ollama/PM_LOG.jsonl', channel: 'pm_log' },
-  { id: 'director', label: 'Director Subprocess', path: '.harborpilot/ollama/DIRECTOR_SUBPROCESS.log', channel: 'director_console' },
-  { id: 'planner', label: 'Planner', path: '.harborpilot/ollama/PLANNER_RESPONSE.md', channel: 'planner' },
-  { id: 'ollama', label: 'Ollama', path: '.harborpilot/ollama/OLLAMA_RESPONSE.md', channel: 'ollama' },
-  { id: 'qa', label: 'QA', path: '.harborpilot/ollama/QA_RESPONSE.md', channel: 'qa' },
-  { id: 'runlog', label: 'RunLog', path: '.harborpilot/ollama/RUNLOG.md', channel: 'runlog' },
+  { id: 'pm-subprocess', label: 'PM Subprocess', path: '.harborpilot/runtime/PM_SUBPROCESS.log', channel: 'pm_subprocess' },
+  { id: 'pm-report', label: 'PM Report', path: '.harborpilot/runtime/PM_REPORT.md', channel: 'pm_report' },
+  { id: 'pm-log', label: 'PM Log (jsonl)', path: '.harborpilot/runtime/PM_LOG.jsonl', channel: 'pm_log' },
+  { id: 'director', label: 'Director Subprocess', path: '.harborpilot/runtime/DIRECTOR_SUBPROCESS.log', channel: 'director_console' },
+  { id: 'planner', label: 'Planner', path: '.harborpilot/runtime/PLANNER_RESPONSE.md', channel: 'planner' },
+  { id: 'ollama', label: 'Ollama', path: '.harborpilot/runtime/OLLAMA_RESPONSE.md', channel: 'ollama' },
+  { id: 'qa', label: 'QA', path: '.harborpilot/runtime/QA_RESPONSE.md', channel: 'qa' },
+  { id: 'runlog', label: 'RunLog', path: '.harborpilot/runtime/RUNLOG.md', channel: 'runlog' },
 ];
 
 function SmartText({ text }: { text: string }) {
@@ -323,12 +324,12 @@ export function LogsModal({
       ...s,
       // PM logs are global, so we might want to keep them or point them to run specific if available
       // But typically run specific logs are:
-      // - DIRECTOR_SUBPROCESS.log -> .harborpilot/ollama/runs/<runId>/DIRECTOR_SUBPROCESS.log (if archived? or RUNLOG.md)
+      // - DIRECTOR_SUBPROCESS.log -> .harborpilot/runtime/runs/<runId>/DIRECTOR_SUBPROCESS.log (if archived? or RUNLOG.md)
       // Actually loop-pm.py:1053 says: run_director_log = os.path.join(run_dir, "RUNLOG.md")
       // And director_subprocess_log is usually global but can be per-run if we want.
       // Let's look at loop-pm.py resolve logic.
       // For now, let's just map the ones we know exist in run dir.
-      path: `.harborpilot/ollama/runs/${runId}/${s.path.split('/').pop()}`,
+      path: `.harborpilot/runtime/runs/${runId}/${s.path.split('/').pop()}`,
     }));
   }, [runId]);
 
@@ -350,7 +351,9 @@ export function LogsModal({
     [active, sources]
   );
 
-  const allowSmart = active === 'pm-subprocess';
+  const isCodexSmart = active === 'pm-subprocess';
+  const isHpSmart = active === 'runlog';
+  const allowSmart = isCodexSmart || isHpSmart;
   const allowJson = active === 'pm-log';
   const allowRaw = active !== 'pm-log';
 
@@ -389,7 +392,7 @@ export function LogsModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (active === 'pm-subprocess') {
+    if (active === 'pm-subprocess' || active === 'runlog') {
       setViewMode('smart');
     } else if (active === 'pm-log') {
       setViewMode('json');
@@ -469,9 +472,10 @@ export function LogsModal({
   }, [isOpen, activeSource.channel]);
 
   const smartEvents = useMemo(() => {
+    if (!isCodexSmart) return [];
     if (streamEvents.length > 0) return streamEvents;
     return parseCodexCliLines(lines);
-  }, [lines, streamEvents]);
+  }, [isCodexSmart, lines, streamEvents]);
   const jsonEvents = useMemo(() => {
     if (active !== 'pm-log') return [];
     return lines
@@ -667,7 +671,7 @@ export function LogsModal({
               JSON
             </button>
           </div>
-          {viewMode === 'smart' ? (
+          {viewMode === 'smart' && isCodexSmart ? (
             <>
               <div className="ml-2 flex items-center gap-2 text-xs text-gray-400">
                 <span className="flex items-center gap-1">
@@ -728,6 +732,11 @@ export function LogsModal({
             <div className="space-y-3">
               {loading ? (
                 <div className="text-sm text-gray-300">加载中...</div>
+              ) : isHpSmart ? (
+                <HarborPilotTerminalRenderer
+                  text={lines.join('\n')}
+                  className="text-slate-100"
+                />
               ) : filteredEvents.length === 0 ? (
                 <div className="text-sm text-gray-400">(空)</div>
               ) : (

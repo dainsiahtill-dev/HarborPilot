@@ -43,7 +43,7 @@ def test_pm_loop_writes_outputs(tmp_path, monkeypatch):
 
     workspace = tmp_path / "workspace"
     (workspace / "docs").mkdir(parents=True, exist_ok=True)
-    (workspace / "state" / "ollama").mkdir(parents=True, exist_ok=True)
+    (workspace / ".harborpilot" / "runtime").mkdir(parents=True, exist_ok=True)
 
     (workspace / "docs" / "product").mkdir(parents=True, exist_ok=True)
     (workspace / "docs" / "product" / "requirements.md").write_text("# reqs\n", encoding="utf-8")
@@ -53,15 +53,15 @@ def test_pm_loop_writes_outputs(tmp_path, monkeypatch):
         workspace=str(workspace),
         model="fake",
         timeout=0,
-        plan_path=".harborpilot/ollama/PLAN.md",
-        gap_report_path=".harborpilot/ollama/GAP_REPORT.md",
-        qa_path=".harborpilot/ollama/QA_RESPONSE.md",
+        plan_path=".harborpilot/runtime/PLAN.md",
+        gap_report_path=".harborpilot/runtime/GAP_REPORT.md",
+        qa_path=".harborpilot/runtime/QA_RESPONSE.md",
         requirements_path="docs/product/requirements.md",
-        pm_out=".harborpilot/ollama/PM_TASKS.json",
-        pm_report=".harborpilot/ollama/PM_REPORT.md",
-        state_path=".harborpilot/ollama/PM_STATE.json",
-        task_history_path=".harborpilot/ollama/PM_TASK_HISTORY.jsonl",
-        director_result_path=".harborpilot/ollama/DIRECTOR_RESULT.json",
+        pm_out=".harborpilot/runtime/PM_TASKS.json",
+        pm_report=".harborpilot/runtime/PM_REPORT.md",
+        state_path=".harborpilot/runtime/PM_STATE.json",
+        task_history_path=".harborpilot/runtime/PM_TASK_HISTORY.jsonl",
+        director_result_path=".harborpilot/runtime/DIRECTOR_RESULT.json",
         loop=False,
         interval=1,
         max_iterations=0,
@@ -77,9 +77,9 @@ def test_pm_loop_writes_outputs(tmp_path, monkeypatch):
         director_timeout=0,
         director_show_output=False,
         director_result_timeout=10,
-        dialogue_path=".harborpilot/ollama/DIALOGUE.jsonl",
+        dialogue_path=".harborpilot/runtime/DIALOGUE.jsonl",
         prompt_profile="generic",
-        pm_last_message_path=".harborpilot/ollama/PM_LAST_RESPONSE.md",
+        pm_last_message_path=".harborpilot/runtime/PM_LAST_RESPONSE.md",
         ramdisk_root="",
         codex_profile="",
         codex_full_auto=True,
@@ -92,10 +92,10 @@ def test_pm_loop_writes_outputs(tmp_path, monkeypatch):
     code = loop_pm.run_once(args, iteration=1)
     assert code == 0
 
-    pm_tasks_path = workspace / "state" / "ollama" / "PM_TASKS.json"
+    pm_tasks_path = workspace / ".harborpilot" / "runtime" / "PM_TASKS.json"
     assert pm_tasks_path.is_file()
     payload = json.loads(pm_tasks_path.read_text(encoding="utf-8"))
     assert payload["tasks"][0]["id"] == "PM-FUNC"
 
-    pm_report_path = workspace / "state" / "ollama" / "PM_REPORT.md"
+    pm_report_path = workspace / ".harborpilot" / "runtime" / "PM_REPORT.md"
     assert pm_report_path.is_file()

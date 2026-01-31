@@ -114,7 +114,7 @@ def write_evidence_package(
 ) -> Optional[str]:
     if not tool_outputs:
         return None
-    evidence_dir = os.path.join(state.workspace_full, ".harborpilot", "ollama", "evidence")
+    evidence_dir = os.path.join(state.workspace_full, ".harborpilot", "runtime", "evidence")
     ensure_parent_dir(os.path.join(evidence_dir, "placeholder"))
     task_part = pm_task_id or "task"
     pm_part = f"{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"{director_iteration:05d}"

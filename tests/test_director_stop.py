@@ -27,7 +27,7 @@ class TestDirectorStopPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as ramdisk_dir:
             workspace = Path(workspace_dir)
             (workspace / "docs").mkdir(parents=True, exist_ok=True)
-            state_dir = workspace / "state" / "ollama"
+            state_dir = workspace / ".harborpilot" / "runtime"
             state_dir.mkdir(parents=True, exist_ok=True)
 
             (state_dir / "PM_STOP.flag").write_text("stop\n", encoding="utf-8")
@@ -35,8 +35,8 @@ class TestDirectorStopPath(unittest.TestCase):
 
             result_path = state_dir / "DIRECTOR_RESULT.json"
             cache_root = Path(io_utils.build_cache_root(ramdisk_dir, str(workspace)))
-            log_path = cache_root / "state" / "ollama" / "RUNLOG.md"
-            dialogue_path = cache_root / "state" / "ollama" / "DIALOGUE.jsonl"
+            log_path = cache_root / ".harborpilot" / "runtime" / "RUNLOG.md"
+            dialogue_path = cache_root / ".harborpilot" / "runtime" / "DIALOGUE.jsonl"
 
             cmd = [
                 sys.executable,
@@ -46,9 +46,9 @@ class TestDirectorStopPath(unittest.TestCase):
                 "--iterations",
                 "1",
                 "--plan-path",
-                ".harborpilot/ollama/PLAN.md",
+                ".harborpilot/runtime/PLAN.md",
                 "--director-result-path",
-                ".harborpilot/ollama/DIRECTOR_RESULT.json",
+                ".harborpilot/runtime/DIRECTOR_RESULT.json",
                 "--ramdisk-root",
                 ramdisk_dir,
             ]

@@ -5,7 +5,7 @@ I will reorganize the documentation to improve accessibility and maintainability
 - **Content**:
   - **Introduction**: 1 sentence + ASCII link diagram (PM -> Director -> QA).
   - **Quick Start**: Dashboard command and CLI commands.
-  - **Artifacts**: Where to find results (`.harborpilot/ollama/`) and what they are.
+  - **Artifacts**: Where to find results (`.harborpilot/runtime/`) and what they are.
   - **System Invariants**: Keep the 6 key invariants (high value).
   - **Links**: Clear pointers to Architecture, Reference, etc.
 - **Action**: Move detailed sections (Architecture details, full CLI args, tools list) to `docs/`.

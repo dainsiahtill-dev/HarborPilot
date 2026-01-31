@@ -16,6 +16,8 @@ _RAMDISK_ENV = "HARBORPILOT_RAMDISK_ROOT"
 _STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 ARTIFACT_ROOT = ".harborpilot"
 LEGACY_ARTIFACT_ROOT = "state"
+ARTIFACT_NAMESPACE = "runtime"
+LEGACY_ARTIFACT_NAMESPACE = "ollama"
 
 
 def enforce_utf8() -> None:
@@ -83,9 +85,15 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return rel_path
     p = rel_path.replace("\\", "/").lstrip("./")
-    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
     if p.startswith(legacy_prefix):
-        p = f"{ARTIFACT_ROOT}/" + p[len(legacy_prefix):]
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_prefix):]
+    legacy_root_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    if p.startswith(legacy_root_prefix):
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_root_prefix):]
+    legacy_dot_prefix = f"{ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
+    if p.startswith(legacy_dot_prefix):
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_dot_prefix):]
     return p
 
 
@@ -93,9 +101,9 @@ def legacy_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return ""
     p = rel_path.replace("\\", "/").lstrip("./")
-    new_prefix = f"{ARTIFACT_ROOT}/"
+    new_prefix = f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/"
     if p.startswith(new_prefix):
-        return f"{LEGACY_ARTIFACT_ROOT}/" + p[len(new_prefix):]
+        return f"{ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/" + p[len(new_prefix):]
     return ""
 
 
@@ -201,6 +209,13 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
         exists = False
     if not exists:
         return ""
+    ws_abs = os.path.abspath(workspace_full or "")
+    if ws_abs:
+        try:
+            if os.path.commonpath([ws_abs, root]) == ws_abs:
+                return ""
+        except Exception:
+            pass
     ws = os.path.abspath(workspace_full or "").lower()
     digest = hashlib.sha1(ws.encode("utf-8", errors="ignore")).hexdigest()[:12]
     base_name = os.path.basename(root.rstrip("\\/")).lower()
@@ -213,13 +228,13 @@ def is_hot_artifact_path(rel_path: str) -> bool:
     p = normalize_artifact_rel_path(rel_path)
     if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         return True
-    if not p.startswith(f"{ARTIFACT_ROOT}/ollama/"):
+    if not p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/"):
         return False
-    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/runs/"):
+    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/runs/"):
         return True
-    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/memory/"):
+    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/memory/"):
         return True
-    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/evidence/"):
+    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/evidence/"):
         return True
     lowered = p.lower()
     if lowered.endswith("director_result.json"):
@@ -237,18 +252,18 @@ def resolve_run_dir(workspace_full: str, cache_root_full: str, run_id: str) -> s
     if not run_id:
         return ""
     base_root = cache_root_full or workspace_full
-    return os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs", run_id)
+    return os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs", run_id)
 
 
 def update_latest_pointer(workspace_full: str, cache_root_full: str, run_id: str) -> None:
     if not run_id:
         return
     base_root = cache_root_full or workspace_full
-    latest_dir = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs", "latest")
+    latest_dir = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs", "latest")
     run_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
     
     # Update latest_run.json for Windows compatibility (and Dashboard reading)
-    pointer_path = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "latest_run.json")
+    pointer_path = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "latest_run.json")
     write_json_atomic(pointer_path, {"run_id": run_id, "path": run_dir})
 
     # Try to create symlink if possible (best effort)
@@ -346,8 +361,8 @@ def stop_flag_path(workspace: str) -> str:
         cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
         if not cache_root:
             raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
-    return os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+        return os.path.join(cache_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+    return os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
 
 
 def stop_requested(workspace: str) -> bool:
@@ -371,8 +386,8 @@ def director_stop_flag_path(workspace: str) -> str:
         cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
         if not cache_root:
             raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
-    return os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
+        return os.path.join(cache_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
+    return os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
 
 
 def director_stop_requested(workspace: str) -> bool:
@@ -907,10 +922,20 @@ def _decode_text_bytes(data: bytes) -> str:
 
 def read_file_safe(path: str) -> str:
     if not os.path.exists(path):
-        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
-        if legacy_path == path or not os.path.exists(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.exists(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.exists(legacy_state):
+            path = legacy_state
+        else:
             return ""
-        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read()
@@ -921,10 +946,20 @@ def read_file_safe(path: str) -> str:
 
 def read_memory_snapshot(path: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
-        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
-        if legacy_path == path or not os.path.exists(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.exists(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.exists(legacy_state):
+            path = legacy_state
+        else:
             return None
-        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read()

@@ -99,7 +99,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [directorShowOutput, setDirectorShowOutput] = useState(true);
   const [qaEnabled, setQaEnabled] = useState(true);
   const [ramdiskRoot, setRamdiskRoot] = useState('');
-  const [jsonLogPath, setJsonLogPath] = useState('.harborpilot/ollama/PM_LOG.jsonl');
+  const [jsonLogPath, setJsonLogPath] = useState('.harborpilot/runtime/PM_LOG.jsonl');
   const [showMemory, setShowMemory] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
   const [saving, setSaving] = useState(false);
@@ -134,7 +134,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setDirectorShowOutput(settings.director_show_output ?? true);
     setQaEnabled(settings.qa_enabled ?? true);
     setRamdiskRoot(settings.ramdisk_root ?? '');
-    setJsonLogPath(settings.json_log_path ?? '.harborpilot/ollama/PM_LOG.jsonl');
+    setJsonLogPath(settings.json_log_path ?? '.harborpilot/runtime/PM_LOG.jsonl');
     setShowMemory(settings.show_memory ?? false);
   }, [settings]);
 
@@ -172,7 +172,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         director_show_output: directorShowOutput,
         qa_enabled: qaEnabled,
         ramdisk_root: ramdiskRoot || '',
-        json_log_path: jsonLogPath || '.harborpilot/ollama/PM_LOG.jsonl',
+        json_log_path: jsonLogPath || '.harborpilot/runtime/PM_LOG.jsonl',
         show_memory: showMemory,
       });
       onClose();

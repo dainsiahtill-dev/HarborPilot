@@ -7,11 +7,11 @@ __pycache__/
 
 # State outputs
 .harborpilot/
-.harborpilot/ollama/*.md
-.harborpilot/ollama/*.json
-.harborpilot/ollama/*.jsonl
-.harborpilot/ollama/memory/
-.harborpilot/ollama/runs/
+.harborpilot/runtime/*.md
+.harborpilot/runtime/*.json
+.harborpilot/runtime/*.jsonl
+.harborpilot/runtime/memory/
+.harborpilot/runtime/runs/
 
 # Desktop app
 /desktop/node_modules/

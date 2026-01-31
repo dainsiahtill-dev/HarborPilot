@@ -276,7 +276,7 @@ def mock_ollama_service(mock_ai_responses):
 @pytest.fixture(scope="function")
 def mock_state_files(temp_workspace_root):
     """Create mock state files for testing"""
-    state_dir = temp_workspace_root / "state" / "ollama"
+    state_dir = temp_workspace_root / ".harborpilot" / "runtime"
     state_dir.mkdir(parents=True, exist_ok=True)
     
     # Mock PM_TASKS.json

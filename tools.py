@@ -1634,7 +1634,7 @@ def _hash_embedding(text: str, dim: int = 256) -> List[float]:
 def lancedb_index_code(args: List[str], cwd: str, timeout: int) -> Result:
     _ = timeout
     collection = "code_chunks"
-    db_path = os.path.join(cwd, ".harborpilot", "ollama", "lancedb")
+    db_path = os.path.join(cwd, ".harborpilot", "runtime", "lancedb")
     glob_pat = ""
     max_files = 200
     chunk_lines = 80
@@ -1730,7 +1730,7 @@ def lancedb_query_code(args: List[str], cwd: str, timeout: int) -> Result:
         return _error_result("lancedb_query_code", "Usage: lancedb_query_code <query> [--collection name] [--db path] [--k N]")
     query = args[0]
     collection = "code_chunks"
-    db_path = os.path.join(cwd, ".harborpilot", "ollama", "lancedb")
+    db_path = os.path.join(cwd, ".harborpilot", "runtime", "lancedb")
     k = 5
     env_k = os.environ.get("HARBORPILOT_RAG_TOPK")
     if env_k:

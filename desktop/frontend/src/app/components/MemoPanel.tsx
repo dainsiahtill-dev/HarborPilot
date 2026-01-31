@@ -1,4 +1,4 @@
-import { FileText, Search, Clock, AlertCircle } from 'lucide-react';
+import { FileText, Search, Clock, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 export interface MemoItem {
@@ -22,6 +22,8 @@ interface MemoPanelProps {
   loading: boolean;
   error: string | null;
   onSelect: (item: MemoItem) => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }
 
 export function MemoPanel({
@@ -32,6 +34,8 @@ export function MemoPanel({
   loading,
   error,
   onSelect,
+  collapsed,
+  onToggle,
 }: MemoPanelProps) {
   const [query, setQuery] = useState('');
 
@@ -61,12 +65,24 @@ export function MemoPanel({
           <FileText className="size-4 text-blue-400" />
           <h2 className="text-sm font-semibold text-gray-300">PM 备忘录</h2>
         </div>
-        <div className="flex items-center gap-1 text-xs text-gray-500">
-          <Clock className="size-3" />
-          <span>{mtime || selected?.mtime || '-'}</span>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-1">
+            <Clock className="size-3" />
+            <span>{mtime || selected?.mtime || '-'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-gray-400 hover:bg-white/5"
+            aria-label={collapsed ? 'Expand memo panel' : 'Collapse memo panel'}
+          >
+            {collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+            <span>{collapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
         </div>
       </div>
 
+      {collapsed ? null : (
       <div className="p-3 border-b border-gray-800">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 size-3.5 text-gray-500" />
@@ -79,7 +95,9 @@ export function MemoPanel({
         </div>
         <div className="mt-2 text-[11px] text-gray-500">共 {filtered.length} 条</div>
       </div>
+      )}
 
+      {collapsed ? null : (
       <div className="flex-1 min-h-0 flex">
         <div className="w-56 border-r border-gray-800 overflow-y-auto">
           {filtered.length === 0 ? (
@@ -121,6 +139,7 @@ export function MemoPanel({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

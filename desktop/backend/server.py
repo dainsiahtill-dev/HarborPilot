@@ -32,22 +32,24 @@ LOOP_MODULE_DIR = os.path.join(PROJECT_ROOT, "modules", "harborpilot-loop")
 DEFAULT_MODEL = "modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest"
 ARTIFACT_ROOT = ".harborpilot"
 LEGACY_ARTIFACT_ROOT = "state"
-DEFAULT_PLAN = ".harborpilot/ollama/PLAN.md"
-DEFAULT_GAP = ".harborpilot/ollama/GAP_REPORT.md"
-DEFAULT_QA = ".harborpilot/ollama/QA_RESPONSE.md"
+ARTIFACT_NAMESPACE = "runtime"
+LEGACY_ARTIFACT_NAMESPACE = "ollama"
+DEFAULT_PLAN = ".harborpilot/runtime/PLAN.md"
+DEFAULT_GAP = ".harborpilot/runtime/GAP_REPORT.md"
+DEFAULT_QA = ".harborpilot/runtime/QA_RESPONSE.md"
 DEFAULT_REQUIREMENTS = "docs/product/requirements.md"
-DEFAULT_PM_OUT = ".harborpilot/ollama/PM_TASKS.json"
-DEFAULT_PM_REPORT = ".harborpilot/ollama/PM_REPORT.md"
-DEFAULT_PM_LOG = ".harborpilot/ollama/PM_LOG.jsonl"
-DEFAULT_PM_SUBPROCESS_LOG = ".harborpilot/ollama/PM_SUBPROCESS.log"
-DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/ollama/DIRECTOR_SUBPROCESS.log"
-DEFAULT_DIRECTOR_STATUS = ".harborpilot/ollama/DIRECTOR_STATUS.json"
-DEFAULT_PLANNER = ".harborpilot/ollama/PLANNER_RESPONSE.md"
-DEFAULT_OLLAMA = ".harborpilot/ollama/OLLAMA_RESPONSE.md"
-DEFAULT_RUNLOG = ".harborpilot/ollama/RUNLOG.md"
-DEFAULT_DIALOGUE = ".harborpilot/ollama/DIALOGUE.jsonl"
-AGENTS_DRAFT_REL = ".harborpilot/ollama/AGENTS.generated.md"
-AGENTS_FEEDBACK_REL = ".harborpilot/ollama/AGENTS.feedback.md"
+DEFAULT_PM_OUT = ".harborpilot/runtime/PM_TASKS.json"
+DEFAULT_PM_REPORT = ".harborpilot/runtime/PM_REPORT.md"
+DEFAULT_PM_LOG = ".harborpilot/runtime/PM_LOG.jsonl"
+DEFAULT_PM_SUBPROCESS_LOG = ".harborpilot/runtime/PM_SUBPROCESS.log"
+DEFAULT_DIRECTOR_SUBPROCESS_LOG = ".harborpilot/runtime/DIRECTOR_SUBPROCESS.log"
+DEFAULT_DIRECTOR_STATUS = ".harborpilot/runtime/DIRECTOR_STATUS.json"
+DEFAULT_PLANNER = ".harborpilot/runtime/PLANNER_RESPONSE.md"
+DEFAULT_OLLAMA = ".harborpilot/runtime/OLLAMA_RESPONSE.md"
+DEFAULT_RUNLOG = ".harborpilot/runtime/RUNLOG.md"
+DEFAULT_DIALOGUE = ".harborpilot/runtime/DIALOGUE.jsonl"
+AGENTS_DRAFT_REL = ".harborpilot/runtime/AGENTS.generated.md"
+AGENTS_FEEDBACK_REL = ".harborpilot/runtime/AGENTS.feedback.md"
 WORKSPACE_STATUS_REL = os.path.join(ARTIFACT_ROOT, "WORKSPACE_STATUS.json")
 STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
 
@@ -439,6 +441,13 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
         exists = False
     if not exists:
         return ""
+    ws_abs = os.path.abspath(workspace_full or "")
+    if ws_abs:
+        try:
+            if os.path.commonpath([ws_abs, root]) == ws_abs:
+                return ""
+        except Exception:
+            pass
     ws = os.path.abspath(workspace_full or "").lower()
     digest = hashlib.sha1(ws.encode("utf-8", errors="ignore")).hexdigest()[:12]
     base_name = os.path.basename(root.rstrip("\\/")).lower()
@@ -456,9 +465,15 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return rel_path
     p = rel_path.replace("\\", "/").lstrip("./")
-    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
     if p.startswith(legacy_prefix):
-        p = f"{ARTIFACT_ROOT}/" + p[len(legacy_prefix):]
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_prefix):]
+    legacy_root_prefix = f"{LEGACY_ARTIFACT_ROOT}/"
+    if p.startswith(legacy_root_prefix):
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_root_prefix):]
+    legacy_dot_prefix = f"{ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
+    if p.startswith(legacy_dot_prefix):
+        return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_dot_prefix):]
     return p
 
 
@@ -466,9 +481,9 @@ def legacy_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return ""
     p = rel_path.replace("\\", "/").lstrip("./")
-    new_prefix = f"{ARTIFACT_ROOT}/"
+    new_prefix = f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/"
     if p.startswith(new_prefix):
-        return f"{LEGACY_ARTIFACT_ROOT}/" + p[len(new_prefix):]
+        return f"{ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/" + p[len(new_prefix):]
     return ""
 
 
@@ -476,13 +491,13 @@ def is_hot_artifact_path(rel_path: str) -> bool:
     p = normalize_artifact_rel_path(rel_path)
     if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         return True
-    if not p.startswith(f"{ARTIFACT_ROOT}/ollama/"):
+    if not p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/"):
         return False
-    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/runs/"):
+    if "/runs/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/runs/"):
         return True
-    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/memory/"):
+    if "/memory/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/memory/"):
         return True
-    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/ollama/evidence/"):
+    if "/evidence/" in p or p.startswith(f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/evidence/"):
         return True
     lowered = p.lower()
     if lowered.endswith("director_result.json"):
@@ -554,10 +569,20 @@ def read_json(path: str) -> Optional[Dict[str, Any]]:
     if not path or not os.path.isfile(path):
         if not path:
             return None
-        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
-        if legacy_path == path or not os.path.isfile(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.isfile(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.isfile(legacy_state):
+            path = legacy_state
+        else:
             return None
-        path = legacy_path
     try:
         with open(path, "r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -572,7 +597,12 @@ def read_director_status(workspace: str, cache_root: str) -> Optional[Dict[str, 
     legacy_rel = legacy_artifact_rel_path(DEFAULT_DIRECTOR_STATUS)
     legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
     legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
-    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path):
+    state_rel = ""
+    if legacy_rel:
+        state_rel = legacy_rel.replace(f"{ARTIFACT_ROOT}/", f"{LEGACY_ARTIFACT_ROOT}/")
+    state_cache_path = os.path.join(cache_root, state_rel) if cache_root and state_rel else ""
+    state_workspace_path = os.path.join(workspace, state_rel) if state_rel else ""
+    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path, state_cache_path, state_workspace_path):
         if not path:
             continue
         if path in candidates:
@@ -601,7 +631,12 @@ def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> Op
     legacy_rel = legacy_artifact_rel_path(normalized)
     legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
     legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
-    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path):
+    state_rel = ""
+    if legacy_rel:
+        state_rel = legacy_rel.replace(f"{ARTIFACT_ROOT}/", f"{LEGACY_ARTIFACT_ROOT}/")
+    state_cache_path = os.path.join(cache_root, state_rel) if cache_root and state_rel else ""
+    state_workspace_path = os.path.join(workspace, state_rel) if state_rel else ""
+    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path, state_cache_path, state_workspace_path):
         if not path or not os.path.isfile(path):
             continue
         try:
@@ -634,7 +669,7 @@ def compute_success_stats(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_memory_payload(workspace: str, cache_root: str) -> Optional[Dict[str, Any]]:
-    path = select_latest_artifact(workspace, cache_root, ".harborpilot/ollama/memory/last_state.json")
+    path = select_latest_artifact(workspace, cache_root, ".harborpilot/runtime/memory/last_state.json")
     if not path:
         return None
     content = read_file_tail(path, max_lines=200, max_chars=20000)
@@ -642,7 +677,7 @@ def build_memory_payload(workspace: str, cache_root: str) -> Optional[Dict[str, 
 
 
 def build_success_stats_payload(workspace: str, cache_root: str) -> Dict[str, Any]:
-    path = select_latest_artifact(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_RESULT.json")
+    path = select_latest_artifact(workspace, cache_root, ".harborpilot/runtime/DIRECTOR_RESULT.json")
     result = read_json(path) if path else None
     return compute_success_stats(result)
 
@@ -730,10 +765,20 @@ def read_file_head(path: str, max_chars: int = 20000) -> str:
     if not path or not os.path.isfile(path):
         if not path:
             return ""
-        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
-        if legacy_path == path or not os.path.isfile(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.isfile(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.isfile(legacy_state):
+            path = legacy_state
+        else:
             return ""
-        path = legacy_path
     try:
         with open(path, "rb") as handle:
             data = handle.read(max_chars if max_chars and max_chars > 0 else 20000)
@@ -746,10 +791,20 @@ def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -
     if not path or not os.path.isfile(path):
         if not path:
             return []
-        legacy_path = path.replace(f"{os.sep}{ARTIFACT_ROOT}{os.sep}", f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}")
-        if legacy_path == path or not os.path.isfile(legacy_path):
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.isfile(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.isfile(legacy_state):
+            path = legacy_state
+        else:
             return []
-        path = legacy_path
     try:
         size = os.path.getsize(path)
     except Exception:
@@ -1185,7 +1240,7 @@ def generate_docs_ai_fields(workspace: str, settings: Settings, fields: Dict[str
             return None
         output = invoke_codex(
             prompt=prompt,
-            output_file=os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DOCS_INIT_AI.md"),
+            output_file=os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DOCS_INIT_AI.md"),
             workspace=workspace,
             show_output=False,
             full_auto=True,
@@ -1359,7 +1414,7 @@ def terminate_pid(pid: int) -> bool:
 
 
 def clear_stop_flag(workspace: str) -> None:
-    stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+    stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
     try:
         if os.path.exists(stop_flag):
             os.remove(stop_flag)
@@ -1368,7 +1423,7 @@ def clear_stop_flag(workspace: str) -> None:
 
 
 def director_stop_flag_path(workspace: str, cache_root: str) -> str:
-    return resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_STOP.flag")
+    return resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/DIRECTOR_STOP.flag")
 
 
 def clear_director_stop_flag(workspace: str, cache_root: str) -> None:
@@ -1425,8 +1480,8 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
     pm_subprocess_log = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
     director_subprocess_log = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
     dialogue_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIALOGUE)
-    pm_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_STATE.json")
-    director_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/memory/last_state.json")
+    pm_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STATE.json")
+    director_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/memory/last_state.json")
     planner_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PLANNER)
     ollama_path = resolve_artifact_path(workspace, cache_root, DEFAULT_OLLAMA)
     qa_path = resolve_artifact_path(workspace, cache_root, DEFAULT_QA)
@@ -1444,12 +1499,12 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         ("DIRECTOR_SUBPROCESS.log", director_subprocess_log),
         ("PM_STATE.json", pm_state_path),
         ("last_state.json", director_state_path),
-        ("PM_TASK_HISTORY.jsonl", resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/PM_TASK_HISTORY.jsonl")),
+        ("PM_TASK_HISTORY.jsonl", resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_TASK_HISTORY.jsonl")),
         ("PLANNER_RESPONSE.md", planner_path),
         ("OLLAMA_RESPONSE.md", ollama_path),
         ("QA_RESPONSE.md", qa_path),
         ("RUNLOG.md", runlog_path),
-        ("DIRECTOR_RESULT.json", resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/DIRECTOR_RESULT.json")),
+        ("DIRECTOR_RESULT.json", resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/DIRECTOR_RESULT.json")),
         ("DIALOGUE.jsonl", dialogue_path),
     ]
 
@@ -1773,7 +1828,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         # Record init event (best effort)
         try:
             cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
-            event_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/ollama/events.jsonl")
+            event_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/events.jsonl")
             os.makedirs(os.path.dirname(event_path), exist_ok=True)
             event_payload = {
                 "schema_version": 1,
@@ -1866,8 +1921,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     ) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
-        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, "ollama", "memos"))
-        index_path = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, "ollama", "memos", "index.jsonl"))
+        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos"))
+        index_path = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos", "index.jsonl"))
         records: List[Dict[str, Any]] = []
         if os.path.isfile(index_path):
             try:
@@ -1893,7 +1948,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                         continue
                     if entry.name.lower().startswith("pm_memo_summary"):
                         continue
-                    rel_path = os.path.join(ARTIFACT_ROOT, "ollama", "memos", entry.name).replace("\\", "/")
+                    rel_path = os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos", entry.name).replace("\\", "/")
                     records.append(
                         {
                             "timestamp": format_mtime(entry.path),
@@ -2078,7 +2133,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -2150,7 +2205,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -2176,7 +2231,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     @app.post("/pm/stop")
     def pm_stop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
-        stop_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "PM_STOP.flag")
+        stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
         try:
             os.makedirs(os.path.dirname(stop_flag), exist_ok=True)
             with open(stop_flag, "w", encoding="utf-8") as handle:
@@ -2229,7 +2284,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         except Exception:
             pass
         try:
-            workspace_flag = os.path.join(workspace, ARTIFACT_ROOT, "ollama", "DIRECTOR_STOP.flag")
+            workspace_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
             if workspace_flag and workspace_flag != stop_flag:
                 os.makedirs(os.path.dirname(workspace_flag), exist_ok=True)
                 with open(workspace_flag, "w", encoding="utf-8") as handle:
@@ -2274,7 +2329,7 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         base_root = cache_root or workspace
-        runs_root = os.path.join(base_root, ARTIFACT_ROOT, "ollama", "runs")
+        runs_root = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs")
         
         runs = []
         if os.path.isdir(runs_root):

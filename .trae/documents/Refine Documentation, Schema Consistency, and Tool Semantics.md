@@ -2,7 +2,7 @@ I will implement the 8 requested improvements to enhance system robustness and d
 
 ### 1. Documentation & Consistency
 - **Fix Numbering**: Review and renumber sections in `README.md` and `docs/*.md` to ensure sequential 1..N order, moving any "New" sections to appropriate appendices or logical positions.
-- **Clarify `.harborpilot/ollama`**: Update documentation to emphasize `state/runs/` as the stable access pattern, reducing confusion around the legacy `ollama` backend naming.
+- **Clarify `.harborpilot/runtime`**: Update documentation to emphasize `state/runs/` as the stable access pattern, reducing confusion around the legacy `ollama` backend naming.
 - **RAMDISK FAQ**: Add a dedicated entry in `docs/reference.md` explaining the "no fallback" policy (to prevent path pollution) and providing a check command.
 - **Match Mode**: Expand `director-match-mode` documentation in `docs/reference.md` to define `latest` (newest run), `run_id` (specific), `any` (first found), and `strict` (exact match only).
 - **Policy Sources**: Add a concrete JSON example of `policy_sources` in `docs/reference.md` to demonstrate field-level granularity.

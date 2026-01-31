@@ -25,7 +25,7 @@ harborpilot/
   prompts/
     demo_ming_armada.json # 默认角色模板
     generic.json          # 通用模板
-  .harborpilot/ollama/          # 默认产物目录 (推荐指向 RAMDISK)
+  .harborpilot/runtime/          # 默认产物目录 (推荐指向 RAMDISK)
     memos/               # 备忘录归档
     evidence/            # 取证数据
     runs/                # 历史运行归档
@@ -35,7 +35,7 @@ harborpilot/
 
 ## 2. 运行产物索引
 
-所有产物默认位于 `workspace/.harborpilot/ollama/` 下：
+所有产物默认位于 `workspace/.harborpilot/runtime/` 下：
 
 | 文件名 | 说明 | 消费者 |
 | :--- | :--- | :--- |
@@ -53,6 +53,42 @@ harborpilot/
 | `memory/last_state.json` | 工作记忆快照 | PM / Director |
 | `GAP_REPORT.md` | Gap Review 差异分析报告 | PM |
 | `memos/PM_MEMO-*.md` | 任务备忘录 | Humans / Search |
+
+### 2.0 存储位置规则（Workspace vs RAMDISK）
+
+当启用 `HARBORPILOT_STATE_TO_RAMDISK=1` 时，系统会把**高频/热数据**写入 RAMDISK 缓存目录
+`X:\HarborPilot\cache\<hash>\.harborpilot/`，而**长期/冷数据**仍写在 workspace 下的 `.harborpilot/`。
+
+**写入 workspace/.harborpilot/**（长期保存）
+
+| 目录/文件 | 说明 |
+| :--- | :--- |
+| `.harborpilot/WORKSPACE_STATUS.json` | 工作区状态（如需要初始化 docs） |
+| `.harborpilot/runtime/PLAN.md` | 规划草案 |
+| `.harborpilot/runtime/PM_TASKS.json` | PM 任务合同 |
+| `.harborpilot/runtime/PM_REPORT.md` | PM 报告 |
+| `.harborpilot/runtime/PM_STATE.json` | PM 内部状态 |
+| `.harborpilot/runtime/PM_TASK_HISTORY.jsonl` | 任务历史 |
+| `.harborpilot/runtime/PLANNER_RESPONSE.md` | Planner 输出 |
+| `.harborpilot/runtime/OLLAMA_RESPONSE.md` | LLM 输出 |
+| `.harborpilot/runtime/QA_RESPONSE.md` | QA 输出 |
+| `.harborpilot/runtime/DIRECTOR_RESULT.json` | Director 结果摘要（也会被当作热数据缓存） |
+| `.harborpilot/runtime/DIRECTOR_STATUS.json` | Director 状态（也会被当作热数据缓存） |
+| `.harborpilot/runtime/DIALOGUE.jsonl` | 对话记录（也会被当作热数据缓存） |
+| `.harborpilot/runtime/PM_SUBPROCESS.log` | PM 子进程日志（也会被当作热数据缓存） |
+| `.harborpilot/runtime/DIRECTOR_SUBPROCESS.log` | Director 子进程日志（也会被当作热数据缓存） |
+| `.harborpilot/runtime/memos/**` | 备忘录与索引 |
+
+**优先写入 RAMDISK**（启用后走 `X:\HarborPilot\cache\<hash>\.harborpilot/`）
+
+| 目录/文件 | 说明 |
+| :--- | :--- |
+| `.harborpilot/runtime/runs/**` | 每次运行的归档产物 |
+| `.harborpilot/runtime/memory/**` | 记忆快照 |
+| `.harborpilot/runtime/evidence/**` | 证据包 |
+| `.harborpilot/runtime/trajectory.json` | 轨迹索引 |
+| `*.jsonl` / `*.log` | 高速追加日志 |
+| `RUNLOG.md` | Director 运行日志 |
 
 ### 2.1 结果文件详解 (DIRECTOR_RESULT.json)
 
@@ -182,7 +218,7 @@ python -c "import os; print('OK' if os.path.exists('X:\\') else 'MISSING')"
 
 PM Loop 通过 `--director-match-mode` 参数控制如何寻找 Director 的产物：
 
-*   **`latest` (默认)**: 读取 `.harborpilot/ollama/runs/latest` 软链或指针，始终获取最近一次运行的结果。适合单机串行模式。
+*   **`latest` (默认)**: 读取 `.harborpilot/runtime/runs/latest` 软链或指针，始终获取最近一次运行的结果。适合单机串行模式。
 *   **`run_id`**: 必须匹配当前 PM 分配的 `run_id`。适合严格的流水线集成。
 *   **`any`**: 只要有任何 `DIRECTOR_RESULT.json` 就读取。适合调试或松散耦合。
 *   **`strict`**: 类似 `run_id`，但如果未找到会抛出错误而不是等待。

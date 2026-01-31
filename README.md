@@ -99,7 +99,7 @@ graph LR
 
 ## 📁 产物说明
 
-所有运行产物默认生成在 workspace 下的 `.harborpilot/ollama/` 目录 (建议配置 `.harborpilot/ollama/runs/` 指向内存盘)：
+所有运行产物默认生成在 workspace 下的 `.harborpilot/runtime/` 目录 (建议配置 `.harborpilot/runtime/runs/` 指向内存盘)：
 
 | 📄 文件 | 📝 描述 |
 |--------|--------|
