@@ -8,27 +8,48 @@
 
 ```text
 harborpilot/
-  loops/
-    loop-pm.py           # PM 循环入口
-    loop-director.py     # Director 循环入口
-  modules/harborpilot-loop/
-    io_utils.py          # IO / 记忆 / Dialogue
-    prompts.py           # Prompt 组装
-    prompt_loader.py     # 模板加载
-    decision.py          # 任务决策逻辑
-    codex_utils.py       # Codex 后端适配
-    ollama_utils.py      # Ollama 后端适配
-    shared.py            # 公共工具
-  desktop/
-    backend/server.py    # Dashboard 本地后端 (FastAPI)
-    electron/main.cjs    # Electron 主进程入口
-  prompts/
-    demo_ming_armada.json # 默认角色模板
-    generic.json          # 通用模板
+  backend/                       # Python 后端
+    app/                         # FastAPI 应用
+      routers/                   # API 路由
+      services/                  # 业务逻辑服务
+      config.py                  # 配置管理
+      main.py                    # FastAPI 入口
+    core/harborpilot_loop/       # 核心循环模块
+      io_utils.py                # IO / 记忆 / Dialogue
+      prompts.py                 # Prompt 组装
+      prompt_loader.py           # 模板加载
+      decision.py                # 任务决策逻辑
+      codex_utils.py             # Codex 后端适配
+      ollama_utils.py            # Ollama 后端适配
+      director_exec.py           # Director 执行引擎
+      director_tooling.py        # 工具调用层
+      director_memory.py         # 记忆管理
+      policy.py                  # 策略配置
+      shared.py                  # 公共工具
+    server.py                    # 后端服务器入口
+  frontend/                      # React 前端 (Vite + TailwindCSS)
+    src/app/                     # 应用代码
+      components/                # UI 组件
+      App.tsx                    # 主应用组件
+    src/styles/                  # 样式文件
+  electron/                      # Electron 桌面应用
+    main.cjs                     # 主进程入口
+    preload.cjs                  # 预加载脚本
+  tools/                         # 代码分析工具
+    files.py                     # 文件操作工具
+    search.py                    # 搜索工具 (ripgrep)
+    linters.py                   # Lint 工具
+    treesitter.py                # Tree-sitter AST 操作
+  prompts/                       # 提示词模板
+    demo_ming_armada.json        # 默认角色模板
+    generic.json                 # 通用模板
+  schema/                        # JSON Schema 定义
+  tests/                         # 测试套件
+    e2e/                         # 端到端测试
   .harborpilot/runtime/          # 默认产物目录 (推荐指向 RAMDISK)
-    memos/               # 备忘录归档
-    evidence/            # 取证数据
-    runs/                # 历史运行归档
+    memos/                       # 备忘录归档
+    evidence/                    # 取证数据
+    runs/                        # 历史运行归档
 ```
 
 ---
@@ -117,7 +138,7 @@ harborpilot/
 
 ## 3. CLI 参数详解
 
-### 3.1 PM Loop (`loops/loop-pm.py`)
+### 3.1 PM Loop (`backend/scripts/loop-pm.py`)
 
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :--- |
@@ -131,7 +152,7 @@ harborpilot/
 | `--interval` | 循环间隔 (秒) | `0` |
 | `--stop-on-failure` | 遇到失败是否停止 | `False` |
 
-### 3.2 Director Loop (`loops/loop-director.py`)
+### 3.2 Director Loop (`backend/scripts/loop-director.py`)
 
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :--- |

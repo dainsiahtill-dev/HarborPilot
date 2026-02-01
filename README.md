@@ -44,17 +44,16 @@
 最简单的上手方式是使用可视化面板：
 
 ```bash
-# setup
-cd desktop
+# 安装依赖
 npm install
 
-# dev
+# 开发模式（同时启动 Vite + Electron）
 npm run dev
 
-# test
+# 运行测试
 npm run test
 
-# build
+# 构建生产版本
 npm run build
 ```
 
@@ -69,10 +68,10 @@ npm run build
 
 ```bash
 # 1. 运行 PM (生成任务)
-python loops/loop-pm.py --workspace /path/to/repo
+python backend/scripts/loop-pm.py --workspace /path/to/repo
 
 # 2. 运行 Director (执行任务)
-python loops/loop-director.py --workspace /path/to/repo --iterations 1
+python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
 ```
 
 ---
@@ -156,12 +155,12 @@ Dashboard UI **只读**。UI 不产生决策、不修改状态、不直接操作
 
 ### 🔧 核心依赖
 - **Python 3.10+** 
+- **Node.js 18+** (Dashboard)
 - **PM**: 推荐 Codex CLI (默认)
 - **Director**: 推荐 Ollama CLI (默认)
 
 ### 📦 可选依赖
 - `lancedb` (长期记忆)
-- `flet` (Dashboard UI)
 
 ---
 
