@@ -82,6 +82,7 @@ class PromptContext(BaseModel):
     step: int
     persona_id: str
     retrieved_mem_ids: List[str]
+    retrieved_mem_scores: List[float] = Field(default_factory=list)
     retrieved_ref_ids: List[str]
     strategy: str = "combined_ranking"
     token_usage_estimate: int

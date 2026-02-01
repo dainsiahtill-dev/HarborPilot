@@ -87,11 +87,36 @@ class MemoryStore:
                         print(f"LanceDB error: {e}")
 
 
+    def delete(self, memory_id: str) -> bool:
+        """Deletes a memory item by ID."""
+        initial_len = len(self.memories)
+        self.memories = [m for m in self.memories if m.id != memory_id]
+        
+        if len(self.memories) == initial_len:
+            return False
+            
+        # Rewrite file
+        os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+        with open(self.memory_file, 'w', encoding='utf-8') as f:
+            for m in self.memories:
+                f.write(m.model_dump_json() + '\n')
+                
+        # Delete from LanceDB
+        if LANCEDB_AVAILABLE:
+            try:
+                table = self.db.open_table("memories")
+                table.delete(f"id = '{memory_id}'")
+            except Exception:
+                pass
+                
+        return True
+
     def retrieve(self, query: str, current_step: int, top_k: int = 10, 
-                 weights: Dict[str, float] = None) -> List[MemoryItem]:
+                 weights: Dict[str, float] = None, return_scores: bool = False) -> List[Any]:
         """
-        Retrieves relevant memories based on scoring formula:
-        Score = w_rel * Relevance + w_rec * Recency + w_imp * Importance
+        Retrieves relevant memories.
+        If return_scores is True, returns List[Tuple[MemoryItem, float]]
+        Else returns List[MemoryItem]
         """
         if not self.memories:
             return []
@@ -159,7 +184,19 @@ class MemoryStore:
         scored_memories.sort(key=lambda x: x[0], reverse=True)
         
         # Apply Pruning & Diversity
-        return self._prune_candidates([m for s, m in scored_memories], top_k)
+        pruned_items = self._prune_candidates([m for s, m in scored_memories], top_k)
+        
+        if not return_scores:
+            return pruned_items
+            
+        # Map back to scores
+        final_with_scores = []
+        # Create a lookup for scores
+        score_map = {m.id: s for s, m in scored_memories}
+        for item in pruned_items:
+            final_with_scores.append((item, score_map.get(item.id, 0.0)))
+            
+        return final_with_scores
 
     def _prune_candidates(self, candidates: List[MemoryItem], limit: int) -> List[MemoryItem]:
         """

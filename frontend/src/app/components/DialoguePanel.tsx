@@ -34,38 +34,43 @@ interface DialoguePanelProps {
 const speakerStyles = {
   PM: {
     icon: User,
-    iconBg: 'bg-blue-500/10',
-    iconText: 'text-blue-400',
-    nameText: 'text-blue-400',
-    filterActive: 'bg-blue-500/20 text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.3)]',
+    iconBg: 'bg-gradient-to-br from-blue-500/20 to-cyan-500/20',
+    iconText: 'text-cyan-400',
+    nameText: 'text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400',
+    filterActive: 'bg-blue-500/20 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.4)]',
+    border: 'border-blue-500/30'
   },
   Director: {
     icon: Bot,
-    iconBg: 'bg-purple-500/10',
+    iconBg: 'bg-gradient-to-br from-purple-500/20 to-pink-500/20',
     iconText: 'text-purple-400',
-    nameText: 'text-purple-400',
-    filterActive: 'bg-purple-500/20 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.3)]',
+    nameText: 'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400',
+    filterActive: 'bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.4)]',
+    border: 'border-purple-500/30'
   },
   QA: {
     icon: CheckCircle,
-    iconBg: 'bg-emerald-500/10',
+    iconBg: 'bg-gradient-to-br from-emerald-500/20 to-green-500/20',
     iconText: 'text-emerald-400',
-    nameText: 'text-emerald-400',
-    filterActive: 'bg-emerald-500/20 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]',
+    nameText: 'text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-green-400',
+    filterActive: 'bg-emerald-500/20 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)]',
+    border: 'border-emerald-500/30'
   },
   Reviewer: {
     icon: Activity,
-    iconBg: 'bg-orange-500/10',
+    iconBg: 'bg-gradient-to-br from-orange-500/20 to-amber-500/20',
     iconText: 'text-orange-400',
     nameText: 'text-orange-400',
-    filterActive: 'bg-orange-500/20 text-orange-300 shadow-[0_0_10px_rgba(249,115,22,0.3)]',
+    filterActive: 'bg-orange-500/20 text-orange-300 shadow-[0_0_15px_rgba(249,115,22,0.4)]',
+    border: 'border-orange-500/30'
   },
   System: {
     icon: MessageSquare,
     iconBg: 'bg-white/5',
-    iconText: 'text-text-dim',
-    nameText: 'text-text-dim',
-    filterActive: 'bg-white/10 text-text-main shadow-[0_0_10px_rgba(255,255,255,0.1)]',
+    iconText: 'text-gray-400',
+    nameText: 'text-gray-400',
+    filterActive: 'bg-white/10 text-gray-300 shadow-[0_0_10px_rgba(255,255,255,0.1)]',
+    border: 'border-white/10'
   },
 };
 

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
+import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from 'react-resizable-panels';
 import { apiFetch, connectWebSocket, openPath, pickWorkspace } from '@/api';
 import { ControlPanel } from '@/app/components/ControlPanel';
 import { ArtifactsSidebar } from '@/app/components/ArtifactsSidebar';
@@ -11,8 +12,10 @@ import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import { DocsInitDialog, type WorkspaceStatus } from '@/app/components/DocsInitDialog';
 import { ProjectProgressPanel } from '@/app/components/ProjectProgressPanel';
+import { CognitionPanel } from '@/app/components/CognitionPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
+import { X } from 'lucide-react';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
 import { RunHistoryModal } from '@/app/components/RunHistoryModal';
 import { ErrorBoundaryClass } from '@/app/components/ErrorBoundary';
@@ -236,6 +239,8 @@ function extractPmStopSummary(reportText: string) {
 }
 
 export default function App() {
+  const [showCognition, setShowCognition] = useState(true);
+  const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [notifications, setNotifications] = useState<Array<{
     id: string;
     type: 'success' | 'error' | 'warning' | 'info' | 'loading';
@@ -305,6 +310,8 @@ export default function App() {
     name: string;
     path: string;
   } | null>(null);
+  const memoPanelRef = useRef<ImperativePanelHandle>(null);
+  const memoryPanelRef = useRef<ImperativePanelHandle>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [logsSourceId, setLogsSourceId] = useState<string | null>(null);
@@ -1647,6 +1654,7 @@ export default function App() {
           onToggleDirector={toggleDirector}
           onStopOllama={stopOllamaModels}
           onRefresh={handleRefresh}
+          onOpenBrain={() => setIsBrainOpen(true)}
           agentsNeeded={agentsRequired}
           agentsDraftReady={agentsDraftReady}
           agentsDraftFailed={agentsDraftFailed}
@@ -1778,27 +1786,30 @@ export default function App() {
         />
 
         {/* Main Content Area: Mission Control Grid */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <PanelGroup direction="horizontal" autoSaveId="harborpilot-main-layout-v2" className="flex-1 flex overflow-hidden relative">
           {/* Left Sidebar: Artifacts */}
-          {/* Left Sidebar: Artifacts */}
-          <div className="w-64 flex-shrink-0 border-r border-white/10 bg-bg-panel/30 backdrop-blur-md flex flex-col z-0">
-            <ArtifactsSidebar
-              onFileSelect={(file) =>
-                setSelectedFile({
-                  id: file.id,
-                  name: file.name,
-                  path: file.path,
-                })
-              }
-              selectedFileId={selectedFile?.id || null}
-              onOpenWorkspace={handleOpenWorkspace}
-              onOpenHistory={() => setIsHistoryOpen(true)}
-              fileStatusLines={snapshot?.file_status ?? null}
-            />
-          </div>
+          <Panel defaultSize={20} minSize={15} maxSize={30} order={1} className="flex flex-col z-0">
+            <div className="size-full border-r border-white/10 bg-bg-panel/30 backdrop-blur-md flex flex-col z-0">
+              <ArtifactsSidebar
+                onFileSelect={(file) =>
+                  setSelectedFile({
+                    id: file.id,
+                    name: file.name,
+                    path: file.path,
+                  })
+                }
+                selectedFileId={selectedFile?.id || null}
+                onOpenWorkspace={handleOpenWorkspace}
+                onOpenHistory={() => setIsHistoryOpen(true)}
+                fileStatusLines={snapshot?.file_status ?? null}
+              />
+            </div>
+          </Panel>
+
+          <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
 
           {/* Center: Workspace / Progress */}
-          <div className="flex-1 min-w-0 flex flex-col bg-transparent relative z-0">
+          <Panel order={2} className="flex flex-col min-w-0 bg-transparent relative z-0">
             {/* Gradient overlay for depth */}
             <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
             <ProjectProgressPanel
@@ -1813,41 +1824,128 @@ export default function App() {
               pmRunning={!!pmStatus?.running}
               className="flex-1 min-h-0"
             />
-          </div>
+          </Panel>
+
+          <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
 
           {/* Right Sidebar: Dialogue & Memory */}
-          <div className="w-96 flex-shrink-0 flex flex-col min-h-0 border-l border-white/10 bg-bg-panel/30 backdrop-blur-md z-0">
-            <div className="flex-1 min-h-0 flex flex-col">
-              <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
-            </div>
+          <Panel defaultSize={30} minSize={20} maxSize={50} order={3} className="flex flex-col min-h-0 border-l border-white/10 bg-bg-panel/30 backdrop-blur-md z-0">
+            <PanelGroup direction="vertical" autoSaveId="harborpilot-right-layout-v2">
+              <Panel order={1} className="flex flex-col min-h-0">
+                <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
+              </Panel>
 
-            <div className={`border-t border-border transition-all duration-300 overflow-hidden ${memoCollapsed ? 'h-9 flex-none' : 'h-64 flex-shrink-0'}`}>
-              <MemoPanel
-                items={memoItems}
-                selected={memoSelected}
-                content={memoData.content}
-                mtime={memoData.mtime}
-                loading={memoLoading}
-                error={memoError}
-                onSelect={(item) => setMemoSelected(item)}
-                collapsed={memoCollapsed}
-                onToggle={() => setMemoCollapsed((prev) => !prev)}
-              />
-            </div>
-            {settings?.show_memory ? (
-              <div className={`border-t border-border transition-all duration-300 overflow-hidden ${memoryCollapsed ? 'h-9 flex-none' : 'h-52 flex-shrink-0'}`}>
-                <MemoryPanel
-                  content={memoryData.content}
-                  mtime={memoryData.mtime}
-                  loading={memoryLoading}
-                  error={memoryError}
-                  collapsed={memoryCollapsed}
-                  onToggle={() => setMemoryCollapsed((prev) => !prev)}
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
+              <PanelResizeHandle className="h-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+
+              <Panel
+                order={2}
+                defaultSize={25}
+                minSize={5}
+                ref={memoPanelRef}
+                className="flex flex-col min-h-0 border-t border-border"
+              >
+                <div className="size-full flex flex-col overflow-hidden">
+                  <MemoPanel
+                    items={memoItems}
+                    selected={memoSelected}
+                    content={memoData.content}
+                    mtime={memoData.mtime}
+                    loading={memoLoading}
+                    error={memoError}
+                    onSelect={(item) => setMemoSelected(item)}
+                    collapsed={memoCollapsed}
+                    onToggle={() => {
+                      const collapsed = !memoCollapsed;
+                      setMemoCollapsed(collapsed);
+                      const p = memoPanelRef.current;
+                      if (p) {
+                        if (collapsed) p.resize(6);
+                        else p.resize(25);
+                      }
+                    }}
+                  />
+                </div>
+              </Panel>
+
+              {settings?.show_memory ? (
+                <>
+                  <PanelResizeHandle className="h-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+                  <Panel
+                    order={3}
+                    defaultSize={25}
+                    minSize={5}
+                    ref={memoryPanelRef}
+                    className="flex flex-col min-h-0 border-t border-border"
+                  >
+                    <div className="size-full flex flex-col overflow-hidden">
+                      <div className="flex h-full flex-col">
+                        <div className="flex-none border-b border-white/5 bg-[#252526] px-2 flex items-center justify-between">
+                          <div className="flex bg-black/20 p-1 rounded-lg">
+                            <button
+                              onClick={() => setShowCognition(true)}
+                              className={`px-3 py-1 text-xs rounded transition-all ${showCognition ? 'bg-purple-500/20 text-purple-300 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                              Cognition
+                            </button>
+                            <button
+                              onClick={() => setShowCognition(false)}
+                              className={`px-3 py-1 text-xs rounded transition-all ${!showCognition ? 'bg-blue-500/20 text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                              Raw Memory
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const collapsed = !memoryCollapsed;
+                              setMemoryCollapsed(collapsed);
+                              const p = memoryPanelRef.current;
+                              if (p) {
+                                if (collapsed) p.resize(6);
+                                else p.resize(25);
+                              }
+                            }}
+                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                          >
+                            <div className={`transform transition-transform ${memoryCollapsed ? '-rotate-90' : 'rotate-0'}`}>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </div>
+                          </button>
+                        </div>
+
+                        <div className="flex-1 overflow-hidden relative">
+                          {showCognition ? (
+                            <CognitionPanel events={dialogueEvents} loading={!wsLive} />
+                          ) : (
+                            <MemoryPanel
+                              content={memoryData.content}
+                              mtime={memoryData.mtime}
+                              loading={memoryLoading}
+                              error={memoryError}
+                              collapsed={memoryCollapsed}
+                              onToggle={() => { }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
+                </>
+              ) : null}
+            </PanelGroup>
+          </Panel>
+        </PanelGroup>
 
         {/* 底部状态栏 */}
 
@@ -2108,6 +2206,22 @@ export default function App() {
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
       />
+
+      {isBrainOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in duration-200">
+          <div className="bg-bg-panel/95 border border-white/10 rounded-xl w-[90vw] h-[85vh] flex flex-col shadow-2xl shadow-purple-900/40 relative">
+            <button
+              onClick={() => setIsBrainOpen(false)}
+              className="absolute top-4 right-4 z-10 p-2 text-white/50 hover:text-white rounded-full bg-black/20 hover:bg-black/40 transition-colors"
+            >
+              <X className="size-5" />
+            </button>
+            <div className="flex-1 overflow-hidden p-6 relative">
+              <CognitionPanel events={dialogueEvents} loading={!wsLive} />
+            </div>
+          </div>
+        </div>
+      )}
     </ErrorBoundaryClass>
   );
 }

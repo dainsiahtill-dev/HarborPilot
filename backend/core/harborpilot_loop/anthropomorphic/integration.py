@@ -21,6 +21,12 @@ def get_brain_path(base_dir: str, filename: str) -> str:
     brain_dir = os.path.join(base_dir, ".harborpilot", "brain")
     return os.path.join(brain_dir, filename)
 
+def get_memory_store() -> Optional[MemoryStore]:
+    return _MEMORY_STORE
+
+def get_reflection_store() -> Optional[ReflectionStore]:
+    return _REFLECTION_STORE
+
 def init_anthropomorphic_modules(project_root: str):
     global _MEMORY_STORE, _REFLECTION_STORE, _PERSONA_CONFIG, _REFLECTION_SCHEDULER
     
@@ -36,7 +42,8 @@ def init_anthropomorphic_modules(project_root: str):
         _REFLECTION_SCHEDULER = ReflectionScheduler()
         
     if _PERSONA_CONFIG is None:
-        persona_path = os.path.join(project_root, "prompts", "role_persona.yaml")        if os.path.exists(persona_path):
+        persona_path = os.path.join(project_root, "prompts", "role_persona.yaml")
+        if os.path.exists(persona_path):
             with open(persona_path, "r", encoding="utf-8") as f:
                 _PERSONA_CONFIG = yaml.safe_load(f)
         else:
@@ -90,11 +97,17 @@ def get_anthropomorphic_context(
     if _PERSONA_CONFIG and _PERSONA_CONFIG.get("feature_flags", {}).get("anthro_enabled", False):
         # Retrieve Memories
         # Query usually comes from the plan or current objective
-        retrieved_memories = _MEMORY_STORE.retrieve(
+        # Retrieve Memories with scores
+        # Query usually comes from the plan or current objective
+        retrieved_results = _MEMORY_STORE.retrieve(
             query=query, 
             current_step=step, 
-            top_k=10
+            top_k=10,
+            return_scores=True
         )
+        # Unpack
+        retrieved_memories = [item for item, score in retrieved_results]
+        retrieved_scores = [score for item, score in retrieved_results]
         
         # Retrieve active Reflections
         if _REFLECTION_STORE:
@@ -130,6 +143,7 @@ def get_anthropomorphic_context(
         step=step,
         persona_id=f"{role}.v1",
         retrieved_mem_ids=[m.id for m in retrieved_memories],
+        retrieved_mem_scores=retrieved_scores if 'retrieved_scores' in locals() else [],
         retrieved_ref_ids=[r.id for r in retrieved_reflections],
         token_usage_estimate=len(persona_text)/4 + len(memory_text)/4 # Rough estimate
     )

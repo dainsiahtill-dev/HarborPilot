@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from .state import AppState, Auth, ConnectionState
 from .routers import (
-    system, files, docs, agents, pm, director, ollama, lancedb, memos, history, websocket
+    system, files, docs, agents, pm, director, ollama, lancedb, memos, history, websocket, anthropomorphic
 )
 
 def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
@@ -31,6 +31,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     app.include_router(lancedb.router)
     app.include_router(memos.router)
     app.include_router(history.router)
+    app.include_router(history.router)
     app.include_router(websocket.router)
+    app.include_router(anthropomorphic.router)
     
     return app

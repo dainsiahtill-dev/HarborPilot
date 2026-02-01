@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { WindowControls } from './WindowControls';
 
@@ -24,6 +24,7 @@ interface ControlPanelProps {
   onToggleDirector: () => void;
   onStopOllama?: () => void;
   onRefresh: () => void;
+  onOpenBrain?: () => void;
   workspaceError?: string | null;
   isStartingPM?: boolean;
   isStoppingPM?: boolean;
@@ -54,6 +55,7 @@ export function ControlPanel({
   onToggleDirector,
   onStopOllama,
   onRefresh,
+  onOpenBrain,
   workspaceError,
   isStartingPM,
   isStoppingPM,
@@ -264,8 +266,6 @@ export function ControlPanel({
           <Settings className="size-4" />
         </button>
 
-        <div className="w-px h-6 bg-white/10 mx-1" />
-
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('open-intervention-center'))}
           className="relative btn-icon group"
@@ -276,6 +276,21 @@ export function ControlPanel({
           {/* Badge for pending interventions - this would ideally be prop-driven */}
           <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-status-error rounded-full ring-2 ring-bg-panel"></span>
         </button>
+
+        <div className="w-px h-6 bg-white/10 mx-1" />
+
+        {onOpenBrain ? (
+          <button
+            onClick={onOpenBrain}
+            className="btn-icon group relative"
+            title="Open Glass Mind"
+          >
+            <div className="absolute inset-0 bg-purple-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <Brain className="size-4 text-purple-400 relative z-10" />
+          </button>
+        ) : null}
+
+        <div className="w-px h-6 bg-white/10 mx-1" />
       </div>
     </header>
   );
