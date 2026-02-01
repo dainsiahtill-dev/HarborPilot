@@ -1,4 +1,4 @@
-import { Activity, CheckCircle, Clock, AlertTriangle, Zap, FileText } from 'lucide-react';
+import { Activity as ActivityIcon, CheckCircle, Clock, AlertTriangle, Zap, FileText } from 'lucide-react';
 
 interface StatusBarProps {
   pmRunning: boolean;
@@ -79,92 +79,45 @@ export function StatusBar({
       : '—';
 
   return (
-    <div className="h-8 bg-bg-panel/30 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 text-[10px] font-mono select-none">
-      {/* 左侧：运行状态 */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
-          <div
-            className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${pmRunning ? 'bg-status-success text-status-success animate-pulse' : 'bg-text-dim text-text-dim'}`}
-          />
-          <span className="text-text-muted">
-            PM <span className={pmRunning ? 'text-status-success' : ''}>{pmRunning ? `ACTV${pmModeLabel}` : 'IDLE'}</span>
-          </span>
+    <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-3 px-3 py-1.5 rounded-full glass-bubble shadow-2xl border-white/10 animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-105 transition-transform cursor-default">
+      {/* 运行状态 */}
+      <div className="flex items-center gap-2 pr-3 border-r border-white/10">
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full shadow-[0_0_8px_currentColor] ${pmRunning ? 'bg-status-success text-status-success animate-pulse' : 'bg-text-dim text-text-dim'}`} />
+          <span className="text-[10px] text-text-muted font-bold tracking-tight">PM</span>
         </div>
-        <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
-          <Activity className={`size-3 ${directorRunning ? 'text-status-secondary' : 'text-text-dim'}`} />
-          <span className="text-text-muted">DIR <span className={directorRunning ? 'text-status-secondary' : ''}>{directorRunning ? 'ACTV' : 'IDLE'}</span></span>
-        </div>
-        <div className="w-px h-3 bg-white/10" />
-        <div className="flex items-center gap-1.5 text-text-dim">
-          <Clock className="size-3" />
-          <span>{pmDuration}</span>
-        </div>
-        {pmError ? (
-          <>
-            <div className="w-px h-3 bg-white/10" />
-            <span className="text-status-error font-bold flex items-center gap-1 animate-pulse">
-              PM ERR: {pmError}
-            </span>
-          </>
-        ) : null}
-      </div>
-
-      {/* 中间：统计信息 */}
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-1.5" title="Success Rate">
-          <CheckCircle className="size-3 text-status-success drop-shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-          <span className="text-text-main font-bold">{successLabel}</span>
-        </div>
-        <div className="flex items-center gap-1.5" title="Failures">
-          <AlertTriangle className={`size-3 ${failures ? 'text-status-warning drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]' : 'text-text-dim'}`} />
-          <span className={failures ? 'text-status-warning' : 'text-text-dim'}>{failures ?? '0'}</span>
-        </div>
-        <div className="flex items-center gap-1.5" title="Iteration">
-          <Zap className="size-3 text-accent drop-shadow-[0_0_5px_rgba(124,58,237,0.5)]" />
-          <span className="text-text-main">{iteration ?? '-'}</span>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full shadow-[0_0_8px_currentColor] ${directorRunning ? 'bg-status-secondary text-status-secondary animate-pulse' : 'bg-text-dim text-text-dim'}`} />
+          <span className="text-[10px] text-text-muted font-bold tracking-tight">DIR</span>
         </div>
       </div>
 
-      {/* 右侧：后端信息 */}
-      <div className="flex items-center gap-3 text-text-muted">
-        <span className="px-1.5 py-0.5 rounded bg-white/5">PM[{pmBackend || '-'}]</span>
-        <span className="text-white/10">/</span>
-        <span className="px-1.5 py-0.5 rounded bg-white/5">DIR[{directorModel || '-'}]</span>
-        <span className="text-white/10">/</span>
-        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-white/5">
-          <span>LANCE</span>
-          <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_currentColor] ${lancedbOk ? 'bg-status-success text-status-success' : 'bg-status-error text-status-error'}`} title={lancedbError || undefined}></span>
+      {/* 统计信息 */}
+      <div className="flex items-center gap-3 pr-3 border-r border-white/10">
+        <div className="flex items-center gap-1" title="Success Rate">
+          <CheckCircle className="size-3 text-status-success" />
+          <span className="text-[10px] text-text-main font-bold">{successLabel}</span>
         </div>
-        <span className="text-white/10">|</span>
-        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-white/5">
-          <span>GIT</span>
-          <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_currentColor] ${gitPresent ? 'bg-status-success text-status-success' : 'bg-status-warning text-status-warning'}`}></span>
+        <div className="flex items-center gap-1" title="Iteration">
+          <Zap className="size-3 text-accent" />
+          <span className="text-[10px] text-text-main">{iteration ?? '0'}</span>
         </div>
+      </div>
 
-        {onPingHealth ? (
-          <>
-            <span className="text-white/10">|</span>
-            <button
-              onClick={onPingHealth}
-              className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
-            >
-              <Activity className="size-3" />
-              <span>{healthStatus || 'PING'}</span>
-            </button>
-          </>
-        ) : null}
-        {onOpenLogs ? (
-          <>
-            <span className="text-white/10">|</span>
-            <button
-              onClick={onOpenLogs}
-              className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
-            >
-              <FileText className="size-3" />
-              <span>LOGS</span>
-            </button>
-          </>
-        ) : null}
+      {/* 快捷操作 */}
+      <div className="flex items-center gap-1">
+        {onPingHealth && (
+          <button onClick={onPingHealth} className="p-1 px-1.5 rounded-full hover:bg-white/10 text-text-dim hover:text-white transition-colors flex items-center gap-1">
+            <ActivityIcon className="size-3" />
+            <span className="text-[9px] uppercase font-bold">{healthStatus === 'ok' ? 'Online' : healthStatus || 'Ping'}</span>
+          </button>
+        )}
+        {onOpenLogs && (
+          <button onClick={onOpenLogs} className="p-1 px-1.5 rounded-full hover:bg-white/10 text-text-dim hover:text-white transition-colors flex items-center gap-1">
+            <FileText className="size-3" />
+            <span className="text-[9px] uppercase font-bold">Logs</span>
+          </button>
+        )}
       </div>
     </div>
   );

@@ -137,8 +137,8 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
                         key={item.id}
                         onClick={() => onFileSelect(item)}
                         className={`w-full flex items-center gap-3 px-4 py-1.5 pl-9 transition-all relative ${isSelected
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-text-muted hover:text-text-main hover:bg-white/5'
+                          ? 'bg-accent/10 text-accent'
+                          : 'text-text-muted hover:text-text-main hover:bg-white/5'
                           }`}
                       >
                         {isSelected && (
@@ -150,8 +150,8 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
                         </span>
                         {badgeText && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected
-                              ? 'bg-accent/20 text-accent-text border border-accent/20'
-                              : 'bg-white/10 text-text-dim'
+                            ? 'bg-accent/20 text-accent-text border border-accent/20'
+                            : 'bg-white/10 text-text-dim'
                             }`}>
                             {badgeText}
                           </span>

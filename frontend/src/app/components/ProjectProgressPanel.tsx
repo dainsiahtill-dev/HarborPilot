@@ -168,7 +168,7 @@ export function ProjectProgressPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-accent/10 text-accent shadow-[0_0_15px_rgba(124,58,237,0.2)]">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-white/5 text-accent">
             <Target className="size-5" />
           </div>
           <div className="min-w-0">
@@ -212,7 +212,7 @@ export function ProjectProgressPanel({
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div className="rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm hover:border-accent/30 transition-colors">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md hover:border-accent/30 transition-all">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">整体完成度</div>
             <div className="text-xs text-text-dim font-mono">{progressHint}</div>
@@ -242,7 +242,7 @@ export function ProjectProgressPanel({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm hover:border-accent/30 transition-colors">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md hover:border-accent/30 transition-all">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">{'\u5f53\u524d Director \u4efb\u52a1'}</div>
             <ArrowRight className="size-4 text-accent animate-pulse" />

@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity as ActivityIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { WindowControls } from './WindowControls';
 
@@ -31,6 +31,9 @@ interface ControlPanelProps {
   isStartingDirector?: boolean;
   isStoppingDirector?: boolean;
   isStoppingOllama?: boolean;
+  healthStatus?: string | null;
+  onPingHealth?: () => void;
+  onOpenLogs?: () => void;
 }
 
 export function ControlPanel({
@@ -62,6 +65,9 @@ export function ControlPanel({
   isStartingDirector,
   isStoppingDirector,
   isStoppingOllama,
+  healthStatus,
+  onPingHealth,
+  onOpenLogs,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;
@@ -89,7 +95,7 @@ export function ControlPanel({
         <div className="w-px h-4 bg-white/10" />
         <div className="flex items-center gap-2 group">
           <div className="relative">
-            <div className="absolute inset-0 bg-accent blur-md opacity-20 group-hover:opacity-40 transition-opacity"></div>
+
             <Anchor className="size-6 text-accent relative z-10" />
           </div>
           <div>
@@ -148,7 +154,7 @@ export function ControlPanel({
       {/* 控制按钮 */}
       <div className="flex items-center gap-3">
         {/* PM 控制 */}
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
+        <div className="no-drag flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
           <span className="text-[10px] uppercase font-bold text-text-dim tracking-wider px-1">PM</span>
           <button
             onClick={onTogglePm}
@@ -192,7 +198,7 @@ export function ControlPanel({
         </div>
 
         {/* Director 控制 */}
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
+        <div className="no-drag flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
           <span className="text-[10px] uppercase font-bold text-text-dim tracking-wider px-1">Director</span>
           {directorBlockedReason ? (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-error/20 text-status-error border border-status-error/20">
@@ -218,8 +224,31 @@ export function ControlPanel({
           </button>
         </div>
 
+        {/* Vital Signs (Ping/Health) */}
+        <div className="no-drag flex items-center gap-2 px-2.5 py-1 bg-black/20 rounded-lg border border-white/5 backdrop-blur-md">
+          <button
+            onClick={onPingHealth}
+            className="flex items-center gap-2 group transition-all"
+            title="点击检测连通性"
+          >
+            <div className={`size-1.5 rounded-full shadow-[0_0_8px_currentColor] transition-colors duration-500 ${healthStatus === 'unhealthy' ? 'bg-status-error text-status-error' : healthStatus ? 'bg-status-success text-status-success' : 'bg-status-warning text-status-warning'}`} />
+            <span className="text-[10px] font-mono text-text-dim transition-colors group-hover:text-text-muted uppercase">
+              {healthStatus === 'unhealthy' ? 'OFFLINE' : healthStatus ? 'READY' : 'PINGING...'}
+            </span>
+          </button>
+          <div className="w-px h-3 bg-white/10 mx-1" />
+          <button
+            onClick={onOpenLogs}
+            className="flex items-center gap-1.5 text-text-dim hover:text-accent transition-colors"
+            title="查看子进程日志"
+          >
+            <ActivityIcon className="size-3.5" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Logs</span>
+          </button>
+        </div>
+
         {showAgents ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-status-warning/30 backdrop-blur-sm">
+          <div className="no-drag flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-status-warning/30 backdrop-blur-sm">
             <span className="text-[10px] uppercase font-bold text-status-warning tracking-wider px-1">AGENTS</span>
             <button
               onClick={agentsReady ? onOpenAgentsReview : onGenerateAgentsDraft}
@@ -236,7 +265,7 @@ export function ControlPanel({
         ) : null}
 
         {onStopOllama ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
+          <div className="no-drag flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 backdrop-blur-sm">
             <span className="text-[10px] uppercase font-bold text-text-dim tracking-wider px-1">Ollama</span>
             <button
               onClick={onStopOllama}

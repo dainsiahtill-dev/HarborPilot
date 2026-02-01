@@ -6,7 +6,6 @@ import { ControlPanel } from '@/app/components/ControlPanel';
 import { ArtifactsSidebar } from '@/app/components/ArtifactsSidebar';
 import { DialoguePanel, type DialogueEvent } from '@/app/components/DialoguePanel';
 import { SnapshotPanel } from '@/app/components/SnapshotPanel';
-import { StatusBar } from '@/app/components/StatusBar';
 import { SettingsModal } from '@/app/components/SettingsModal';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
@@ -1600,6 +1599,8 @@ export default function App() {
     }
   };
 
+
+
   return (
     <ErrorBoundaryClass onError={(error, errorInfo) => {
       console.error('Application error:', error, errorInfo);
@@ -1670,50 +1671,26 @@ export default function App() {
           isStartingDirector={isStartingDirector}
           isStoppingDirector={isStoppingDirector}
           isStoppingOllama={isStoppingOllama}
-        />
-
-        <div className="z-40 border-b border-border shadow-sm bg-bg-panel">
-          <StatusBar
-            pmRunning={!!pmStatus?.running}
-            directorRunning={!!directorStatus?.running}
-            pmStartedAt={pmStatus?.started_at ?? null}
-            directorStartedAt={directorStatus?.started_at ?? null}
-            pmMode={pmStatus?.mode ?? null}
-            failures={pmFailures}
-            iteration={pmIteration}
-            pmBackend={settings?.pm_backend || 'codex'}
-            directorModel={settings?.director_model || settings?.model || ''}
-            backendError={backendError}
-            onOpenLogs={() => {
-              setLogsSourceId('pm-subprocess');
-              setIsLogsOpen(true);
-            }}
-            gitPresent={gitPresent}
-            pmError={pmActionError}
-            directorError={directorActionError}
-            ollamaError={ollamaActionError}
-            successes={successStats.successes ?? null}
-            total={successStats.total ?? null}
-            rate={typeof successStats.rate === 'number' ? successStats.rate : null}
-            onPingHealth={async () => {
-              try {
-                const res = await apiFetch('/health');
-                if (!res.ok) {
-                  setHealthStatus('unhealthy');
-                  return;
-                }
-                const payload = await res.json();
-                const ts = String(payload?.timestamp || '');
-                setHealthStatus(ts || 'ok');
-              } catch {
+          healthStatus={healthStatus}
+          onPingHealth={async () => {
+            try {
+              const res = await apiFetch('/health');
+              if (!res.ok) {
                 setHealthStatus('unhealthy');
+                return;
               }
-            }}
-            healthStatus={healthStatus}
-            lancedbOk={lancedbStatus?.ok ?? null}
-            lancedbError={lancedbStatus?.error ?? null}
-          />
-        </div>
+              const payload = await res.json();
+              const ts = String(payload?.timestamp || '');
+              setHealthStatus(ts || 'ok');
+            } catch {
+              setHealthStatus('unhealthy');
+            }
+          }}
+          onOpenLogs={() => {
+            setLogsSourceId('pm-subprocess');
+            setIsLogsOpen(true);
+          }}
+        />
 
         {docsMissing ? (
           <div className="mx-4 mb-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">

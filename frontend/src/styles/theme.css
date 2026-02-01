@@ -128,15 +128,31 @@
     @apply bg-background text-foreground;
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
 
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Typography */
   html {
     font-size: var(--font-size);
   }
 
+  /* ... (rest of typography) ... */
   h1 {
     font-size: var(--text-2xl);
     font-weight: var(--font-weight-medium);
@@ -177,5 +193,139 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+@layer utilities {
+  .glass-bubble {
+    @apply backdrop-blur-md bg-white/5 border border-white/10 shadow-lg;
+  }
+
+  .bg-cyber-grid {
+    background-image:
+      linear-gradient(rgba(139, 92, 246, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(139, 92, 246, 0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+
+  .bg-cyber-scanlines {
+    background: repeating-linear-gradient(0deg,
+        rgba(0, 0, 0, 0.05),
+        rgba(0, 0, 0, 0.05) 1px,
+        transparent 1px,
+        transparent 2px);
+    pointer-events: none;
+  }
+
+  .glow-border-purple {
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+  }
+
+  .glow-border-cyan {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+  }
+
+  .bg-cyber-scanline-light {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100px;
+    background: linear-gradient(to bottom,
+        transparent,
+        rgba(139, 92, 246, 0.1) 50%,
+        transparent);
+    animation: scanline-mov 6s linear infinite;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  @keyframes scanline-mov {
+    from {
+      transform: translateY(-100px);
+    }
+
+    to {
+      transform: translateY(100vh);
+    }
+  }
+
+  .glow-text-purple {
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+  }
+
+  .glow-text-cyan {
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+  }
+
+  .backdrop-blur-xl {
+    backdrop-filter: blur(24px);
+  }
+
+  .bg-cyber-deep {
+    background: radial-gradient(circle at center, #05041a 0%, #02010a 100%);
+  }
+
+  .cyber-corner-cut {
+    clip-path: polygon(0px 10px,
+        10px 0px,
+        calc(100% - 0px) 0px,
+        100% 0px,
+        100% calc(100% - 10px),
+        calc(100% - 10px) 100%,
+        0px 100%,
+        0px 100%);
+  }
+
+  .glitch-text {
+    animation: glitch 1.5s infinite;
+  }
+
+  @keyframes glitch {
+    0% {
+      transform: translate(0);
+      text-shadow: none;
+    }
+
+    20% {
+      transform: translate(-2px, 1px);
+      text-shadow: 2px 0 #ff00ff, -2px 0 #00ffff;
+    }
+
+    40% {
+      transform: translate(2px, -1px);
+      text-shadow: -2px 0 #ff00ff, 2px 0 #00ffff;
+    }
+
+    60% {
+      transform: translate(-1px, 2px);
+      text-shadow: 1px 0 #ff00ff, -1px 0 #00ffff;
+    }
+
+    80% {
+      transform: translate(1px, -2px);
+      text-shadow: -1px 0 #ff00ff, 1px 0 #00ffff;
+    }
+
+    100% {
+      transform: translate(0);
+      text-shadow: none;
+    }
+  }
+
+  .neon-glow-cyan {
+    box-shadow: 0 0 5px rgba(6, 182, 212, 0.4), 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 10px rgba(6, 182, 212, 0.1);
+  }
+
+  .neon-glow-purple {
+    box-shadow: 0 0 5px rgba(139, 92, 246, 0.4), 0 0 15px rgba(139, 92, 246, 0.2), inset 0 0 10px rgba(139, 92, 246, 0.1);
+  }
+
+  .cyber-grid-mesh {
+    background-image:
+      linear-gradient(rgba(139, 92, 246, 0.1) 1.5px, transparent 1.5px),
+      linear-gradient(90deg, rgba(139, 92, 246, 0.1) 1.5px, transparent 1.5px);
+    background-size: 40px 40px;
+    background-position: center center;
   }
 }
