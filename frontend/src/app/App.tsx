@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from 'react-resizable-panels';
+import { X } from 'lucide-react';
 import { apiFetch, connectWebSocket, openPath, pickWorkspace } from '@/api';
 import { ControlPanel } from '@/app/components/ControlPanel';
 import { ArtifactsSidebar } from '@/app/components/ArtifactsSidebar';
@@ -15,8 +16,9 @@ import { ProjectProgressPanel } from '@/app/components/ProjectProgressPanel';
 import { CognitionPanel } from '@/app/components/CognitionPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
-import { X } from 'lucide-react';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
+import { LivingBackground } from '@/app/components/LivingBackground';
+import { ContextSidebar } from '@/app/components/ContextSidebar';
 import { RunHistoryModal } from '@/app/components/RunHistoryModal';
 import { ErrorBoundaryClass } from '@/app/components/ErrorBoundary';
 import { EnhancedNotificationManager } from '@/app/components/EnhancedNotificationManager';
@@ -1618,7 +1620,7 @@ export default function App() {
       });
     }}>
       <div className="size-full flex flex-col bg-bg text-text-main font-sans selection:bg-accent selection:text-bg overflow-hidden antialiased relative">
-        <div className="cyberpunk-border" />
+        <LivingBackground />
         {/* 增强通知管理器 */}
         <EnhancedNotificationManager
           notifications={notifications}
@@ -1828,122 +1830,32 @@ export default function App() {
 
           <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
 
-          {/* Right Sidebar: Dialogue & Memory */}
-          <Panel defaultSize={30} minSize={20} maxSize={50} order={3} className="flex flex-col min-h-0 border-l border-white/10 bg-bg-panel/30 backdrop-blur-md z-0">
-            <PanelGroup direction="vertical" autoSaveId="harborpilot-right-layout-v2">
-              <Panel order={1} className="flex flex-col min-h-0">
-                <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
-              </Panel>
+          {/* Right Sidebar: Context Deck */}
+          <Panel defaultSize={30} minSize={20} maxSize={50} order={3} className="flex flex-col min-h-0 z-0">
+            <ContextSidebar
+              // Dialogue
+              dialogueEvents={dialogueEvents}
+              live={wsLive}
+              dialogueLoading={!wsLive && dialogueEvents.length === 0}
 
-              <PanelResizeHandle className="h-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+              // Memos
+              memoItems={memoItems}
+              memoSelected={memoSelected}
+              memoContent={memoData.content}
+              memoMtime={memoData.mtime}
+              memoLoading={memoLoading}
+              memoError={memoError}
+              onSelectMemo={(item) => setMemoSelected(item)}
 
-              <Panel
-                order={2}
-                defaultSize={25}
-                minSize={5}
-                ref={memoPanelRef}
-                className="flex flex-col min-h-0 border-t border-border"
-              >
-                <div className="size-full flex flex-col overflow-hidden">
-                  <MemoPanel
-                    items={memoItems}
-                    selected={memoSelected}
-                    content={memoData.content}
-                    mtime={memoData.mtime}
-                    loading={memoLoading}
-                    error={memoError}
-                    onSelect={(item) => setMemoSelected(item)}
-                    collapsed={memoCollapsed}
-                    onToggle={() => {
-                      const collapsed = !memoCollapsed;
-                      setMemoCollapsed(collapsed);
-                      const p = memoPanelRef.current;
-                      if (p) {
-                        if (collapsed) p.resize(6);
-                        else p.resize(25);
-                      }
-                    }}
-                  />
-                </div>
-              </Panel>
-
-              {settings?.show_memory ? (
-                <>
-                  <PanelResizeHandle className="h-1 bg-white/5 hover:bg-accent transition-colors z-10" />
-                  <Panel
-                    order={3}
-                    defaultSize={25}
-                    minSize={5}
-                    ref={memoryPanelRef}
-                    className="flex flex-col min-h-0 border-t border-border"
-                  >
-                    <div className="size-full flex flex-col overflow-hidden">
-                      <div className="flex h-full flex-col">
-                        <div className="flex-none border-b border-white/5 bg-[#252526] px-2 flex items-center justify-between">
-                          <div className="flex bg-black/20 p-1 rounded-lg">
-                            <button
-                              onClick={() => setShowCognition(true)}
-                              className={`px-3 py-1 text-xs rounded transition-all ${showCognition ? 'bg-purple-500/20 text-purple-300 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
-                            >
-                              Cognition
-                            </button>
-                            <button
-                              onClick={() => setShowCognition(false)}
-                              className={`px-3 py-1 text-xs rounded transition-all ${!showCognition ? 'bg-blue-500/20 text-blue-300 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
-                            >
-                              Raw Memory
-                            </button>
-                          </div>
-                          <button
-                            onClick={() => {
-                              const collapsed = !memoryCollapsed;
-                              setMemoryCollapsed(collapsed);
-                              const p = memoryPanelRef.current;
-                              if (p) {
-                                if (collapsed) p.resize(6);
-                                else p.resize(25);
-                              }
-                            }}
-                            className="p-1 text-gray-400 hover:text-white transition-colors"
-                          >
-                            <div className={`transform transition-transform ${memoryCollapsed ? '-rotate-90' : 'rotate-0'}`}>
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="m6 9 6 6 6-6" />
-                              </svg>
-                            </div>
-                          </button>
-                        </div>
-
-                        <div className="flex-1 overflow-hidden relative">
-                          {showCognition ? (
-                            <CognitionPanel events={dialogueEvents} loading={!wsLive} />
-                          ) : (
-                            <MemoryPanel
-                              content={memoryData.content}
-                              mtime={memoryData.mtime}
-                              loading={memoryLoading}
-                              error={memoryError}
-                              collapsed={memoryCollapsed}
-                              onToggle={() => { }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </Panel>
-                </>
-              ) : null}
-            </PanelGroup>
+              // Memory
+              memoryContent={memoryData.content}
+              memoryMtime={memoryData.mtime}
+              memoryLoading={memoryLoading}
+              memoryError={memoryError}
+              showCognition={showCognition}
+              setShowCognition={setShowCognition}
+              settingsShowMemory={!!settings?.show_memory}
+            />
           </Panel>
         </PanelGroup>
 
