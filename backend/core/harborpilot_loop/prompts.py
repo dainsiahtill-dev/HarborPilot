@@ -3,21 +3,45 @@ from typing import Dict, List
 
 from prompt_loader import get_template, render_template
 from shared import normalize_path, unique_preserve
-from io_utils import ensure_parent_dir, read_file_safe
+from io_utils import ensure_parent_dir, read_file_safe, emit_event
+from anthropomorphic.integration import get_anthropomorphic_context
 
+
+
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 def build_project_prompt(
     plan_text: str,
     memory_summary: str,
     target_note: str,
+    step: int = 0,
+    run_id: str = "",
+    events_path: str = "",
 ) -> str:
     template = get_template("project_prompt")
+    
+    anthro = get_anthropomorphic_context(PROJECT_ROOT, "pm", plan_text, step, run_id, "pm.planning")
+    
+    if events_path:
+        emit_event(
+            events_path,
+            kind="observation",
+            actor="PM",
+            name="prompt_context",
+            refs={"run_id": run_id, "step": step},
+            summary="Prompt Context Injection",
+            output=anthro["prompt_context_obj"].model_dump()
+        )
+    
     return render_template(
         template,
         {
             "plan_text": plan_text,
             "memory_summary": memory_summary,
             "target_note": target_note,
+            "persona_instruction": anthro["persona_instruction"],
+            "anthropomorphic_context": anthro["anthropomorphic_context"],
         },
     )
 
@@ -58,14 +82,33 @@ def build_planner_prompt(
     plan_text: str,
     memory_summary: str,
     target_note: str,
+    step: int = 0,
+    run_id: str = "",
+    events_path: str = "",
 ) -> str:
     template = get_template("planner_prompt")
+    
+    anthro = get_anthropomorphic_context(PROJECT_ROOT, "director", plan_text, step, run_id, "director.planning")
+
+    if events_path:
+        emit_event(
+            events_path,
+            kind="observation",
+            actor="Director",
+            name="prompt_context",
+            refs={"run_id": run_id, "step": step},
+            summary="Prompt Context Injection",
+            output=anthro["prompt_context_obj"].model_dump()
+        )
+
     return render_template(
         template,
         {
             "plan_text": plan_text,
             "memory_summary": memory_summary,
             "target_note": target_note,
+            "persona_instruction": anthro["persona_instruction"],
+            "anthropomorphic_context": anthro["anthropomorphic_context"],
         },
     )
 
@@ -103,9 +146,28 @@ def build_qa_prompt(
     tool_results: str,
     reviewer_summary: str,
     patch_risk: str,
+    step: int = 0,
+    run_id: str = "",
+    events_path: str = "",
 ) -> str:
     files_list = "\n".join(f"- {path}" for path in changed_files) if changed_files else "- (none)"
     template = get_template("qa_prompt")
+    
+    # Context query is related to changes and plan
+    query = f"Verify changes in {files_list}. Plan: {plan_text[:200]}"
+    anthro = get_anthropomorphic_context(PROJECT_ROOT, "qa", query, step, run_id, "qa.review")
+
+    if events_path:
+        emit_event(
+            events_path,
+            kind="observation",
+            actor="QA",
+            name="prompt_context",
+            refs={"run_id": run_id, "step": step},
+            summary="Prompt Context Injection",
+            output=anthro["prompt_context_obj"].model_dump()
+        )
+
     return render_template(
         template,
         {
@@ -118,6 +180,8 @@ def build_qa_prompt(
             "tool_results": tool_results,
             "reviewer_summary": reviewer_summary,
             "patch_risk": patch_risk,
+            "persona_instruction": anthro["persona_instruction"],
+            "anthropomorphic_context": anthro["anthropomorphic_context"],
         },
     )
 

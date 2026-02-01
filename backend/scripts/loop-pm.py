@@ -120,6 +120,7 @@ try:
     from codex_utils import invoke_codex
     from ollama_utils import invoke_ollama
     from shared import normalize_path, strip_ansi
+    from anthropomorphic.integration import get_anthropomorphic_context
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
@@ -145,6 +146,9 @@ def build_pm_prompt(
     last_tasks: Any,
     director_result: Any,
     pm_state: Any,
+    iteration: int = 0,
+    run_id: str = "",
+    events_path: str = "",
 ) -> str:
     profile = current_profile().strip().lower()
     is_zh = profile.endswith("_zh") or profile.startswith("zh") or profile in ("zh", "chinese")
@@ -152,6 +156,20 @@ def build_pm_prompt(
         intro = "你是这个海战 MMO 仓库的项目经理。" if is_zh else "You are the project manager for a naval MMO repo."
     else:
         intro = "你是这个软件项目仓库的项目经理。" if is_zh else "You are the project manager for a software project repo."
+    
+    anthro = get_anthropomorphic_context(PROJECT_ROOT, "pm", f"{requirements}\n{plan_text}", iteration, run_id, "pm.planning")
+
+    if events_path:
+        emit_event(
+            events_path,
+            kind="observation",
+            actor="PM",
+            name="prompt_context",
+            refs={"run_id": run_id, "step": iteration},
+            summary="Prompt Context Injection",
+            output=anthro["prompt_context_obj"].model_dump()
+        )
+
     template = get_template("pm_prompt")
     return render_template(
         template,
@@ -164,6 +182,8 @@ def build_pm_prompt(
             "last_tasks": format_json_for_prompt(last_tasks),
             "director_result": format_json_for_prompt(director_result),
             "pm_state": format_json_for_prompt(pm_state),
+            "persona_instruction": anthro["persona_instruction"],
+            "anthropomorphic_context": anthro["anthropomorphic_context"],
         },
     )
 
@@ -1365,7 +1385,18 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     ):
         return 3
 
-    prompt = build_pm_prompt(requirements, plan_text, gap_report, last_qa, last_tasks, director_result, pm_state)
+    prompt = build_pm_prompt(
+        requirements,
+        plan_text,
+        gap_report,
+        last_qa,
+        last_tasks,
+        director_result,
+        pm_state,
+        iteration=iteration,
+        run_id=run_id,
+        events_path=run_events,
+    )
     show_output = bool(getattr(args, "pm_show_output", False))
     print(f"[pm] {start_timestamp} iteration={iteration} backend={backend}")
     sys.stdout.flush()

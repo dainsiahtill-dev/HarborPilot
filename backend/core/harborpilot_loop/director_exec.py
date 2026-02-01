@@ -412,6 +412,9 @@ def run_qa(
         tool_results,
         reviewer_summary,
         patch_risk,
+        step=getattr(state, "current_director_iteration", 0),
+        run_id=getattr(state, "current_run_id", ""),
+        events_path=getattr(state, "events_full", ""),
     )
     emit_event(
         getattr(state, "events_full", ""),

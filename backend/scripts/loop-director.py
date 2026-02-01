@@ -149,7 +149,8 @@ try:
         extract_between,
         parse_files_to_edit,
     )
-    from shared import normalize_path, strip_ansi
+    from shared import normalize_path, _truncate_for_review, strip_ansi
+    from anthropomorphic.integration import run_reflection_cycle
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
@@ -733,7 +734,14 @@ def build_required_tool_plan(required: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def run_planner(state: State, plan_text: str, memory_summary: str, target_note: str) -> str:
-    prompt = build_planner_prompt(plan_text, memory_summary, target_note)
+    prompt = build_planner_prompt(
+        plan_text,
+        memory_summary,
+        target_note,
+        step=getattr(state, "current_director_iteration", 0),
+        run_id=getattr(state, "current_run_id", ""),
+        events_path=getattr(state, "events_full", ""),
+    )
     output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
     write_text(state.planner_full, output)
     append_log(state.log_full, "[PLANNER]\n" + strip_ansi(output) + "\n")
@@ -2101,6 +2109,19 @@ def main() -> int:
                     
                 is_last = index >= args.iterations
                 result = invoke_iteration(state, index, is_last)
+                
+                # Run reflection cycle (anthropomorphic)
+                try:
+                    run_reflection_cycle(
+                        state.workspace_full,
+                        getattr(state, "director_iteration", index),
+                        getattr(state, "current_run_id", f"dir-{index:05d}"),
+                        state.model,
+                        getattr(state, "events_full", "")
+                    )
+                except Exception as e:
+                    append_log(state.log_full, f"[REFLECTION] Error: {e}\n")
+
                 if not result["ok"]:
                     return 1
 
