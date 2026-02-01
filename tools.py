@@ -379,7 +379,12 @@ def pydantic_validate(args: List[str], cwd: str, timeout: int) -> Result:
 
 def _get_ts_parser(language: str):
     try:
-        from tree_sitter_languages import get_parser  # type: ignore
+        from tree_sitter_language_pack import get_parser  # type: ignore
+    except ImportError:
+        try:
+             from tree_sitter_languages import get_parser  # type: ignore
+        except Exception as exc:
+             raise RuntimeError(f"tree_sitter_languages import failed: {exc}")
     except Exception as exc:
         raise RuntimeError(f"tree_sitter_languages import failed: {exc}")
     return get_parser(language)
