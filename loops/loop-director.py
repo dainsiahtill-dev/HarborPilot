@@ -531,6 +531,73 @@ def parse_planner_payload(planner_text: str) -> Dict[str, Any]:
     }
 
 
+def build_fallback_planner_payload(
+    task_title: str,
+    task_goal: str,
+    target_files: List[str],
+    acceptance: List[str],
+    constraints: List[str],
+    stop_conditions: List[str],
+    patch_payload: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    normalized_files = [normalize_path(f) for f in target_files if isinstance(f, str) and normalize_path(f)]
+    if not normalized_files:
+        return None
+    lines: List[str] = []
+    if task_title:
+        lines.append(f"Task: {task_title}")
+    if task_goal:
+        lines.append(f"Goal: {task_goal}")
+    if constraints:
+        lines.append("Constraints:")
+        lines.extend([f"- {item}" for item in constraints if item])
+    if acceptance:
+        lines.append("Acceptance:")
+        lines.extend([f"- {item}" for item in acceptance if item])
+    if stop_conditions:
+        lines.append("Stop conditions:")
+        lines.extend([f"- {item}" for item in stop_conditions if item])
+    if isinstance(patch_payload, dict):
+        reason = patch_payload.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            lines.append(f"Patch planner note: {reason.strip()}")
+    brief = "\n".join([line for line in lines if line]).strip()
+    if not brief:
+        return None
+    plan_summary = task_title or task_goal or "Apply PM task"
+    plan_steps = []
+    if normalized_files:
+        plan_steps.append(
+            {
+                "purpose": task_goal or task_title or "Apply PM task",
+                "files": normalized_files,
+                "expected": "; ".join([item for item in acceptance if item]) if acceptance else "",
+                "checks": [],
+            }
+        )
+    plan_payload = {
+        "summary": plan_summary,
+        "steps": plan_steps,
+        "acceptance": acceptance or [],
+    }
+    act_payload = {
+        "brief": brief,
+        "files": normalized_files,
+        "commands": [],
+        "tool_commands": [],
+    }
+    return {
+        "brief": brief,
+        "files": normalized_files,
+        "commands": [],
+        "tool_commands": [],
+        "plan": plan_payload,
+        "act": act_payload,
+        "payload": {"source": "fallback"},
+        "source": "fallback",
+    }
+
+
 def run_tool_planner(state: State, pm_tasks_json: str, known_files: str, last_result: str) -> tuple[str, Dict[str, Any]]:
     prompt = build_tool_planner_prompt(pm_tasks_json, known_files, last_result)
     output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
@@ -708,6 +775,14 @@ def validate_files_to_edit(files: List[str], workspace: str, log_path: str) -> b
     return True
 
 
+def _is_docs_path(path: str) -> bool:
+    if not path:
+        return False
+    normalized = normalize_path(path).lstrip("/")
+    lowered = normalized.lower()
+    return lowered == "docs" or lowered.startswith("docs/")
+
+
 def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     """Execute a single iteration and return detailed results."""
     log_path = state.log_full
@@ -869,6 +944,9 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     pm_task_title = ""
     pm_task_goal = ""
     pm_task_acceptance: List[str] = []
+    pm_task_target_files: List[str] = []
+    pm_task_constraints: List[str] = []
+    pm_task_stop_conditions: List[str] = []
     pm_iteration = None
     pm_task_path = state.pm_task_path or os.path.join(state.workspace_full, "scripts", ".harborpilot", "runtime", "PM_TASKS.json")
     try:
@@ -891,6 +969,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                         constraints = item.get("constraints") or []
                         target_files = item.get("target_files") or []
                         acceptance = item.get("acceptance") or []
+                        stop_conditions = item.get("stop_conditions") or []
                         if not pm_task_id and (task_id or title or goal):
                             pm_task_id = task_id
                             pm_task_fingerprint = task_fingerprint
@@ -898,6 +977,16 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                             pm_task_goal = goal
                             if isinstance(acceptance, list):
                                 pm_task_acceptance = [str(x) for x in acceptance if isinstance(x, str)]
+                            if isinstance(target_files, list):
+                                pm_task_target_files = [
+                                    normalize_path(str(x))
+                                    for x in target_files
+                                    if isinstance(x, str) and normalize_path(str(x))
+                                ]
+                            if isinstance(constraints, list):
+                                pm_task_constraints = [str(x) for x in constraints if isinstance(x, str)]
+                            if isinstance(stop_conditions, list):
+                                pm_task_stop_conditions = [str(x) for x in stop_conditions if isinstance(x, str)]
                         head = ""
                         if task_id:
                             head = f"{task_id} "
@@ -1097,6 +1186,22 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             continue
 
         planner_payload = parse_planner_payload(planner_output)
+        if not planner_payload.get("brief"):
+            fallback_payload = build_fallback_planner_payload(
+                pm_task_title,
+                pm_task_goal,
+                pm_task_target_files,
+                pm_task_acceptance,
+                pm_task_constraints,
+                pm_task_stop_conditions,
+                patch_payload if isinstance(patch_payload, dict) else None,
+            )
+            if fallback_payload:
+                append_log(
+                    log_path,
+                    "[WARN] Patch planner output missing act/brief; falling back to PM task brief.\n",
+                )
+                planner_payload = fallback_payload
         need_more_context_count = 0
         break
 
@@ -1158,6 +1263,52 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     plan_payload = planner_payload.get("plan")
     act_payload = planner_payload.get("act") if isinstance(planner_payload.get("act"), dict) else None
     run_id = f"pm-{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"dir-{index:05d}"
+
+    blocked_docs = [path for path in files if _is_docs_path(path)]
+    if blocked_docs:
+        append_log(
+            log_path,
+            "[WARN] Director is not allowed to modify docs/. Ignoring:\n"
+            + "\n".join(f"- {path}" for path in blocked_docs)
+            + "\n",
+        )
+        emit_dialogue(
+            state.dialogue_full,
+            speaker="System",
+            type="warning",
+            text="Director 无权限修改 docs/，已拦截这些文件。",
+            summary="Docs 权限拦截",
+            run_id=run_id,
+            pm_iteration=pm_iteration,
+            director_iteration=index,
+            refs={"task_id": pm_task_id, "files": blocked_docs, "phase": "guard"},
+        )
+        files = [path for path in files if not _is_docs_path(path)]
+        if not files:
+            duration = time.time() - run_start
+            write_director_result(
+                state,
+                build_result(
+                    "blocked",
+                    "Docs write forbidden for Director",
+                    acceptance=None,
+                    task_id=pm_task_id,
+                    task_fingerprint=pm_task_fingerprint,
+                    task_title=pm_task_title,
+                    task_goal=pm_task_goal,
+                    pm_iteration=pm_iteration,
+                    error_code="DOCS_WRITE_FORBIDDEN",
+                    failure_code="POLICY_BLOCKED",
+                    duration=duration,
+                ),
+            )
+            return {
+                "ok": False,
+                "acceptance": None,
+                "changed_files": [],
+                "error": "Docs write forbidden for Director",
+                "duration": duration,
+            }
     if brief:
         emit_dialogue(
             state.dialogue_full,

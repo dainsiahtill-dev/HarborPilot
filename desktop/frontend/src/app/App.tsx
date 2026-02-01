@@ -31,6 +31,8 @@ import {
 interface BackendSettings {
   workspace: string;
   pm_backend: string;
+  pm_model?: string;
+  director_model?: string;
   model: string;
   prompt_profile: string;
   docs_init_model?: string;
@@ -86,6 +88,9 @@ interface SnapshotPayload {
   focus?: string;
   notes?: string;
   tasks?: unknown[];
+  goals?: string[] | null;
+  plan_text?: string | null;
+  plan_mtime?: string | null;
   file_status?: string[];
   file_paths?: string[];
   pm_state?: Record<string, unknown>;
@@ -271,6 +276,7 @@ export default function App() {
   const [memoLoading, setMemoLoading] = useState(false);
   const [memoError, setMemoError] = useState<string | null>(null);
   const [memoCollapsed, setMemoCollapsed] = useState(false);
+  const lastMemoRefreshRef = useRef(0);
   const [memoryCollapsed, setMemoryCollapsed] = useState(false);
   const [agentsReview, setAgentsReview] = useState<AgentsReviewInfo | null>(null);
   const [agentsDraftContent, setAgentsDraftContent] = useState('');
@@ -1448,6 +1454,8 @@ export default function App() {
 
   const saveSettings = async (payload: {
     pm_backend?: string;
+    pm_model?: string;
+    director_model?: string;
     model?: string;
     prompt_profile?: string;
     docs_init_model?: string;
@@ -1638,6 +1646,13 @@ export default function App() {
         onToggleDirector={toggleDirector}
         onStopOllama={stopOllamaModels}
         onRefresh={handleRefresh}
+        agentsNeeded={agentsRequired}
+        agentsDraftReady={agentsDraftReady}
+        agentsDraftFailed={agentsDraftFailed}
+        onOpenAgentsReview={() => setIsAgentsDialogOpen(true)}
+        onGenerateAgentsDraft={() => {
+          runPmOnce().catch(() => undefined);
+        }}
         workspaceError={workspaceError}
         isStartingPM={isStartingPM}
         isStoppingPM={isStoppingPM}
@@ -1662,6 +1677,48 @@ export default function App() {
             >
               Initialize docs
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {agentsReview?.needs_review ? (
+        <div className="mx-4 mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-amber-100">
+                {agentsDraftFailed
+                  ? 'AGENTS draft failed'
+                  : agentsDraftReady
+                    ? 'AGENTS draft ready'
+                    : 'AGENTS missing'}
+              </div>
+              <div className="text-xs text-amber-200/80">
+                {agentsDraftFailed
+                  ? 'Check PM log and retry.'
+                  : agentsDraftReady
+                    ? 'Open draft and apply to AGENTS.md.'
+                    : 'Run PM once to generate the draft.'}
+              </div>
+            </div>
+            {agentsDraftReady || agentsDraftFailed ? (
+              <button
+                type="button"
+                onClick={() => setIsAgentsDialogOpen(true)}
+                className="rounded bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-400"
+              >
+                Open AGENTS Review
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  runPmOnce().catch(() => undefined);
+                }}
+                className="rounded bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-400"
+              >
+                Generate AGENTS
+              </button>
+            )}
           </div>
         </div>
       ) : null}
@@ -1702,6 +1759,9 @@ export default function App() {
             pmState={snapshot?.pm_state ?? null}
             focus={snapshot?.focus ?? null}
             notes={snapshot?.notes ?? null}
+            goals={snapshot?.goals ?? null}
+            planText={snapshot?.plan_text ?? null}
+            planMtime={snapshot?.plan_mtime ?? null}
             successStats={successStats}
             pmRunning={!!pmStatus?.running}
             className="flex-1 min-h-0"
@@ -1751,7 +1811,7 @@ export default function App() {
         failures={pmFailures}
         iteration={pmIteration}
         pmBackend={settings?.pm_backend || 'codex'}
-        directorModel={settings?.model || ''}
+        directorModel={settings?.director_model || settings?.model || ''}
         backendError={backendError}
         onOpenLogs={() => {
           setLogsSourceId('pm-subprocess');

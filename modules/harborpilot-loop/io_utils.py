@@ -85,6 +85,9 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return rel_path
     p = rel_path.replace("\\", "/").lstrip("./")
+    plain_prefix = "harborpilot/"
+    if p.startswith(plain_prefix):
+        return f"{ARTIFACT_ROOT}/" + p[len(plain_prefix):]
     legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
     if p.startswith(legacy_prefix):
         return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_prefix):]
@@ -95,6 +98,41 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if p.startswith(legacy_dot_prefix):
         return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_dot_prefix):]
     return p
+
+
+def _strip_artifact_root_prefix(rel_path: str) -> str:
+    if not rel_path:
+        return rel_path
+    p = rel_path.replace("\\", "/")
+    if p.startswith("./"):
+        p = p[2:]
+    p = p.lstrip("/")
+    prefix = f"{ARTIFACT_ROOT}/"
+    if p.startswith(prefix):
+        return p[len(prefix):]
+    return p
+
+
+def _artifact_base_dir(workspace_full: str, cache_root_full: str) -> str:
+    if cache_root_full:
+        return cache_root_full
+    return os.path.join(workspace_full, ARTIFACT_ROOT)
+
+
+def _legacy_double_artifact_path(path: str) -> str:
+    if not path:
+        return ""
+    marker = f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}"
+    if marker in path:
+        return ""
+    runtime_marker = f"{os.sep}{ARTIFACT_NAMESPACE}{os.sep}"
+    if runtime_marker in path:
+        return path.replace(
+            runtime_marker,
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            1,
+        )
+    return ""
 
 
 def legacy_artifact_rel_path(rel_path: str) -> str:
@@ -168,6 +206,8 @@ def normalize_ramdisk_root(value: str) -> str:
     raw = (value or "").strip()
     if not raw:
         return ""
+    if not os.path.isabs(raw):
+        return ""
     if re.match(r"^[a-zA-Z]:$", raw):
         raw = raw + "\\"
     raw = os.path.abspath(raw)
@@ -219,9 +259,9 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
     ws = os.path.abspath(workspace_full or "").lower()
     digest = hashlib.sha1(ws.encode("utf-8", errors="ignore")).hexdigest()[:12]
     base_name = os.path.basename(root.rstrip("\\/")).lower()
-    if base_name == "harborpilot":
+    if base_name in ("harborpilot", ".harborpilot"):
         return os.path.join(root, "cache", digest)
-    return os.path.join(root, "HarborPilot", "cache", digest)
+    return os.path.join(root, ".harborpilot", "cache", digest)
 
 
 def is_hot_artifact_path(rel_path: str) -> bool:
@@ -251,19 +291,19 @@ def is_hot_artifact_path(rel_path: str) -> bool:
 def resolve_run_dir(workspace_full: str, cache_root_full: str, run_id: str) -> str:
     if not run_id:
         return ""
-    base_root = cache_root_full or workspace_full
-    return os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs", run_id)
+    base_root = _artifact_base_dir(workspace_full, cache_root_full)
+    return os.path.join(base_root, ARTIFACT_NAMESPACE, "runs", run_id)
 
 
 def update_latest_pointer(workspace_full: str, cache_root_full: str, run_id: str) -> None:
     if not run_id:
         return
-    base_root = cache_root_full or workspace_full
-    latest_dir = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs", "latest")
+    base_root = _artifact_base_dir(workspace_full, cache_root_full)
+    latest_dir = os.path.join(base_root, ARTIFACT_NAMESPACE, "runs", "latest")
     run_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
     
     # Update latest_run.json for Windows compatibility (and Dashboard reading)
-    pointer_path = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "latest_run.json")
+    pointer_path = os.path.join(base_root, ARTIFACT_NAMESPACE, "latest_run.json")
     write_json_atomic(pointer_path, {"run_id": run_id, "path": run_dir})
 
     # Try to create symlink if possible (best effort)
@@ -301,8 +341,10 @@ def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: s
     if p.startswith(f"{ARTIFACT_ROOT}/") and state_to_ramdisk_enabled():
         if not cache_root_full:
             raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root_full, p)
+        return os.path.join(cache_root_full, _strip_artifact_root_prefix(p))
     base = cache_root_full if (cache_root_full and is_hot_artifact_path(p)) else workspace_full
+    if base == cache_root_full and p.startswith(f"{ARTIFACT_ROOT}/"):
+        return os.path.join(base, _strip_artifact_root_prefix(p))
     return os.path.join(base, p)
 
 
@@ -361,7 +403,7 @@ def stop_flag_path(workspace: str) -> str:
         cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
         if not cache_root:
             raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+        return os.path.join(cache_root, ARTIFACT_NAMESPACE, "PM_STOP.flag")
     return os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
 
 
@@ -373,12 +415,22 @@ def stop_requested(workspace: str) -> bool:
 
 
 def clear_stop_flag(workspace: str) -> None:
-    path = stop_flag_path(workspace)
+    paths = set()
     try:
-        if os.path.exists(path):
-            os.remove(path)
+        paths.add(stop_flag_path(workspace))
     except Exception:
         pass
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
 
 def director_stop_flag_path(workspace: str) -> str:
@@ -386,7 +438,7 @@ def director_stop_flag_path(workspace: str) -> str:
         cache_root = build_cache_root(resolve_ramdisk_root(None), workspace)
         if not cache_root:
             raise ValueError(f"{ARTIFACT_ROOT}/ must be stored on ramdisk, but no ramdisk cache root is configured")
-        return os.path.join(cache_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
+        return os.path.join(cache_root, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
     return os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
 
 
@@ -398,12 +450,22 @@ def director_stop_requested(workspace: str) -> bool:
 
 
 def clear_director_stop_flag(workspace: str) -> None:
-    path = director_stop_flag_path(workspace)
+    paths = set()
     try:
-        if os.path.exists(path):
-            os.remove(path)
+        paths.add(director_stop_flag_path(workspace))
     except Exception:
         pass
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
 
 def utc_iso_now() -> str:
@@ -646,6 +708,47 @@ def _new_event_id() -> str:
     return str(uuid.uuid4())
 
 
+def _read_seq_file(path: str) -> int:
+    if not path or not os.path.exists(path):
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = handle.read().strip()
+        if not raw:
+            return 0
+        return int(raw)
+    except Exception:
+        return 0
+
+
+def _write_seq_file(path: str, value: int) -> None:
+    try:
+        ensure_parent_dir(path)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(str(int(value)))
+    except Exception:
+        pass
+
+
+def _next_seq_for_path(path: str, current: int, key: str = "seq") -> int:
+    if not path:
+        return current
+    seq_path = path + ".seq"
+    lock_path = seq_path + ".lock"
+    fd = _acquire_lock(lock_path, timeout_sec=2.0)
+    if fd is None:
+        return current
+    try:
+        existing = _read_seq_file(seq_path)
+        if existing <= 0:
+            existing = scan_last_seq(path, key=key)
+        next_val = max(existing, current) + 1
+        _write_seq_file(seq_path, next_val)
+        return next_val
+    finally:
+        _release_lock(fd, lock_path)
+
+
 def emit_dialogue(
     dialogue_path: str,
     *,
@@ -661,10 +764,14 @@ def emit_dialogue(
 ) -> None:
     if not dialogue_path:
         return
+    seq = _next_dialogue_seq()
+    if dialogue_path:
+        seq = _next_seq_for_path(dialogue_path, seq, key="seq")
+        set_dialogue_seq(seq)
     payload = {
         "ts": utc_iso_now(),
         "ts_epoch": time.time(),
-        "seq": _next_dialogue_seq(),
+        "seq": seq,
         "event_id": _new_event_id(),
         "run_id": run_id,
         "pm_iteration": pm_iteration,
@@ -697,11 +804,15 @@ def emit_event(
 ) -> None:
     if not event_path:
         return
+    seq = _next_event_seq()
+    if event_path:
+        seq = _next_seq_for_path(event_path, seq, key="seq")
+        set_event_seq(seq)
     payload: Dict[str, Any] = {
         "schema_version": 1,
         "ts": utc_iso_now(),
         "ts_epoch": time.time(),
-        "seq": _next_event_seq(),
+        "seq": seq,
         "event_id": _new_event_id(),
         "kind": kind,
         "actor": actor,
@@ -935,7 +1046,11 @@ def read_file_safe(path: str) -> str:
         elif legacy_state != path and os.path.exists(legacy_state):
             path = legacy_state
         else:
-            return ""
+            double_path = _legacy_double_artifact_path(path)
+            if double_path and os.path.exists(double_path):
+                path = double_path
+            else:
+                return ""
     try:
         with open(path, "rb") as handle:
             data = handle.read()
@@ -959,7 +1074,11 @@ def read_memory_snapshot(path: str) -> Optional[Dict[str, Any]]:
         elif legacy_state != path and os.path.exists(legacy_state):
             path = legacy_state
         else:
-            return None
+            double_path = _legacy_double_artifact_path(path)
+            if double_path and os.path.exists(double_path):
+                path = double_path
+            else:
+                return None
     try:
         with open(path, "rb") as handle:
             data = handle.read()

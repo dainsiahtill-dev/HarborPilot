@@ -3,7 +3,7 @@ import json
 import os
 from typing import Any, Dict, Optional
 
-from io_utils import ensure_parent_dir, write_json_atomic
+from io_utils import ensure_parent_dir, resolve_run_dir, write_json_atomic
 
 
 def _hash_payload(payload: Dict[str, Any]) -> str:
@@ -28,8 +28,9 @@ def write_trajectory(
     event_seq_start: int,
     event_seq_end: int,
 ) -> str:
-    base_root = getattr(state, "cache_root_full", "") or getattr(state, "workspace_full", "")
-    runs_dir = os.path.join(base_root, ".harborpilot", "runtime", "runs", run_id)
+    workspace_full = getattr(state, "workspace_full", "")
+    cache_root_full = getattr(state, "cache_root_full", "")
+    runs_dir = resolve_run_dir(workspace_full, cache_root_full, run_id)
     ensure_parent_dir(os.path.join(runs_dir, "trajectory.json"))
 
     span_start = event_seq_start if event_seq_start > 0 else event_seq_end

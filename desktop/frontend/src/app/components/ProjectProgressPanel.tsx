@@ -24,6 +24,9 @@ interface ProjectProgressPanelProps {
   pmState?: Record<string, unknown> | null;
   focus?: string | null;
   notes?: string | null;
+  goals?: string[] | null;
+  planText?: string | null;
+  planMtime?: string | null;
   successStats?: SuccessStats | null;
   pmRunning?: boolean;
   className?: string;
@@ -59,6 +62,9 @@ export function ProjectProgressPanel({
   pmState,
   focus,
   notes,
+  goals,
+  planText,
+  planMtime,
   successStats,
   pmRunning,
   className,
@@ -152,6 +158,9 @@ export function ProjectProgressPanel({
   const focusText = focus ? clampText(focus, 160) : '';
   const notesText = notes ? clampText(notes, 180) : '';
   const currentSummary = clampText(pickTaskSummary(currentTask || { title: lastTaskTitle }), 160);
+  const goalList = Array.isArray(goals) ? goals.filter((item) => typeof item === 'string' && item.trim().length > 0) : [];
+  const planPreview = typeof planText === 'string' ? planText.trim() : '';
+  const planUpdated = typeof planMtime === 'string' ? planMtime : '';
 
   return (
     <div
@@ -286,6 +295,35 @@ export function ProjectProgressPanel({
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span className="font-medium uppercase tracking-wide">{'\u5168\u90e8\u76ee\u6807'}</span>
+          <span>{goalList.length ? `${goalList.length} \u9879` : '-'}</span>
+        </div>
+        <div className="mt-3 max-h-40 space-y-2 overflow-auto pr-1 text-xs text-slate-300">
+          {goalList.length === 0 ? (
+            <div className="text-slate-500">{'\u6682\u65e0\u76ee\u6807'}</div>
+          ) : (
+            goalList.map((item, idx) => (
+              <div key={`${idx}-${item}`} className="flex items-start gap-2">
+                <span className="mt-0.5 text-slate-500">{idx + 1}.</span>
+                <span className="leading-relaxed">{item}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span className="font-medium uppercase tracking-wide">{'\u603b\u89c4\u5212 (PLAN.md)'}</span>
+          {planUpdated ? <span className="text-slate-500">{planUpdated}</span> : <span className="text-slate-600">-</span>}
+        </div>
+        <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+          {planPreview || '\u6682\u65e0\u603b\u89c4\u5212'}
         </div>
       </div>
 

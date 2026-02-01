@@ -57,7 +57,7 @@ harborpilot/
 ### 2.0 存储位置规则（Workspace vs RAMDISK）
 
 当启用 `HARBORPILOT_STATE_TO_RAMDISK=1` 时，系统会把**高频/热数据**写入 RAMDISK 缓存目录
-`X:\HarborPilot\cache\<hash>\.harborpilot/`，而**长期/冷数据**仍写在 workspace 下的 `.harborpilot/`。
+`X:\.harborpilot\cache\<hash>\`，而**长期/冷数据**仍写在 workspace 下的 `.harborpilot/`。
 
 **写入 workspace/.harborpilot/**（长期保存）
 
@@ -79,7 +79,7 @@ harborpilot/
 | `.harborpilot/runtime/DIRECTOR_SUBPROCESS.log` | Director 子进程日志（也会被当作热数据缓存） |
 | `.harborpilot/runtime/memos/**` | 备忘录与索引 |
 
-**优先写入 RAMDISK**（启用后走 `X:\HarborPilot\cache\<hash>\.harborpilot/`）
+**优先写入 RAMDISK**（启用后走 `X:\.harborpilot\cache\<hash>\`）
 
 | 目录/文件 | 说明 |
 | :--- | :--- |

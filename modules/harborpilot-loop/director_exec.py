@@ -82,6 +82,14 @@ def _truncate_text(text: str, limit: int = 800) -> str:
     return text[:limit] + "..."
 
 
+def _is_docs_path(path: str) -> bool:
+    if not path:
+        return False
+    normalized = normalize_path(path).lstrip("/")
+    lowered = normalized.lower()
+    return lowered == "docs" or lowered.startswith("docs/")
+
+
 def _append_log(log_path: str, text: str) -> None:
     if not log_path:
         return
@@ -344,6 +352,15 @@ def run_ollama_apply(state: Any, brief: str, files: List[str]) -> Dict[str, Any]
     blocks = parse_file_blocks(output)
     if not blocks:
         blocks = parse_file_blocks_fallback(output)
+    blocked_docs = [block for block in blocks if _is_docs_path(str(block.get("path") or ""))]
+    if blocked_docs:
+        _append_log(
+            state.log_full,
+            "[WARN] Director cannot modify docs/. Skipping blocks:\n"
+            + "\n".join(f"- {block.get('path')}" for block in blocked_docs)
+            + "\n",
+        )
+    blocks = [block for block in blocks if not _is_docs_path(str(block.get("path") or ""))]
     block_paths = [block.get("path") for block in blocks if block.get("path")]
     snapshot = snapshot_files(block_paths, state.workspace_full) if block_paths else {}
     changed_files = apply_file_blocks(blocks, state.workspace_full) if blocks else []

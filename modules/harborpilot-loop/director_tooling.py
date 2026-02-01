@@ -142,15 +142,65 @@ def _split_tool_step(text: str) -> List[str]:
         return text.split()
 
 
+_KV_ALLOWED_KEYS = {
+    "pattern",
+    "p",
+    "paths",
+    "path",
+    "file",
+    "line",
+    "around",
+    "around_line",
+    "radius",
+    "start",
+    "start_line",
+    "end",
+    "end_line",
+    "depth",
+    "max",
+    "max_entries",
+    "n",
+    "lines",
+    "count",
+    "glob",
+    "g",
+    "include",
+    "recursive",
+}
+
+
 def _parse_key_value_token(token: str) -> Optional[Tuple[str, str]]:
-    if ":" not in token or token.startswith("--"):
+    if not token or token.startswith("--"):
         return None
-    key, value = token.split(":", 1)
+    sep = None
+    if ":" in token:
+        sep = ":"
+    elif "=" in token:
+        sep = "="
+    if sep is None:
+        return None
+    key, value = token.split(sep, 1)
     key = key.strip().lower()
+    if key not in _KV_ALLOWED_KEYS:
+        return None
     value = value.strip()
     if not key or value == "":
         return None
     return key, value
+
+
+def _split_list_value(value: str) -> List[str]:
+    if not value:
+        return []
+    cleaned = value.strip()
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        cleaned = cleaned[1:-1]
+    parts = []
+    for part in cleaned.split(","):
+        part = part.strip().strip("'\"")
+        if part:
+            parts.append(part)
+    return parts
 
 
 def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
@@ -162,6 +212,40 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
         return None
     if tool == "cat" and len(tokens) >= 2:
         return {"tool": "repo_read_head", "args": {"file": tokens[1], "n": MAX_TOOL_READ_LINES}}
+    if tool == "repo_ls":
+        path: Optional[str] = None
+        depth: Optional[int] = None
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            kv = _parse_key_value_token(tok)
+            if kv:
+                key, value = kv
+                if key in ("path", "paths", "include"):
+                    items = _split_list_value(value)
+                    if items:
+                        path = items[0]
+                elif key == "recursive":
+                    if value.lower() in ("1", "true", "yes", "y", "on"):
+                        depth = 6
+                i += 1
+                continue
+            if tok in ("--include", "--path", "--paths"):
+                if i + 1 < len(tokens):
+                    path = tokens[i + 1].strip("'\"")
+                    i += 2
+                    continue
+            if tok in ("--recursive", "-r", "-R"):
+                depth = 6
+                i += 1
+                continue
+            if not tok.startswith("-") and path is None:
+                path = tok.strip("'\"")
+            i += 1
+        args: Dict[str, Any] = {"path": path or "."}
+        if depth is not None and depth > 0:
+            args["depth"] = depth
+        return {"tool": "repo_tree", "args": args}
 
     if tool == "repo_rg":
         pattern: Optional[str] = None
@@ -175,19 +259,17 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
             if kv:
                 key, value = kv
                 if key in ("pattern", "p"):
-                    pattern = value
-                elif key in ("paths", "path"):
-                    for part in value.split(","):
-                        part = part.strip()
-                        if part:
-                            paths.append(part)
+                    pattern = value.strip("'\"")
+                elif key in ("paths", "path", "file"):
+                    for part in _split_list_value(value):
+                        paths.append(part)
                 elif key in ("max", "max_results"):
                     try:
                         max_results = int(value)
                     except Exception:
                         pass
                 elif key in ("glob", "g"):
-                    glob_pat = value
+                    glob_pat = value.strip("'\"")
                 i += 1
                 continue
             if tok in ("-p", "--pattern"):
@@ -210,7 +292,7 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
                     continue
             if tok in ("--path", "--paths"):
                 if i + 1 < len(tokens):
-                    paths.append(tokens[i + 1])
+                    paths.extend(_split_list_value(tokens[i + 1]))
                     i += 2
                     continue
             if tok.startswith("--"):
@@ -220,9 +302,9 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
                     i += 1
                 continue
             if pattern is None:
-                pattern = tok
+                pattern = tok.strip("'\"")
             else:
-                paths.append(tok)
+                paths.append(tok.strip("'\""))
             i += 1
         if not pattern:
             return {"tool": tool, "args": {}}
@@ -253,7 +335,7 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
             if kv:
                 key, value = kv
                 if key in ("file", "path"):
-                    file_arg = value
+                    file_arg = value.strip("'\"")
                 elif key in ("line", "around", "around_line"):
                     line_no = safe_int(value, -1)
                 elif key in ("radius",):
@@ -272,7 +354,7 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
                 continue
             if tok in ("--file", "-f", "--path"):
                 if i + 1 < len(tokens):
-                    file_arg = tokens[i + 1]
+                    file_arg = tokens[i + 1].strip("'\"")
                     i += 2
                     continue
             if tok in ("--line", "--around", "--around_line"):
@@ -321,7 +403,7 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
             i += 1
 
         if tool == "repo_tree":
-            path = positional[0] if positional else "."
+            path = positional[0].strip("'\"") if positional else "."
             args: Dict[str, Any] = {"path": path}
             if depth is not None and depth > 0:
                 args["depth"] = depth
@@ -334,7 +416,7 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
             return {"tool": tool, "args": args}
 
         if not file_arg and positional:
-            file_arg = positional[0]
+            file_arg = positional[0].strip("'\"")
         if tool == "repo_read_around":
             if line_no is None or line_no <= 0:
                 if len(positional) >= 2:

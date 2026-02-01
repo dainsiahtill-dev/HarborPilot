@@ -1,6 +1,7 @@
 ﻿import argparse
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,18 @@ def ensure_record(value):
     return data
 
 
+def normalize_db_dir(path: str) -> str:
+    raw = (path or "").strip().strip('"')
+    if re.match(r"^[A-Za-z]:$", raw):
+        raw = raw + "\\"
+    raw = os.path.abspath(raw)
+    if re.match(r"^[A-Za-z]:$", raw):
+        raw = raw + "\\"
+    if re.match(r"^[A-Za-z]:\\?$", raw):
+        raw = os.path.join(raw, ".harborpilot", "lancedb")
+    return raw
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True)
@@ -39,19 +52,34 @@ def main():
         print("json not found", file=sys.stderr)
         return 0
 
-    os.makedirs(args.db, exist_ok=True)
+    db_dir = normalize_db_dir(args.db)
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+    except Exception as exc:
+        print(f"failed to create lancedb dir: {db_dir}: {exc}", file=sys.stderr)
+        return 0
+
     payload = load_json(args.json)
     records = ensure_record(payload)
     if isinstance(records, dict):
         records = [records]
 
-    db = lancedb.connect(args.db)
+    try:
+        db = lancedb.connect(db_dir)
+    except Exception as exc:
+        print(f"lancedb connect failed for {db_dir}: {exc}", file=sys.stderr)
+        return 0
+
     table_name = "codex_memory"
     try:
         table = db.open_table(table_name)
         table.add(records)
     except Exception:
-        db.create_table(table_name, data=records)
+        try:
+            db.create_table(table_name, data=records)
+        except Exception as exc:
+            print(f"lancedb create_table failed for {db_dir}: {exc}", file=sys.stderr)
+            return 0
 
     return 0
 

@@ -119,7 +119,7 @@ try:
     from prompt_loader import current_profile, get_template, render_template
     from codex_utils import invoke_codex
     from ollama_utils import invoke_ollama
-    from shared import strip_ansi
+    from shared import normalize_path, strip_ansi
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
@@ -147,10 +147,11 @@ def build_pm_prompt(
     pm_state: Any,
 ) -> str:
     profile = current_profile().strip().lower()
-    if profile in ("generic", "portable", "default"):
-        intro = "You are the project manager for a software project repo."
+    is_zh = profile.endswith("_zh") or profile.startswith("zh") or profile in ("zh", "chinese")
+    if "armada" in profile:
+        intro = "你是这个海战 MMO 仓库的项目经理。" if is_zh else "You are the project manager for a naval MMO repo."
     else:
-        intro = "You are the project manager for a naval MMO repo."
+        intro = "你是这个软件项目仓库的项目经理。" if is_zh else "You are the project manager for a software project repo."
     template = get_template("pm_prompt")
     return render_template(
         template,
@@ -440,7 +441,11 @@ def maybe_generate_agents_draft(
     docs_text = read_file_safe(docs_readme) or ""
     root_text = read_file_safe(root_readme) or ""
     if not docs_text and not root_text and not feedback_text:
-        return None
+        print("[pm] generating AGENTS.md draft using fallback (no README/feedback found)")
+        sys.stdout.flush()
+        content = _build_fallback(docs_text, root_text, feedback_text, "no README/feedback available")
+        write_text_atomic(draft_full, content)
+        return draft_full
 
     docs_context = ""
     if docs_text:
@@ -662,6 +667,44 @@ def normalize_pm_payload(raw_payload: Dict[str, Any], iteration: int, timestamp:
     }
 
 
+def _is_docs_path(path: str) -> bool:
+    if not path:
+        return False
+    normalized = normalize_path(str(path)).lstrip("/")
+    lowered = normalized.lower()
+    return lowered == "docs" or lowered.startswith("docs/")
+
+
+def split_director_tasks(tasks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    director_tasks: List[Dict[str, Any]] = []
+    docs_only_tasks: List[Dict[str, Any]] = []
+    for task in tasks or []:
+        if not isinstance(task, dict):
+            continue
+        target_files = task.get("target_files") or []
+        normalized_targets = [
+            normalize_path(str(item))
+            for item in target_files
+            if isinstance(item, str) and normalize_path(str(item))
+        ]
+        if normalized_targets and all(_is_docs_path(path) for path in normalized_targets):
+            docs_only_tasks.append(task)
+            continue
+        if normalized_targets and any(_is_docs_path(path) for path in normalized_targets):
+            filtered_targets = [path for path in normalized_targets if not _is_docs_path(path)]
+            if not filtered_targets:
+                docs_only_tasks.append(task)
+                continue
+            task_copy = dict(task)
+            task_copy["target_files"] = filtered_targets
+            constraints = task_copy.get("constraints") if isinstance(task_copy.get("constraints"), list) else []
+            task_copy["constraints"] = [*constraints, "Do not modify docs/ (PM-only)."]
+            director_tasks.append(task_copy)
+            continue
+        director_tasks.append(task)
+    return director_tasks, docs_only_tasks
+
+
 def build_run_dir(workspace: str, cache_root: str, iteration: int) -> str:
     rel = os.path.join(".harborpilot", "runtime", "runs", f"pm-{iteration:05d}")
     return resolve_artifact_path(workspace, cache_root, rel)
@@ -740,6 +783,30 @@ def result_timestamp_epoch(result: Dict[str, Any]) -> float:
         return datetime.fromisoformat(ts).timestamp() if ts else 0
     except Exception:
         return 0
+
+
+def build_director_fallback_result(
+    *,
+    task_id: str,
+    task_title: str,
+    run_id: str,
+    error_code: str,
+    reason: str,
+) -> Dict[str, Any]:
+    now = datetime.now()
+    return {
+        "schema_version": 1,
+        "timestamp": now.isoformat(),
+        "timestamp_epoch": now.timestamp(),
+        "status": "blocked",
+        "acceptance": False,
+        "error_code": error_code,
+        "reason": reason,
+        "task_id": task_id,
+        "task_title": task_title,
+        "run_id": run_id,
+        "changed_files": [],
+    }
 
 
 def normalize_match_mode(value: Any) -> str:
@@ -1154,7 +1221,6 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     
     # Run-specific paths for Director
     run_pm_tasks = os.path.join(run_dir, "PM_TASKS.json")
-    run_pm_report = os.path.join(run_dir, "PM_REPORT.md")
     run_director_result = os.path.join(run_dir, "DIRECTOR_RESULT.json")
     run_director_log = os.path.join(run_dir, "RUNLOG.md")
     run_events = os.path.join(run_dir, "events.jsonl")
@@ -1326,9 +1392,14 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     except Exception:
         payload = {"focus": "parse_failed", "tasks": [], "notes": "PM JSON parse failed."}
     normalized = normalize_pm_payload(payload, iteration, start_timestamp)
+    director_tasks, docs_only_tasks = split_director_tasks(
+        normalized.get("tasks") if isinstance(normalized, dict) else []
+    )
+    director_payload = dict(normalized)
+    director_payload["tasks"] = director_tasks
     write_json_atomic(pm_out_full, normalized)
     # Also write to run bucket
-    write_json_atomic(run_pm_tasks, normalized)
+    write_json_atomic(run_pm_tasks, director_payload)
 
     run_id = f"pm-{iteration:05d}"
     primary_task = None
@@ -1342,16 +1413,28 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
             task_title = str(task.get("title") or "")
             acc = task.get("acceptance") or []
             acc_summary = ", ".join(acc[:3]) if isinstance(acc, list) else ""
-            emit_dialogue(
-                dialogue_full,
-                speaker="PM",
-                type="handoff",
-                text=f"Assigning task {task_id}: {task_title}. Acceptance: {acc_summary}",
-                summary=f"Dispatch: {task_id}",
-                run_id=run_id,
-                pm_iteration=iteration,
-                refs={"task_id": task_id, "phase": "handoff", "files": ["PM_TASKS.json"]},
-            )
+            if any(item for item in docs_only_tasks if str(item.get("id") or "") == task_id):
+                emit_dialogue(
+                    dialogue_full,
+                    speaker="PM",
+                    type="handoff",
+                    text=f"Docs-only task {task_id}: {task_title}. Director will skip (PM-only).",
+                    summary=f"Dispatch (PM-only): {task_id}",
+                    run_id=run_id,
+                    pm_iteration=iteration,
+                    refs={"task_id": task_id, "phase": "handoff", "files": ["PM_TASKS.json"]},
+                )
+            else:
+                emit_dialogue(
+                    dialogue_full,
+                    speaker="PM",
+                    type="handoff",
+                    text=f"Assigning task {task_id}: {task_title}. Acceptance: {acc_summary}",
+                    summary=f"Dispatch: {task_id}",
+                    run_id=run_id,
+                    pm_iteration=iteration,
+                    refs={"task_id": task_id, "phase": "handoff", "files": ["PM_TASKS.json"]},
+                )
     else:
         emit_dialogue(
             dialogue_full,
@@ -1380,8 +1463,12 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         director_attempts = max(int(getattr(args, "director_iterations", 1) or 1), 1)
         match_mode = normalize_match_mode(getattr(args, "director_match_mode", "latest"))
         qa_enabled = is_qa_enabled()
-        if primary_task:
-            task_id = str(primary_task.get("id") or "")
+        tasks_for_director = director_payload.get("tasks") if isinstance(director_payload, dict) else []
+        primary_director_task = None
+        if isinstance(tasks_for_director, list) and tasks_for_director:
+            primary_director_task = tasks_for_director[0] if isinstance(tasks_for_director[0], dict) else None
+        if primary_director_task:
+            task_id = str(primary_director_task.get("id") or "")
             emit_dialogue(
                 dialogue_full,
                 speaker="PM",
@@ -1396,12 +1483,50 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
             with open(pm_report_full, "a", encoding="utf-8") as handle:
                 handle.write(f"\n## {director_timestamp} (iteration {iteration}) - director start\n")
         run_dir = build_run_dir(workspace_full, cache_root_full, iteration)
-        archive_if_exists(pm_out_full, os.path.join(run_dir, "PM_TASKS.json"))
+        if not os.path.isfile(run_pm_tasks):
+            archive_if_exists(pm_out_full, os.path.join(run_dir, "PM_TASKS.json"))
         archive_if_exists(pm_report_full, os.path.join(run_dir, "PM_REPORT.md"))
         expected_task_id = ""
         expected_task_title = ""
         expected_task_ids: List[str] = []
-        tasks_for_director = normalized.get("tasks") if isinstance(normalized, dict) else []
+        director_start_epoch = time.time()
+        director_skipped = False
+        if docs_only_tasks and not tasks_for_director:
+            emit_dialogue(
+                dialogue_full,
+                speaker="PM",
+                type="warning",
+                text="Docs-only tasks detected; Director skipped (PM-only).",
+                summary="Director skipped (docs-only)",
+                run_id=run_id,
+                pm_iteration=iteration,
+                refs={"phase": "guard", "files": ["PM_TASKS.json"]},
+            )
+            write_director_status(
+                director_status_full,
+                {
+                    "running": False,
+                    "started_at": director_start_epoch,
+                    "ended_at": time.time(),
+                    "updated_at": time.time(),
+                    "mode": "pm",
+                    "pm_iteration": iteration,
+                    "exit_code": 0,
+                    "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
+                },
+            )
+            director_skipped = True
+        elif docs_only_tasks:
+            emit_dialogue(
+                dialogue_full,
+                speaker="PM",
+                type="note",
+                text="Docs-only tasks will not be sent to Director.",
+                summary="Docs-only tasks skipped",
+                run_id=run_id,
+                pm_iteration=iteration,
+                refs={"phase": "guard", "files": ["PM_TASKS.json"]},
+            )
         if isinstance(tasks_for_director, list) and tasks_for_director:
             primary = tasks_for_director[0] if isinstance(tasks_for_director[0], dict) else {}
             expected_task_id = str(primary.get("id") or "")
@@ -1412,7 +1537,6 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                     if task_id:
                         expected_task_ids.append(task_id)
         expected_run_id = str(normalized.get("run_id") or f"pm-{iteration:05d}").strip()
-        director_start_epoch = time.time()
         plan_block = preflight_director_plan(plan_full)
         plan_blocked = False
         agents_blocked = False
@@ -1482,7 +1606,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
         latest_result: Any = None
         last_dialogue_ts = 0.0
         director_stop_seen = False
-        if not plan_blocked and not agents_blocked:
+        if not plan_blocked and not agents_blocked and not director_skipped:
             if director_stop_requested(workspace_full):
                 clear_director_stop_flag(workspace_full)
                 pm_state["last_director_status"] = "blocked"
@@ -1568,6 +1692,21 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
                                 "log_path": director_subprocess_log_full or DEFAULT_DIRECTOR_SUBPROCESS_LOG,
                             },
                         )
+                    if director_exit == 124:
+                        timeout_result = build_director_fallback_result(
+                            task_id=expected_task_id,
+                            task_title=expected_task_title,
+                            run_id=expected_run_id,
+                            error_code="DIRECTOR_TIMEOUT",
+                            reason="Director subprocess timed out.",
+                        )
+                        if not os.path.isfile(director_result_full):
+                            write_json_atomic(director_result_full, timeout_result)
+                        matched_result = timeout_result
+                        pm_state["last_director_status"] = "blocked"
+                        pm_state["last_director_error_code"] = "DIRECTOR_TIMEOUT"
+                        pm_state["last_director_error_detail"] = "Director subprocess timeout."
+                        write_json_atomic(pm_state_full, pm_state)
                     if director_exit == 130:
                         director_stop_seen = True
                         pm_state["last_director_status"] = "blocked"

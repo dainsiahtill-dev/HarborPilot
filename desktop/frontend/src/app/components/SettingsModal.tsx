@@ -7,6 +7,8 @@ interface SettingsModalProps {
   onClose: () => void;
   settings: {
     pm_backend?: string;
+    pm_model?: string;
+    director_model?: string;
     model?: string;
     prompt_profile?: string;
     docs_init_model?: string;
@@ -38,6 +40,8 @@ interface SettingsModalProps {
   } | null;
   onSave: (payload: {
     pm_backend?: string;
+    pm_model?: string;
+    director_model?: string;
     model?: string;
     prompt_profile?: string;
     docs_init_model?: string;
@@ -73,7 +77,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const defaultModel = 'modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest';
   const defaultProfile = 'demo_ming_armada';
   const [pmBackend, setPmBackend] = useState('codex');
-  const [ollamaModel, setOllamaModel] = useState(defaultModel);
+  const [pmModel, setPmModel] = useState(defaultModel);
+  const [directorModel, setDirectorModel] = useState(defaultModel);
   const [docsInitModel, setDocsInitModel] = useState(defaultModel);
   const [docsInitProvider, setDocsInitProvider] = useState('ollama');
   const [docsInitBaseUrl, setDocsInitBaseUrl] = useState('');
@@ -108,8 +113,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   useEffect(() => {
     if (!settings) return;
     setPmBackend(settings.pm_backend || 'codex');
-    setOllamaModel(settings.model || defaultModel);
-    setDocsInitModel(settings.docs_init_model || settings.model || defaultModel);
+    setPmModel(settings.pm_model || settings.model || defaultModel);
+    setDirectorModel(settings.director_model || settings.model || defaultModel);
+    setDocsInitModel(settings.docs_init_model || settings.pm_model || settings.model || defaultModel);
     setDocsInitProvider(settings.docs_init_provider || 'ollama');
     setDocsInitBaseUrl(settings.docs_init_base_url || '');
     setDocsInitApiKey(settings.docs_init_api_key || '');
@@ -123,7 +129,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setPmShowOutput(settings.pm_show_output ?? true);
     setPmRunsDirector(settings.pm_runs_director ?? true);
     setPmDirectorShowOutput(settings.pm_director_show_output ?? true);
-    setPmDirectorTimeout(settings.pm_director_timeout ?? 60);
+    setPmDirectorTimeout(settings.pm_director_timeout ?? 600);
     setPmDirectorIterations(settings.pm_director_iterations ?? 1);
     setPmDirectorMatchMode(settings.pm_director_match_mode ?? 'latest');
     setPmMaxFailures(settings.pm_max_failures ?? 5);
@@ -146,7 +152,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     try {
       await onSave({
         pm_backend: pmBackend,
-        model: ollamaModel,
+        pm_model: pmModel,
+        director_model: directorModel,
+        model: pmModel,
         prompt_profile: promptProfile,
         docs_init_model: docsInitModel,
         docs_init_provider: docsInitProvider,
@@ -207,40 +215,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
             <TabsList className="bg-[#1e1e1e] border border-gray-700">
-              <TabsTrigger value="general">通用</TabsTrigger>
-              <TabsTrigger value="docs-ai">Docs 提示</TabsTrigger>
+              <TabsTrigger value="general">??</TabsTrigger>
+              <TabsTrigger value="pm-llm">PM LLM</TabsTrigger>
+              <TabsTrigger value="director-llm">Director LLM</TabsTrigger>
+              <TabsTrigger value="docs-ai">Docs ??</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="mt-4 space-y-6">
-              {/* Backend 配置 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">后端配置</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">PM Backend</label>
-                    <select
-                      value={pmBackend}
-                      onChange={(e) => setPmBackend(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="codex">Codex (推荐 - 更智能)</option>
-                      <option value="ollama">Ollama (省成本)</option>
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">PM 用于任务规划和决策，推荐使用 Codex</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Model</label>
-                    <input
-                      type="text"
-                      value={ollamaModel}
-                      onChange={(e) => setOllamaModel(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Prompt 模板 */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-300 mb-3">Prompt 模板</h3>
@@ -543,7 +524,56 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               </div>
             </TabsContent>
 
-            <TabsContent value="docs-ai" className="mt-4 space-y-6">
+                        <TabsContent value="pm-llm" className="mt-4 space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM LLM ??</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">PM Backend</label>
+                    <select
+                      value={pmBackend}
+                      onChange={(e) => setPmBackend(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="codex">Codex (?? - ???)</option>
+                      <option value="ollama">Ollama (???)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">PM ?????????????? Codex</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">PM ??</label>
+                    <input
+                      type="text"
+                      value={pmModel}
+                      onChange={(e) => setPmModel(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">???? Ollama / Codex CLI / ????????</p>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="director-llm" className="mt-4 space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Director LLM ??</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Director ??</label>
+                    <input
+                      type="text"
+                      value={directorModel}
+                      onChange={(e) => setDirectorModel(e.target.value)}
+                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Director ????? Ollama????????????</p>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+<TabsContent value="docs-ai" className="mt-4 space-y-6">
               <div>
                 <h3 className="text-sm font-semibold text-gray-300 mb-3">Docs 提示模型</h3>
                 <p className="text-xs text-gray-500 mb-3">

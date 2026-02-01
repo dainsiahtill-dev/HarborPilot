@@ -196,10 +196,12 @@ export function DialoguePanel({ events, live, loading = false }: DialoguePanelPr
       }
     });
     const totalTasks = taskIds.size;
-    const successCount = Array.from(resultByTaskId.values()).filter((status) => status === 'SUCCESS')
-      .length;
-    const successRate = totalTasks > 0 ? Math.round((successCount / totalTasks) * 100) : 0;
-    return { totalTasks, successRate };
+    const completedTasks = resultByTaskId.size;
+    const successCount = Array.from(resultByTaskId.values()).filter(
+      (status) => status === 'SUCCESS' || status === 'PASS'
+    ).length;
+    const successRate = completedTasks > 0 ? Math.round((successCount / completedTasks) * 100) : 0;
+    return { totalTasks, completedTasks, successRate };
   }, [events]);
 
   return (
@@ -430,6 +432,7 @@ export function DialoguePanel({ events, live, loading = false }: DialoguePanelPr
           <div className="flex items-center gap-4">
             <span>总事件: {events.length}</span>
             <span>任务: {stats.totalTasks}</span>
+            <span>??????: {stats.completedTasks}</span>
           </div>
           <div className="flex items-center gap-1 text-green-400">
             <TrendingUp className="size-3" />

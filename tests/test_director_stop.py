@@ -24,6 +24,8 @@ class TestDirectorStopPath(unittest.TestCase):
 
         io_utils = self._import_io_utils()
 
+        prev_state = os.environ.get("HARBORPILOT_STATE_TO_RAMDISK")
+        os.environ["HARBORPILOT_STATE_TO_RAMDISK"] = "0"
         with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as ramdisk_dir:
             workspace = Path(workspace_dir)
             (workspace / "docs").mkdir(parents=True, exist_ok=True)
@@ -33,10 +35,10 @@ class TestDirectorStopPath(unittest.TestCase):
             (state_dir / "PM_STOP.flag").write_text("stop\n", encoding="utf-8")
             (state_dir / "PLAN.md").write_text("# plan\n", encoding="utf-8")
 
-            result_path = state_dir / "DIRECTOR_RESULT.json"
             cache_root = Path(io_utils.build_cache_root(ramdisk_dir, str(workspace)))
-            log_path = cache_root / ".harborpilot" / "runtime" / "RUNLOG.md"
-            dialogue_path = cache_root / ".harborpilot" / "runtime" / "DIALOGUE.jsonl"
+            result_path = cache_root / "runtime" / "DIRECTOR_RESULT.json"
+            log_path = cache_root / "runtime" / "RUNLOG.md"
+            dialogue_path = cache_root / "runtime" / "DIALOGUE.jsonl"
 
             cmd = [
                 sys.executable,
@@ -61,6 +63,10 @@ class TestDirectorStopPath(unittest.TestCase):
             payload = json.loads(result_path.read_text(encoding="utf-8"))
             self.assertEqual(payload.get("status"), "blocked")
             self.assertEqual(payload.get("error_code"), "STOP_REQUESTED")
+        if prev_state is None:
+            os.environ.pop("HARBORPILOT_STATE_TO_RAMDISK", None)
+        else:
+            os.environ["HARBORPILOT_STATE_TO_RAMDISK"] = prev_state
 
 
 if __name__ == "__main__":

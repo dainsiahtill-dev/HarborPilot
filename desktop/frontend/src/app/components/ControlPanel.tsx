@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface ControlPanelProps {
@@ -9,6 +9,11 @@ interface ControlPanelProps {
   directorToggleDisabled?: boolean;
   directorBlockedReason?: string;
   runOnceDisabled?: boolean;
+  agentsNeeded?: boolean;
+  agentsDraftReady?: boolean;
+  agentsDraftFailed?: boolean;
+  onOpenAgentsReview?: () => void;
+  onGenerateAgentsDraft?: () => void;
   onOpenSettings: () => void;
   onWorkspaceCommit: (value: string) => void;
   onPickWorkspace?: () => void;
@@ -34,6 +39,11 @@ export function ControlPanel({
   directorToggleDisabled,
   directorBlockedReason,
   runOnceDisabled,
+  agentsNeeded,
+  agentsDraftReady,
+  agentsDraftFailed,
+  onOpenAgentsReview,
+  onGenerateAgentsDraft,
   onOpenSettings,
   onWorkspaceCommit,
   onPickWorkspace,
@@ -54,6 +64,8 @@ export function ControlPanel({
   const pmDisabled = !!pmToggleDisabled;
   const directorDisabled = !!directorToggleDisabled;
   const runOnceBlocked = !!runOnceDisabled;
+  const showAgents = !!agentsNeeded;
+  const agentsReady = !!agentsDraftReady || !!agentsDraftFailed;
 
   useEffect(() => {
     setWorkspaceInput(workspace);
@@ -202,6 +214,24 @@ export function ControlPanel({
             )}
           </button>
         </div>
+
+        {showAgents ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1e1e1e] rounded border border-amber-500/30">
+            <span className="text-xs text-amber-200">AGENTS</span>
+            <button
+              onClick={agentsReady ? onOpenAgentsReview : onGenerateAgentsDraft}
+              disabled={agentsReady ? !onOpenAgentsReview : !onGenerateAgentsDraft}
+              className={`p-1.5 rounded transition-colors relative ${
+                agentsReady
+                  ? 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                  : 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30'
+              } ${(!onOpenAgentsReview && agentsReady) || (!onGenerateAgentsDraft && !agentsReady) ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : ''}`}
+              title={agentsReady ? '打开 AGENTS 审阅' : '生成 AGENTS 草稿'}
+            >
+              <FileText className="size-4" />
+            </button>
+          </div>
+        ) : null}
 
         {onStopOllama ? (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1e1e1e] rounded border border-gray-700">

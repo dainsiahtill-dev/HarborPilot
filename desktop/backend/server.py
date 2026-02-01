@@ -272,6 +272,8 @@ def build_runtime_issues(settings: "Settings", workspace: str) -> List[Dict[str,
 class SettingsUpdate(BaseModel):
     workspace: Optional[str] = None
     pm_backend: Optional[str] = None
+    pm_model: Optional[str] = None
+    director_model: Optional[str] = None
     model: Optional[str] = None
     interval: Optional[int] = None
     timeout: Optional[int] = None
@@ -305,6 +307,8 @@ class SettingsUpdate(BaseModel):
 class Settings(BaseModel):
     workspace: str = Field(default_factory=lambda: DEFAULT_WORKSPACE)
     pm_backend: str = "codex"
+    pm_model: str = DEFAULT_MODEL
+    director_model: str = DEFAULT_MODEL
     model: str = DEFAULT_MODEL
     interval: int = 20
     timeout: int = 0
@@ -317,7 +321,7 @@ class Settings(BaseModel):
     pm_show_output: bool = True
     pm_runs_director: bool = True
     pm_director_show_output: bool = True
-    pm_director_timeout: int = 60
+    pm_director_timeout: int = 600
     pm_director_iterations: int = 1
     pm_director_match_mode: str = "latest"
     pm_max_failures: int = 5
@@ -332,7 +336,7 @@ class Settings(BaseModel):
     docs_init_base_url: str = ""
     docs_init_api_key: str = ""
     docs_init_api_path: str = "/v1/chat/completions"
-    docs_init_timeout: int = 60
+    docs_init_timeout: int = 300
 
     def apply_update(self, update: SettingsUpdate) -> None:
         data = update.model_dump(exclude_unset=True)
@@ -422,6 +426,8 @@ def normalize_ramdisk_root(value: str) -> str:
     raw = (value or "").strip()
     if not raw:
         return ""
+    if not os.path.isabs(raw):
+        return ""
     if len(raw) == 2 and raw[1] == ":":
         raw = raw + "\\"
     raw = os.path.abspath(raw)
@@ -451,9 +457,9 @@ def build_cache_root(ramdisk_root: str, workspace_full: str) -> str:
     ws = os.path.abspath(workspace_full or "").lower()
     digest = hashlib.sha1(ws.encode("utf-8", errors="ignore")).hexdigest()[:12]
     base_name = os.path.basename(root.rstrip("\\/")).lower()
-    if base_name == "harborpilot":
+    if base_name in ("harborpilot", ".harborpilot"):
         return os.path.join(root, "cache", digest)
-    return os.path.join(root, "HarborPilot", "cache", digest)
+    return os.path.join(root, ".harborpilot", "cache", digest)
 
 
 def state_to_ramdisk_enabled() -> bool:
@@ -465,6 +471,9 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if not rel_path:
         return rel_path
     p = rel_path.replace("\\", "/").lstrip("./")
+    plain_prefix = "harborpilot/"
+    if p.startswith(plain_prefix):
+        return f"{ARTIFACT_ROOT}/" + p[len(plain_prefix):]
     legacy_prefix = f"{LEGACY_ARTIFACT_ROOT}/{LEGACY_ARTIFACT_NAMESPACE}/"
     if p.startswith(legacy_prefix):
         return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_prefix):]
@@ -475,6 +484,58 @@ def normalize_artifact_rel_path(rel_path: str) -> str:
     if p.startswith(legacy_dot_prefix):
         return f"{ARTIFACT_ROOT}/{ARTIFACT_NAMESPACE}/" + p[len(legacy_dot_prefix):]
     return p
+
+
+def _strip_artifact_root_prefix(rel_path: str) -> str:
+    if not rel_path:
+        return rel_path
+    p = rel_path.replace("\\", "/")
+    if p.startswith("./"):
+        p = p[2:]
+    p = p.lstrip("/")
+    prefix = f"{ARTIFACT_ROOT}/"
+    if p.startswith(prefix):
+        return p[len(prefix):]
+    return p
+
+
+def _artifact_base_dir(workspace_full: str, cache_root_full: str) -> str:
+    if cache_root_full:
+        return cache_root_full
+    return os.path.join(workspace_full, ARTIFACT_ROOT)
+
+
+def _cache_join(cache_root_full: str, rel_path: str) -> str:
+    if not cache_root_full or not rel_path:
+        return ""
+    normalized = normalize_artifact_rel_path(rel_path)
+    return os.path.join(cache_root_full, _strip_artifact_root_prefix(normalized))
+
+
+def _cache_join_double(cache_root_full: str, rel_path: str) -> str:
+    if not cache_root_full or not rel_path:
+        return ""
+    normalized = normalize_artifact_rel_path(rel_path)
+    if not normalized.startswith(f"{ARTIFACT_ROOT}/"):
+        return ""
+    stripped = _strip_artifact_root_prefix(normalized)
+    return os.path.join(cache_root_full, ARTIFACT_ROOT, stripped)
+
+
+def _legacy_double_artifact_path(path: str) -> str:
+    if not path:
+        return ""
+    marker = f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}"
+    if marker in path:
+        return ""
+    runtime_marker = f"{os.sep}{ARTIFACT_NAMESPACE}{os.sep}"
+    if runtime_marker in path:
+        return path.replace(
+            runtime_marker,
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            1,
+        )
+    return ""
 
 
 def legacy_artifact_rel_path(rel_path: str) -> str:
@@ -523,8 +584,10 @@ def resolve_artifact_path(workspace_full: str, cache_root_full: str, rel_path: s
                 status_code=500,
                 detail=f"{ARTIFACT_ROOT}/ is configured for ramdisk only, but no ramdisk cache root is available",
             )
-        return os.path.join(cache_root_full, p)
+        return os.path.join(cache_root_full, _strip_artifact_root_prefix(p))
     base = cache_root_full if (cache_root_full and is_hot_artifact_path(p)) else workspace_full
+    if base == cache_root_full and p.startswith(f"{ARTIFACT_ROOT}/"):
+        return os.path.join(base, _strip_artifact_root_prefix(p))
     return os.path.join(base, p)
 
 
@@ -537,31 +600,46 @@ def resolve_safe_path(workspace_full: str, cache_root_full: str, rel_path: str) 
     roots = [os.path.abspath(workspace_full)]
     if cache_root_full:
         roots.append(os.path.abspath(cache_root_full))
+    within_root = False
     for root in roots:
         try:
             if os.path.commonpath([root, full]) == root:
-                return full
+                within_root = True
+                break
         except ValueError:
             continue
-    if not os.path.exists(full):
-        legacy_rel = legacy_artifact_rel_path(normalized_rel)
-        if legacy_rel:
-            candidates: List[str] = []
-            prefer_cache = bool(cache_root_full and state_to_ramdisk_enabled())
-            if prefer_cache and cache_root_full:
-                candidates.append(os.path.join(cache_root_full, legacy_rel))
-            candidates.append(os.path.join(workspace_full, legacy_rel))
-            if cache_root_full and not prefer_cache:
-                candidates.append(os.path.join(cache_root_full, legacy_rel))
-            for candidate in candidates:
-                if os.path.isfile(candidate) or os.path.isdir(candidate):
-                    full = os.path.abspath(candidate)
-                    for root in roots:
-                        try:
-                            if os.path.commonpath([root, full]) == root:
-                                return full
-                        except ValueError:
-                            continue
+    if within_root and os.path.exists(full):
+        return full
+    candidates: List[str] = []
+    if within_root:
+        double_cache_path = _cache_join_double(cache_root_full, normalized_rel)
+        if double_cache_path:
+            candidates.append(double_cache_path)
+    legacy_rel = legacy_artifact_rel_path(normalized_rel)
+    if legacy_rel:
+        prefer_cache = bool(cache_root_full and state_to_ramdisk_enabled())
+        if prefer_cache and cache_root_full:
+            legacy_cache = _cache_join(cache_root_full, legacy_rel)
+            if legacy_cache:
+                candidates.append(legacy_cache)
+        candidates.append(os.path.join(workspace_full, legacy_rel))
+        if cache_root_full and not prefer_cache:
+            legacy_cache = _cache_join(cache_root_full, legacy_rel)
+            if legacy_cache:
+                candidates.append(legacy_cache)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if os.path.isfile(candidate) or os.path.isdir(candidate):
+            full = os.path.abspath(candidate)
+            for root in roots:
+                try:
+                    if os.path.commonpath([root, full]) == root:
+                        return full
+                except ValueError:
+                    continue
+    if within_root:
+        return full
     raise HTTPException(status_code=400, detail="path outside workspace")
 
 
@@ -593,16 +671,25 @@ def read_json(path: str) -> Optional[Dict[str, Any]]:
 def read_director_status(workspace: str, cache_root: str) -> Optional[Dict[str, Any]]:
     candidates = []
     cache_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_STATUS)
+    double_cache_path = _cache_join_double(cache_root, DEFAULT_DIRECTOR_STATUS) if cache_root else ""
     workspace_path = os.path.join(workspace, DEFAULT_DIRECTOR_STATUS)
     legacy_rel = legacy_artifact_rel_path(DEFAULT_DIRECTOR_STATUS)
-    legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
+    legacy_cache_path = _cache_join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
     legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
     state_rel = ""
     if legacy_rel:
         state_rel = legacy_rel.replace(f"{ARTIFACT_ROOT}/", f"{LEGACY_ARTIFACT_ROOT}/")
-    state_cache_path = os.path.join(cache_root, state_rel) if cache_root and state_rel else ""
+    state_cache_path = _cache_join(cache_root, state_rel) if cache_root and state_rel else ""
     state_workspace_path = os.path.join(workspace, state_rel) if state_rel else ""
-    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path, state_cache_path, state_workspace_path):
+    for path in (
+        cache_path,
+        double_cache_path,
+        workspace_path,
+        legacy_cache_path,
+        legacy_workspace_path,
+        state_cache_path,
+        state_workspace_path,
+    ):
         if not path:
             continue
         if path in candidates:
@@ -627,16 +714,25 @@ def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> Op
     candidates: List[tuple[float, str]] = []
     normalized = normalize_artifact_rel_path(rel_path)
     cache_path = resolve_artifact_path(workspace, cache_root, normalized)
+    double_cache_path = _cache_join_double(cache_root, normalized) if cache_root else ""
     workspace_path = os.path.join(workspace, normalized)
     legacy_rel = legacy_artifact_rel_path(normalized)
-    legacy_cache_path = os.path.join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
+    legacy_cache_path = _cache_join(cache_root, legacy_rel) if cache_root and legacy_rel else ""
     legacy_workspace_path = os.path.join(workspace, legacy_rel) if legacy_rel else ""
     state_rel = ""
     if legacy_rel:
         state_rel = legacy_rel.replace(f"{ARTIFACT_ROOT}/", f"{LEGACY_ARTIFACT_ROOT}/")
-    state_cache_path = os.path.join(cache_root, state_rel) if cache_root and state_rel else ""
+    state_cache_path = _cache_join(cache_root, state_rel) if cache_root and state_rel else ""
     state_workspace_path = os.path.join(workspace, state_rel) if state_rel else ""
-    for path in (cache_path, workspace_path, legacy_cache_path, legacy_workspace_path, state_cache_path, state_workspace_path):
+    for path in (
+        cache_path,
+        double_cache_path,
+        workspace_path,
+        legacy_cache_path,
+        legacy_workspace_path,
+        state_cache_path,
+        state_workspace_path,
+    ):
         if not path or not os.path.isfile(path):
             continue
         try:
@@ -682,13 +778,15 @@ def build_success_stats_payload(workspace: str, cache_root: str) -> Dict[str, An
     return compute_success_stats(result)
 
 
-def decode_bytes(data: bytes) -> str:
+def decode_bytes(data: bytes, *, allow_fallback: bool = True) -> str:
     if not data:
         return ""
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         text = data.decode("utf-8", errors="replace")
+        if not allow_fallback:
+            return text
         if text.count("\ufffd") <= max(1, len(text) // 200):
             return text
         try:
@@ -697,9 +795,34 @@ def decode_bytes(data: bytes) -> str:
             return text
 
 
-def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> str:
+def read_file_tail(
+    path: str,
+    max_lines: int = 400,
+    max_chars: int = 20000,
+    *,
+    allow_fallback: bool = True,
+) -> str:
     if not path or not os.path.isfile(path):
-        return ""
+        if not path:
+            return ""
+        legacy_dot = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        legacy_state = path.replace(
+            f"{os.sep}{ARTIFACT_ROOT}{os.sep}{ARTIFACT_NAMESPACE}{os.sep}",
+            f"{os.sep}{LEGACY_ARTIFACT_ROOT}{os.sep}{LEGACY_ARTIFACT_NAMESPACE}{os.sep}",
+        )
+        if legacy_dot != path and os.path.isfile(legacy_dot):
+            path = legacy_dot
+        elif legacy_state != path and os.path.isfile(legacy_state):
+            path = legacy_state
+        else:
+            double_path = _legacy_double_artifact_path(path)
+            if double_path and os.path.isfile(double_path):
+                path = double_path
+            else:
+                return ""
     try:
         with open(path, "rb") as handle:
             handle.seek(0, os.SEEK_END)
@@ -745,7 +868,7 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
 
             # Join reversed chunks and decode
             data = b"".join(reversed(chunks))
-            text = decode_bytes(data)
+            text = decode_bytes(data, allow_fallback=allow_fallback)
 
             # Truncate to exact limits
             lines = text.splitlines()
@@ -761,7 +884,7 @@ def read_file_tail(path: str, max_lines: int = 400, max_chars: int = 20000) -> s
         return ""
 
 
-def read_file_head(path: str, max_chars: int = 20000) -> str:
+def read_file_head(path: str, max_chars: int = 20000, *, allow_fallback: bool = True) -> str:
     if not path or not os.path.isfile(path):
         if not path:
             return ""
@@ -778,16 +901,26 @@ def read_file_head(path: str, max_chars: int = 20000) -> str:
         elif legacy_state != path and os.path.isfile(legacy_state):
             path = legacy_state
         else:
-            return ""
+            double_path = _legacy_double_artifact_path(path)
+            if double_path and os.path.isfile(double_path):
+                path = double_path
+            else:
+                return ""
     try:
         with open(path, "rb") as handle:
             data = handle.read(max_chars if max_chars and max_chars > 0 else 20000)
-        return decode_bytes(data)
+        return decode_bytes(data, allow_fallback=allow_fallback)
     except Exception:
         return ""
 
 
-def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -> List[str]:
+def read_incremental(
+    path: str,
+    state: Dict[str, Any],
+    max_chars: int = 20000,
+    *,
+    allow_fallback: bool = True,
+) -> List[str]:
     if not path or not os.path.isfile(path):
         if not path:
             return []
@@ -804,7 +937,11 @@ def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -
         elif legacy_state != path and os.path.isfile(legacy_state):
             path = legacy_state
         else:
-            return []
+            double_path = _legacy_double_artifact_path(path)
+            if double_path and os.path.isfile(double_path):
+                path = double_path
+            else:
+                return []
     try:
         size = os.path.getsize(path)
     except Exception:
@@ -821,7 +958,7 @@ def read_incremental(path: str, state: Dict[str, Any], max_chars: int = 20000) -
         return []
     if not chunk:
         return []
-    text = decode_bytes(chunk)
+    text = decode_bytes(chunk, allow_fallback=allow_fallback)
     if max_chars > 0 and len(text) > max_chars:
         text = text[-max_chars:]
     lines = text.splitlines()
@@ -1205,7 +1342,7 @@ def _invoke_custom_llm(prompt: str, settings: Settings) -> str:
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=max(1, settings.docs_init_timeout or 60)) as response:
+        with urllib.request.urlopen(request, timeout=max(1, settings.docs_init_timeout or 300)) as response:
             body = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         try:
@@ -1246,7 +1383,7 @@ def generate_docs_ai_fields(workspace: str, settings: Settings, fields: Dict[str
             full_auto=True,
             dangerous=False,
             profile="",
-            timeout=max(1, settings.docs_init_timeout or 60),
+            timeout=max(1, settings.docs_init_timeout or 300),
         )
     elif provider == "ollama":
         if invoke_ollama is None or not model:
@@ -1256,7 +1393,7 @@ def generate_docs_ai_fields(workspace: str, settings: Settings, fields: Dict[str
             model=model,
             workspace=workspace,
             show_output=False,
-            timeout=max(1, settings.docs_init_timeout or 60),
+            timeout=max(1, settings.docs_init_timeout or 300),
         )
     elif provider == "custom":
         if not model:
@@ -1286,7 +1423,7 @@ def pm_command(settings: Settings, loop_mode: bool, resume: bool = False) -> Lis
         "--pm-backend",
         settings.pm_backend or "codex",
         "--model",
-        settings.model or DEFAULT_MODEL,
+        settings.pm_model or settings.model or DEFAULT_MODEL,
         "--timeout",
         str(settings.timeout or 0),
         "--json-log",
@@ -1316,10 +1453,12 @@ def pm_command(settings: Settings, loop_mode: bool, resume: bool = False) -> Lis
         cmd.append("--run-director")
         if settings.pm_director_show_output:
             cmd.append("--director-show-output")
-        cmd.extend(["--director-result-timeout", str(settings.pm_director_timeout or 60)])
+        cmd.extend(["--director-result-timeout", str(settings.pm_director_timeout or 600)])
         cmd.extend(["--director-iterations", str(settings.pm_director_iterations or 1)])
         if settings.pm_director_match_mode:
             cmd.extend(["--director-match-mode", settings.pm_director_match_mode])
+        if settings.director_model:
+            cmd.extend(["--director-model", settings.director_model])
     return cmd
 
 
@@ -1332,8 +1471,8 @@ def build_process_env(settings: Settings) -> Dict[str, str]:
 def director_command(settings: Settings) -> List[str]:
     iterations = settings.director_iterations or 1
     cmd = [sys.executable, DIRECTOR_SCRIPT, "--workspace", settings.workspace or DEFAULT_WORKSPACE]
-    if settings.model:
-        cmd.extend(["--model", settings.model])
+    if settings.director_model or settings.model:
+        cmd.extend(["--model", settings.director_model or settings.model])
     if settings.prompt_profile:
         cmd.extend(["--prompt-profile", settings.prompt_profile])
     if settings.ramdisk_root:
@@ -1413,26 +1552,48 @@ def terminate_pid(pid: int) -> bool:
         return False
 
 
-def clear_stop_flag(workspace: str) -> None:
-    stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+def clear_stop_flag(workspace: str, cache_root: str) -> None:
+    paths = set()
     try:
-        if os.path.exists(stop_flag):
-            os.remove(stop_flag)
-    except Exception:
-        pass
+        paths.add(resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STOP.flag"))
+    except HTTPException:
+        paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
 
 def director_stop_flag_path(workspace: str, cache_root: str) -> str:
-    return resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/DIRECTOR_STOP.flag")
+    try:
+        return resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/DIRECTOR_STOP.flag")
+    except HTTPException:
+        return os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag")
 
 
 def clear_director_stop_flag(workspace: str, cache_root: str) -> None:
+    paths = set()
     stop_flag = director_stop_flag_path(workspace, cache_root)
-    try:
-        if stop_flag and os.path.exists(stop_flag):
-            os.remove(stop_flag)
-    except Exception:
-        pass
+    if stop_flag:
+        paths.add(stop_flag)
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "DIRECTOR_STOP.flag"))
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
 
 def spawn_process(cmd: List[str], cwd: str, log_path: str, extra_env: Optional[Dict[str, str]] = None) -> ProcessHandle:
@@ -1482,14 +1643,76 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
     dialogue_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIALOGUE)
     pm_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STATE.json")
     director_state_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/memory/last_state.json")
+    plan_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PLAN.md")
     planner_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PLANNER)
     ollama_path = resolve_artifact_path(workspace, cache_root, DEFAULT_OLLAMA)
     qa_path = resolve_artifact_path(workspace, cache_root, DEFAULT_QA)
     runlog_path = resolve_artifact_path(workspace, cache_root, DEFAULT_RUNLOG)
     agents_draft_path = resolve_artifact_path(workspace, cache_root, AGENTS_DRAFT_REL)
     agents_feedback_path = resolve_artifact_path(workspace, cache_root, AGENTS_FEEDBACK_REL)
+    agents_draft_actual = select_latest_artifact(workspace, cache_root, AGENTS_DRAFT_REL) or agents_draft_path
+    agents_feedback_actual = select_latest_artifact(workspace, cache_root, AGENTS_FEEDBACK_REL) or agents_feedback_path
     agents_target_path = os.path.join(workspace, "AGENTS.md")
     runtime_issues = build_runtime_issues(state.settings, workspace)
+
+    def _extract_goals(md_text: str) -> List[str]:
+        if not md_text:
+            return []
+        lines = md_text.splitlines()
+        goals: List[str] = []
+        in_goals = False
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                heading = line.lstrip("#").strip().lower()
+                if ("goal" in heading) or ("??" in heading):
+                    in_goals = True
+                    continue
+                if in_goals:
+                    break
+            if not in_goals:
+                lowered = line.lower()
+                if lowered.startswith("goal:") or lowered.startswith("goals:"):
+                    item = line.split(":", 1)[1].strip()
+                    if item:
+                        goals.append(item)
+                elif line.startswith("??"):
+                    parts = line.split("?", 1) if "?" in line else line.split(":", 1)
+                    if len(parts) > 1:
+                        item = parts[1].strip()
+                        if item:
+                            goals.append(item)
+                continue
+            if line.startswith(("-", "*")):
+                item = line[1:].strip()
+                if item:
+                    goals.append(item)
+                continue
+            if line[0].isdigit() and "." in line:
+                parts = line.split(".", 1)
+                item = parts[1].strip() if len(parts) > 1 else ""
+                if item:
+                    goals.append(item)
+                continue
+            if line:
+                goals.append(line)
+        return goals
+
+    def _load_goals() -> List[str]:
+        candidates = [
+            os.path.join(workspace, "docs", "00_overview.md"),
+            os.path.join(workspace, "docs", "product", "requirements.md"),
+        ]
+        for candidate in candidates:
+            text = read_file_head(candidate, max_chars=20000)
+            goals = _extract_goals(text)
+            if goals:
+                return goals
+        return []
+
+    goals = _load_goals()
 
     file_entries = [
         ("PM_TASKS.json", pm_out),
@@ -1510,12 +1733,12 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
 
     agents_review: Optional[Dict[str, Any]] = None
     has_agents = os.path.isfile(agents_target_path)
-    has_draft = os.path.isfile(agents_draft_path)
-    has_feedback = os.path.isfile(agents_feedback_path)
+    has_draft = os.path.isfile(agents_draft_actual) if agents_draft_actual else False
+    has_feedback = os.path.isfile(agents_feedback_actual) if agents_feedback_actual else False
     if (not has_agents) or has_draft or has_feedback:
         draft_failed = False
         if has_draft:
-            preview = read_file_head(agents_draft_path, max_chars=2000)
+            preview = read_file_head(agents_draft_actual, max_chars=2000)
             lowered = preview.lower()
             draft_failed = ("generation failed" in lowered) or ("failed to write last message file" in lowered)
         agents_review = {
@@ -1523,8 +1746,8 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
             "has_agents": has_agents,
             "draft_path": AGENTS_DRAFT_REL if has_draft else None,
             "feedback_path": AGENTS_FEEDBACK_REL if has_feedback else None,
-            "draft_mtime": format_mtime(agents_draft_path) if has_draft else None,
-            "feedback_mtime": format_mtime(agents_feedback_path) if has_feedback else None,
+            "draft_mtime": format_mtime(agents_draft_actual) if has_draft else None,
+            "feedback_mtime": format_mtime(agents_feedback_actual) if has_feedback else None,
             "draft_failed": draft_failed,
         }
 
@@ -1535,14 +1758,24 @@ def build_snapshot(state: AppState) -> Dict[str, Any]:
         state.last_pm_payload = payload
 
     tasks = payload.get("tasks") if isinstance(payload, dict) else []
+    if not goals and isinstance(payload, dict):
+        overall_goal = str(payload.get("overall_goal") or "").strip()
+        if overall_goal:
+            goals = [overall_goal]
     pm_state_data = read_json(pm_state_path) or {}
     director_state_data = read_json(director_state_path) or {}
     git_status = get_git_status(workspace)
+    plan_actual = select_latest_artifact(workspace, cache_root, ".harborpilot/runtime/PLAN.md") or plan_path
+    plan_text = read_file_head(plan_actual, max_chars=20000)
+    plan_mtime = format_mtime(plan_actual)
 
     return {
         "focus": str(payload.get("focus") or "").strip() if isinstance(payload, dict) else "",
         "notes": str(payload.get("notes") or "").strip() if isinstance(payload, dict) else "",
         "tasks": tasks if isinstance(tasks, list) else [],
+        "goals": goals,
+        "plan_text": plan_text,
+        "plan_mtime": plan_mtime,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "file_status": build_file_status(file_entries),
         "file_paths": [f"{label}: {path}" for label, path in file_entries],
@@ -1708,6 +1941,18 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def update_settings(payload: SettingsUpdate, _: Any = Depends(require_auth)) -> Dict[str, Any]:
         if payload.workspace:
             payload.workspace = validate_workspace(payload.workspace)
+        workspace_root = payload.workspace or state.settings.workspace or DEFAULT_WORKSPACE
+        if payload.ramdisk_root is not None:
+            normalized = normalize_ramdisk_root(payload.ramdisk_root)
+            if normalized:
+                try:
+                    ws_abs = os.path.abspath(workspace_root)
+                    if os.path.commonpath([ws_abs, normalized]) == ws_abs:
+                        payload.ramdisk_root = ""
+                    else:
+                        payload.ramdisk_root = normalized
+                except Exception:
+                    payload.ramdisk_root = normalized
         state.settings.apply_update(payload)
         if payload.workspace:
             if workspace_has_docs(state.settings.workspace):
@@ -1864,7 +2109,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
         full_path = resolve_safe_path(workspace, cache_root, path)
-        content = read_file_tail(full_path, max_lines=tail_lines, max_chars=max_chars)
+        normalized = full_path.replace("\\", "/").lower()
+        allow_fallback = not normalized.endswith("/dialogue.jsonl")
+        content = read_file_tail(full_path, max_lines=tail_lines, max_chars=max_chars, allow_fallback=allow_fallback)
         return {
             "path": full_path,
             "rel_path": path,
@@ -1921,12 +2168,57 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     ) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
-        memos_dir = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos"))
-        index_path = resolve_artifact_path(workspace, cache_root, os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos", "index.jsonl"))
+        rel_root = os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos")
+        memos_dir = resolve_artifact_path(workspace, cache_root, rel_root)
+        index_path = resolve_artifact_path(workspace, cache_root, os.path.join(rel_root, "index.jsonl"))
+
+        memos_dirs: List[str] = []
+        index_paths: List[str] = []
+
+        def _add_path(target: str, container: List[str]) -> None:
+            if target and target not in container:
+                container.append(target)
+
+        _add_path(memos_dir, memos_dirs)
+        _add_path(index_path, index_paths)
+
+        workspace_root = os.path.abspath(workspace)
+        cache_root_abs = os.path.abspath(cache_root) if cache_root else ""
+
+        if workspace_root:
+            _add_path(os.path.join(workspace_root, rel_root), memos_dirs)
+            _add_path(os.path.join(workspace_root, rel_root, "index.jsonl"), index_paths)
+            _add_path(os.path.join(workspace_root, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(workspace_root, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+            _add_path(os.path.join(workspace_root, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(workspace_root, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+
+        if cache_root_abs:
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(cache_root_abs, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+            _add_path(os.path.join(cache_root_abs, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos"), memos_dirs)
+            _add_path(os.path.join(cache_root_abs, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "memos", "index.jsonl"), index_paths)
+
         records: List[Dict[str, Any]] = []
-        if os.path.isfile(index_path):
+        seen_keys: Set[str] = set()
+
+        def _record_key(record: Dict[str, Any]) -> str:
+            rel = str(record.get("rel_path") or record.get("path") or "").strip()
+            if rel:
+                return rel
+            stamp = str(record.get("timestamp") or "")
+            task_id = str(record.get("task_id") or "")
+            return f"{stamp}:{task_id}"
+
+        for candidate in index_paths:
+            if not candidate or not os.path.isfile(candidate):
+                continue
             try:
-                with open(index_path, "r", encoding="utf-8") as handle:
+                with open(candidate, "r", encoding="utf-8") as handle:
                     for line in handle:
                         line = line.strip()
                         if not line:
@@ -1935,31 +2227,83 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                             record = json.loads(line)
                         except Exception:
                             continue
-                        if isinstance(record, dict):
-                            records.append(record)
+                        if not isinstance(record, dict):
+                            continue
+                        key = _record_key(record)
+                        if key and key in seen_keys:
+                            continue
+                        if key:
+                            seen_keys.add(key)
+                        records.append(record)
             except Exception:
-                records = []
-        if not records and os.path.isdir(memos_dir):
+                continue
+
+        def _rel_path_for_entry(entry_path: str) -> str:
+            full = os.path.abspath(entry_path)
+            if cache_root_abs and full.startswith(cache_root_abs):
+                rel = os.path.relpath(full, cache_root_abs).replace("\\", "/")
+                if not rel.startswith(f"{ARTIFACT_ROOT}/"):
+                    return f"{ARTIFACT_ROOT}/" + rel
+                return rel
+            if workspace_root and full.startswith(workspace_root):
+                return os.path.relpath(full, workspace_root).replace("\\", "/")
+            return ""
+
+        if not records:
+            for candidate in memos_dirs:
+                if not candidate or not os.path.isdir(candidate):
+                    continue
+                try:
+                    for entry in os.scandir(candidate):
+                        if not entry.is_file():
+                            continue
+                        if not entry.name.lower().endswith(".md"):
+                            continue
+                        if entry.name.lower().startswith("pm_memo_summary"):
+                            continue
+                        rel_path = _rel_path_for_entry(entry.path)
+                        if not rel_path:
+                            continue
+                        key = rel_path
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        records.append(
+                            {
+                                "timestamp": format_mtime(entry.path),
+                                "rel_path": rel_path,
+                                "task_id": "",
+                                "task_title": "",
+                                "summary": "",
+                            }
+                        )
+                except Exception:
+                    continue
+
+        def _resolve_memo_path(rel_path: str) -> str:
+            if not rel_path:
+                return ""
             try:
-                for entry in os.scandir(memos_dir):
-                    if not entry.is_file():
-                        continue
-                    if not entry.name.lower().endswith(".md"):
-                        continue
-                    if entry.name.lower().startswith("pm_memo_summary"):
-                        continue
-                    rel_path = os.path.join(ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "memos", entry.name).replace("\\", "/")
-                    records.append(
-                        {
-                            "timestamp": format_mtime(entry.path),
-                            "rel_path": rel_path,
-                            "task_id": "",
-                            "task_title": "",
-                            "summary": "",
-                        }
-                    )
-            except Exception:
-                records = []
+                return resolve_safe_path(workspace, cache_root, rel_path)
+            except HTTPException:
+                normalized = normalize_artifact_rel_path(rel_path)
+                candidates: List[str] = []
+                if cache_root_abs:
+                    candidates.append(os.path.join(cache_root_abs, _strip_artifact_root_prefix(normalized)))
+                    candidates.append(os.path.join(cache_root_abs, normalized))
+                if workspace_root:
+                    candidates.append(os.path.join(workspace_root, normalized))
+                legacy_rel = legacy_artifact_rel_path(normalized)
+                if legacy_rel:
+                    if cache_root_abs:
+                        candidates.append(os.path.join(cache_root_abs, _strip_artifact_root_prefix(legacy_rel)))
+                        candidates.append(os.path.join(cache_root_abs, legacy_rel))
+                    if workspace_root:
+                        candidates.append(os.path.join(workspace_root, legacy_rel))
+                for candidate in candidates:
+                    if candidate and os.path.isfile(candidate):
+                        return candidate
+            return ""
         def _record_ts(item: Dict[str, Any]) -> float:
             raw = str(item.get("timestamp") or "")
             try:
@@ -1972,11 +2316,12 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
         items: List[Dict[str, Any]] = []
         for record in trimmed:
             rel_path = str(record.get("rel_path") or "")
-            full_path = resolve_safe_path(workspace, cache_root, rel_path) if rel_path else ""
+            full_path = _resolve_memo_path(rel_path)
+            item_path = full_path or rel_path
             items.append(
                 {
-                    "name": os.path.basename(rel_path) if rel_path else "",
-                    "path": rel_path,
+                    "name": os.path.basename(rel_path) if rel_path else os.path.basename(full_path),
+                    "path": item_path,
                     "mtime": format_mtime(full_path) if full_path else "",
                     "summary": record.get("summary") or "",
                     "task_id": record.get("task_id") or "",
@@ -2108,8 +2453,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 log_path=pm_log_path,
             )
             raise HTTPException(status_code=500, detail=precheck_error)
-        clear_stop_flag(workspace)
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        clear_stop_flag(workspace, cache_root)
         clear_director_stop_flag(workspace, cache_root)
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=False)
@@ -2133,7 +2478,10 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+            try:
+                stop_flag = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STOP.flag")
+            except HTTPException:
+                stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -2180,8 +2528,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                 log_path=pm_log_path,
             )
             raise HTTPException(status_code=500, detail=precheck_error)
-        clear_stop_flag(workspace)
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        clear_stop_flag(workspace, cache_root)
         clear_director_stop_flag(workspace, cache_root)
         pm_log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_PM_SUBPROCESS_LOG)
         cmd = pm_command(state.settings, loop_mode=True, resume=resume)
@@ -2205,7 +2553,10 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
             pass
         if state.pm.process is None or state.pm.process.poll() is not None:
             exit_code = state.pm.process.poll() if state.pm.process is not None else None
-            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+            try:
+                stop_flag = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STOP.flag")
+            except HTTPException:
+                stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
             stop_flag_present = os.path.exists(stop_flag)
             tail = read_file_tail(state.pm.log_path, max_lines=200, max_chars=20000)
             terminate_process(state.pm)
@@ -2231,7 +2582,11 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     @app.post("/pm/stop")
     def pm_stop(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
-        stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
+        cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+        try:
+            stop_flag = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/PM_STOP.flag")
+        except HTTPException:
+            stop_flag = os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag")
         try:
             os.makedirs(os.path.dirname(stop_flag), exist_ok=True)
             with open(stop_flag, "w", encoding="utf-8") as handle:
@@ -2328,8 +2683,8 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     def history_runs_list(_: Any = Depends(require_auth)) -> Dict[str, Any]:
         workspace = state.settings.workspace or DEFAULT_WORKSPACE
         cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
-        base_root = cache_root or workspace
-        runs_root = os.path.join(base_root, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "runs")
+        base_root = _artifact_base_dir(workspace, cache_root)
+        runs_root = os.path.join(base_root, ARTIFACT_NAMESPACE, "runs")
         
         runs = []
         if os.path.isdir(runs_root):
@@ -2412,7 +2767,12 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                     if not rel_path:
                         continue
                     path = resolve_artifact_path(workspace, cache_root, rel_path)
-                    lines = read_incremental(path, connection.tail_state.setdefault(channel, {}))
+                    allow_fallback = channel != "dialogue"
+                    lines = read_incremental(
+                        path,
+                        connection.tail_state.setdefault(channel, {}),
+                        allow_fallback=allow_fallback,
+                    )
                     if not lines:
                         continue
                     for line in lines:
@@ -2450,7 +2810,13 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                             if not rel_path:
                                 continue
                             path = resolve_artifact_path(workspace, cache_root, rel_path)
-                            text = read_file_tail(path, max_lines=tail_lines, max_chars=20000)
+                            allow_fallback = channel != "dialogue"
+                            text = read_file_tail(
+                                path,
+                                max_lines=tail_lines,
+                                max_chars=20000,
+                                allow_fallback=allow_fallback,
+                            )
                             lines = text.splitlines() if text else []
                             await websocket.send_text(
                                 json.dumps(
@@ -2472,7 +2838,13 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
                             if not rel_path:
                                 continue
                             path = resolve_artifact_path(workspace, cache_root, rel_path)
-                            text = read_file_tail(path, max_lines=200, max_chars=20000)
+                            allow_fallback = channel != "dialogue"
+                            text = read_file_tail(
+                                path,
+                                max_lines=200,
+                                max_chars=20000,
+                                allow_fallback=allow_fallback,
+                            )
                             lines = text.splitlines() if text else []
                             await websocket.send_text(
                                 json.dumps(
@@ -2528,6 +2900,10 @@ def main() -> int:
     settings = Settings(workspace=workspace)
     persisted = load_persisted_settings()
     if persisted:
+        if "pm_model" not in persisted and "model" in persisted:
+            persisted["pm_model"] = persisted.get("model")
+        if "director_model" not in persisted and "model" in persisted:
+            persisted["director_model"] = persisted.get("model")
         if explicit_workspace:
             persisted.pop("workspace", None)
         else:

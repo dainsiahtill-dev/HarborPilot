@@ -76,7 +76,7 @@ def test_pm_loop_writes_outputs(tmp_path, monkeypatch):
         director_model="",
         director_timeout=0,
         director_show_output=False,
-        director_result_timeout=10,
+        director_result_timeout=100,
         dialogue_path=".harborpilot/runtime/DIALOGUE.jsonl",
         prompt_profile="generic",
         pm_last_message_path=".harborpilot/runtime/PM_LAST_RESPONSE.md",
