@@ -1,4 +1,4 @@
-export {};
+export { };
 
 declare global {
   interface Window {
@@ -11,6 +11,11 @@ declare global {
       }>;
       pickWorkspace: (options?: { defaultPath?: string }) => Promise<string | null>;
       openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string | null }>;
+      windowControl?: {
+        minimize: () => void;
+        maximize: () => void;
+        close: () => void;
+      };
     };
   }
 }

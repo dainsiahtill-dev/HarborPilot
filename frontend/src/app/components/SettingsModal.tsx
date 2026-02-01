@@ -192,239 +192,256 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#252526] border border-gray-700 rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+      <div className="bg-bg-panel/95 border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl">
         {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-200">系统配置</h2>
+        <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <h2 className="text-lg font-heading font-bold text-text-main flex items-center gap-2">
+            <span className="w-1 h-5 bg-accent rounded-full shadow-[0_0_8px_rgba(124,58,237,0.5)]"></span>
+            系统配置
+          </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            className="text-text-dim hover:text-text-main hover:bg-white/5 rounded-full p-1 transition-colors"
           >
             <X className="size-5" />
           </button>
         </div>
 
         {/* 内容 */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           {error ? (
-            <div className="text-xs text-red-300 bg-red-950/40 border border-red-500/30 rounded p-2">
+            <div className="text-xs text-status-error bg-status-error/10 border border-status-error/20 rounded p-2 mb-4">
               {error}
             </div>
           ) : null}
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
-            <TabsList className="bg-[#1e1e1e] border border-gray-700">
-              <TabsTrigger value="general">通用设置</TabsTrigger>
-              <TabsTrigger value="pm-llm">PM LLM</TabsTrigger>
-              <TabsTrigger value="director-llm">Director LLM</TabsTrigger>
-              <TabsTrigger value="docs-ai">Docs 提示</TabsTrigger>
+            <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg">
+              <TabsTrigger value="general" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">通用设置</TabsTrigger>
+              <TabsTrigger value="pm-llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">PM LLM</TabsTrigger>
+              <TabsTrigger value="director-llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Director LLM</TabsTrigger>
+              <TabsTrigger value="docs-ai" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Docs 提示</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="general" className="mt-4 space-y-6">
+            <TabsContent value="general" className="mt-6 space-y-6">
               {/* Prompt 模板 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Prompt 模板</h3>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  Prompt 模板
+                </h3>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Profile</label>
+                  <label className="block text-xs text-text-muted mb-1.5 font-medium">Profile</label>
                   <select
                     value={promptProfile}
                     onChange={(e) => setPromptProfile(e.target.value)}
-                    className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                    className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                   >
                     <option value="demo_ming_armada">demo_ming_armada (游戏开发团队)</option>
                     <option value="generic">generic (通用)</option>
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-[10px] text-text-dim mt-1.5">
                     定义多角色协作的提示词模板（Creative Director, Game Designer, etc.）
                   </p>
                 </div>
               </div>
 
               {/* 刷新设置 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">刷新设置</h3>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  刷新设置
+                </h3>
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       id="auto-refresh"
                       checked={autoRefresh}
                       onChange={(e) => setAutoRefresh(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                      className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent checked:border-accent focus:ring-accent/50 text-accent transition-colors"
                     />
-                    <label htmlFor="auto-refresh" className="text-sm text-gray-300">
+                    <label htmlFor="auto-refresh" className="text-sm text-text-muted cursor-pointer select-none">
                       自动刷新
                     </label>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">刷新间隔（秒）</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">刷新间隔（秒）</label>
                     <input
                       type="number"
                       min="1"
                       value={refreshInterval}
                       onChange={(e) => setRefreshInterval(Math.max(1, Number(e.target.value) || 1))}
                       disabled={!autoRefresh}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 disabled:opacity-50 transition-all"
                     />
-                    <p className="text-xs text-gray-500 mt-1">建议 1-10 秒。</p>
+                    <p className="text-[10px] text-text-dim mt-1.5">建议 1-10 秒。</p>
                   </div>
                 </div>
               </div>
 
               {/* PM 运行设置 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 运行设置</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">循环间隔（秒）</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={pmInterval}
-                      onChange={(e) => setPmInterval(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">PM 循环模式下每轮的等待间隔。</p>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  PM 运行设置
+                </h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1.5 font-medium">循环间隔（秒）</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={pmInterval}
+                        onChange={(e) => setPmInterval(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1.5 font-medium">单次超时（秒）</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={pmTimeout}
+                        onChange={(e) => setPmTimeout(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="pm-show-output"
+                        checked={pmShowOutput}
+                        onChange={(e) => setPmShowOutput(e.target.checked)}
+                        className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
+                      />
+                      <label htmlFor="pm-show-output" className="text-sm text-text-muted cursor-pointer select-none">
+                        显示 PM 输出
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="pm-runs-director"
+                        checked={pmRunsDirector}
+                        onChange={(e) => setPmRunsDirector(e.target.checked)}
+                        className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
+                      />
+                      <label htmlFor="pm-runs-director" className="text-sm text-text-muted cursor-pointer select-none">
+                        PM 触发 Director
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="pm-director-output"
+                        checked={pmDirectorShowOutput}
+                        onChange={(e) => setPmDirectorShowOutput(e.target.checked)}
+                        disabled={!pmRunsDirector}
+                        className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50 disabled:opacity-50"
+                      />
+                      <label htmlFor="pm-director-output" className="text-sm text-text-muted cursor-pointer select-none">
+                        显示 Director 输出
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1.5 font-medium">Director 结果超时</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={pmDirectorTimeout}
+                        onChange={(e) => setPmDirectorTimeout(Math.max(1, Number(e.target.value) || 1))}
+                        disabled={!pmRunsDirector}
+                        className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 disabled:opacity-50 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1.5 font-medium">Director 尝试次数</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={pmDirectorIterations}
+                        onChange={(e) => setPmDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
+                        disabled={!pmRunsDirector}
+                        className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 disabled:opacity-50 transition-all"
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">单次超时（秒，0=不限）</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={pmTimeout}
-                      onChange={(e) => setPmTimeout(Math.max(0, Number(e.target.value) || 0))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">0 表示不限制。</p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="pm-show-output"
-                      checked={pmShowOutput}
-                      onChange={(e) => setPmShowOutput(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                    />
-                    <label htmlFor="pm-show-output" className="text-sm text-gray-300">
-                      显示 PM 输出
-                    </label>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="pm-runs-director"
-                      checked={pmRunsDirector}
-                      onChange={(e) => setPmRunsDirector(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                    />
-                    <label htmlFor="pm-runs-director" className="text-sm text-gray-300">
-                      PM 触发 Director
-                    </label>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="pm-director-output"
-                      checked={pmDirectorShowOutput}
-                      onChange={(e) => setPmDirectorShowOutput(e.target.checked)}
-                      disabled={!pmRunsDirector}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
-                    />
-                    <label htmlFor="pm-director-output" className="text-sm text-gray-300">
-                      显示 Director 输出
-                    </label>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Director 结果超时（秒）</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={pmDirectorTimeout}
-                      onChange={(e) => setPmDirectorTimeout(Math.max(1, Number(e.target.value) || 1))}
-                      disabled={!pmRunsDirector}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">仅在 PM 触发 Director 时生效。</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Director 尝试次数</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={pmDirectorIterations}
-                      onChange={(e) => setPmDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
-                      disabled={!pmRunsDirector}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">同一任务允许 Director 重试次数。</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Director 结果匹配模式</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Director 结果匹配模式</label>
                     <select
                       value={pmDirectorMatchMode}
                       onChange={(e) => setPmDirectorMatchMode(e.target.value)}
                       disabled={!pmRunsDirector}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 disabled:opacity-50 transition-all"
                     >
                       <option value="latest">latest（推荐）</option>
                       <option value="run_id">run_id</option>
                       <option value="any">any</option>
                       <option value="strict">strict</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">控制 PM 如何确认 Director 结果。</p>
                   </div>
                 </div>
               </div>
 
               {/* PM 限制 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM 限制</h3>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  PM 限制
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">最大失败次数</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">最大失败次数</label>
                     <input
                       type="number"
                       min="1"
                       value={pmMaxFailures}
                       onChange={(e) => setPmMaxFailures(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">最大阻塞次数</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">最大阻塞次数</label>
                     <input
                       type="number"
                       min="1"
                       value={pmMaxBlocked}
                       onChange={(e) => setPmMaxBlocked(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-xs text-gray-400 mb-1.5">最大连续重复次数</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">最大连续重复次数</label>
                     <input
                       type="number"
                       min="1"
                       value={pmMaxSame}
                       onChange={(e) => setPmMaxSame(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Director 设置 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Director 设置</h3>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  Director 设置
+                </h3>
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <input
@@ -432,9 +449,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       id="director-qa"
                       checked={qaEnabled}
                       onChange={(e) => setQaEnabled(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                      className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
                     />
-                    <label htmlFor="director-qa" className="text-sm text-gray-300">
+                    <label htmlFor="director-qa" className="text-sm text-text-muted cursor-pointer select-none">
                       启用 QA 审核
                     </label>
                   </div>
@@ -445,24 +462,24 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       id="director-forever"
                       checked={directorForever}
                       onChange={(e) => setDirectorForever(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                      className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
                     />
-                    <label htmlFor="director-forever" className="text-sm text-gray-300">
+                    <label htmlFor="director-forever" className="text-sm text-text-muted cursor-pointer select-none">
                       持续运行（忽略迭代次数）
                     </label>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">迭代次数</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">迭代次数</label>
                     <input
                       type="number"
                       min="1"
                       value={directorIterations}
                       onChange={(e) => setDirectorIterations(Math.max(1, Number(e.target.value) || 1))}
                       disabled={directorForever}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500 disabled:text-gray-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 disabled:opacity-50 transition-all"
                     />
-                    <p className="text-xs text-gray-500 mt-1">关闭“持续运行”后生效。</p>
+                    <p className="text-[10px] text-text-dim mt-1.5">关闭“持续运行”后生效。</p>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -471,9 +488,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       id="director-output"
                       checked={directorShowOutput}
                       onChange={(e) => setDirectorShowOutput(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                      className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
                     />
-                    <label htmlFor="director-output" className="text-sm text-gray-300">
+                    <label htmlFor="director-output" className="text-sm text-text-muted cursor-pointer select-none">
                       显示 Director 输出
                     </label>
                   </div>
@@ -481,30 +498,33 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               </div>
 
               {/* 存储与日志 */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">存储与日志</h3>
-                <div className="space-y-3">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  存储与日志
+                </h3>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">RAMDisk 根目录（可选）</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">RAMDisk 根目录（可选）</label>
                     <input
                       type="text"
                       value={ramdiskRoot}
                       onChange={(e) => setRamdiskRoot(e.target.value)}
                       placeholder="X:\\"
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">留空禁用；示例：X:\</p>
+                    <p className="text-[10px] text-text-dim mt-1.5">留空禁用；示例：X:\</p>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">JSON 日志路径</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">JSON 日志路径</label>
                     <input
                       type="text"
                       value={jsonLogPath}
                       onChange={(e) => setJsonLogPath(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">相对 Workspace 的路径。</p>
+                    <p className="text-[10px] text-text-dim mt-1.5">相对 Workspace 的路径。</p>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -513,139 +533,143 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       id="show-memory"
                       checked={showMemory}
                       onChange={(e) => setShowMemory(e.target.checked)}
-                      className="w-4 h-4 rounded bg-[#1e1e1e] border-gray-700"
+                      className="w-4 h-4 rounded bg-black/20 border-white/10 checked:bg-accent text-accent focus:ring-accent/50"
                     />
-                    <label htmlFor="show-memory" className="text-sm text-gray-300">
+                    <label htmlFor="show-memory" className="text-sm text-text-muted cursor-pointer select-none">
                       显示 Memory 面板
                     </label>
                   </div>
-                  <p className="text-xs text-gray-500">开启后右侧显示 memory 视图。</p>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="pm-llm" className="mt-4 space-y-6">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">PM LLM 设置</h3>
-                <div className="space-y-3">
+            <TabsContent value="pm-llm" className="mt-6 space-y-6">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  PM LLM 设置
+                </h3>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">PM Backend</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">PM Backend</label>
                     <select
                       value={pmBackend}
                       onChange={(e) => setPmBackend(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     >
                       <option value="codex">Codex (OpenAI 兼容)</option>
                       <option value="ollama">Ollama (本地模型)</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">PM 主要负责逻辑决策，建议使用能力较强的模型。</p>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">PM 模型名称</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">PM 模型名称</label>
                     <input
                       type="text"
                       value={pmModel}
                       onChange={(e) => setPmModel(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">对应 Ollama / Codex CLI / 兼容接口的模型名称。</p>
                   </div>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="director-llm" className="mt-4 space-y-6">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Director LLM 设置</h3>
-                <div className="space-y-3">
+            <TabsContent value="director-llm" className="mt-6 space-y-6">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  Director LLM 设置
+                </h3>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Director 模型名称</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Director 模型名称</label>
                     <input
                       type="text"
                       value={directorModel}
                       onChange={(e) => setDirectorModel(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Director 负责具体执行，可以使用轻量级模型。</p>
                   </div>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="docs-ai" className="mt-4 space-y-6">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-300 mb-3">Docs 提示模型</h3>
-                <p className="text-xs text-gray-500 mb-3">
+            <TabsContent value="docs-ai" className="mt-6 space-y-6">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  Docs 提示模型
+                </h3>
+                <p className="text-[10px] text-text-dim mb-4">
                   用于 Docs 向导里的 Goal 自动补全/润色。只读仓库不受影响。
                 </p>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">LLM Provider</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">LLM Provider</label>
                     <select
                       value={docsInitProvider}
                       onChange={(e) => setDocsInitProvider(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     >
                       <option value="ollama">Ollama</option>
                       <option value="codex">Codex CLI</option>
                       <option value="custom">其他 (OpenAI 兼容)</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">用于 Goal 生成提示。</p>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Model</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Model</label>
                     <input
                       type="text"
                       value={docsInitModel}
                       onChange={(e) => setDocsInitModel(e.target.value)}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                     />
                   </div>
 
                   {docsInitProvider === 'custom' ? (
                     <>
                       <div>
-                        <label className="block text-xs text-gray-400 mb-1.5">Base URL</label>
+                        <label className="block text-xs text-text-muted mb-1.5 font-medium">Base URL</label>
                         <input
                           type="text"
                           value={docsInitBaseUrl}
                           onChange={(e) => setDocsInitBaseUrl(e.target.value)}
                           placeholder="http://localhost:8000"
-                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-400 mb-1.5">API Key</label>
+                        <label className="block text-xs text-text-muted mb-1.5 font-medium">API Key</label>
                         <input
                           type="password"
                           value={docsInitApiKey}
                           onChange={(e) => setDocsInitApiKey(e.target.value)}
-                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-400 mb-1.5">API Path</label>
+                        <label className="block text-xs text-text-muted mb-1.5 font-medium">API Path</label>
                         <input
                           type="text"
                           value={docsInitApiPath}
                           onChange={(e) => setDocsInitApiPath(e.target.value)}
-                          className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
                         />
-                        <p className="text-xs text-gray-500 mt-1">默认 /v1/chat/completions</p>
+                        <p className="text-[10px] text-text-dim mt-1.5">默认 /v1/chat/completions</p>
                       </div>
                     </>
                   ) : null}
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">超时（秒）</label>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">超时（秒）</label>
                     <input
                       type="number"
                       min="1"
                       value={docsInitTimeout}
                       onChange={(e) => setDocsInitTimeout(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-[#1e1e1e] text-gray-300 px-3 py-2 rounded border border-gray-700 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
                     />
                   </div>
                 </div>
@@ -655,10 +679,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         </div>
 
         {/* 底部按钮 */}
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-700">
+        <div className="flex items-center justify-end gap-3 p-4 border-t border-white/10 bg-black/20 backdrop-blur-md">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+            className="px-4 py-2 text-xs text-text-dim hover:text-text-main hover:bg-white/5 rounded transition-colors"
             disabled={saving}
           >
             取消
@@ -666,7 +690,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-2 disabled:opacity-60"
+            className="px-5 py-2 text-xs font-semibold bg-accent hover:bg-accent-hover text-white rounded shadow-lg shadow-accent/20 transition-all flex items-center gap-2 disabled:opacity-60 disabled:shadow-none"
           >
             <Save className="size-4" />
             {saving ? '保存中...' : '保存配置'}

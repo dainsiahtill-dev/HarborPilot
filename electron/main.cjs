@@ -78,6 +78,8 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 900,
+    frame: false, // Custom frame
+    backgroundColor: '#000000', // Avoid white flash
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
@@ -95,8 +97,8 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   await startBackend();
-  await createWindow();
 
+  // Backend IPC - Register BEFORE creating window so renderer can call them immediately
   ipcMain.handle("hp:get-backend", async () => backendInfo);
   ipcMain.handle("hp:pick-workspace", async (_event, options = {}) => {
     const result = await dialog.showOpenDialog({
@@ -118,6 +120,26 @@ app.whenReady().then(async () => {
     }
     return { ok: true, error: null };
   });
+
+  // Window Control IPC
+  ipcMain.handle("hp:window-minimize", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    win?.minimize();
+  });
+  ipcMain.handle("hp:window-maximize", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win?.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win?.maximize();
+    }
+  });
+  ipcMain.handle("hp:window-close", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    win?.close();
+  });
+
+  await createWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

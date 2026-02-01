@@ -85,27 +85,30 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
   };
 
   return (
-    <div className="h-full bg-[#1e1e1e] border-r border-gray-800 flex flex-col">
-      <div className="px-4 py-3 border-b border-gray-800">
-        <h2 className="text-sm font-semibold text-gray-300">运行产物</h2>
-        <p className="text-xs text-gray-500 mt-1">.harborpilot/runtime/</p>
+    <div className="h-full flex flex-col text-text-main">
+      <div className="px-4 py-3 border-b border-white/5">
+        <h2 className="text-sm font-heading font-semibold text-text-muted tracking-wide flex items-center gap-2">
+          <FileText className="size-4 text-accent" />
+          运行产物
+        </h2>
+        <p className="text-[10px] text-text-dim font-mono mt-1 opacity-50">.harborpilot/runtime/</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
         {artifactGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.name);
           return (
-            <div key={group.name} className="border-b border-gray-800/50">
+            <div key={group.name} className="border-b border-white/5 last:border-0">
               <button
                 onClick={() => toggleGroup(group.name)}
-                className="w-full flex items-center gap-2 px-4 py-2 hover:bg-white/5 transition-colors"
+                className="w-full flex items-center gap-2 px-4 py-2 hover:bg-white/5 transition-colors group"
               >
                 {isExpanded ? (
-                  <ChevronDown className="size-4 text-gray-400" />
+                  <ChevronDown className="size-3 text-text-dim group-hover:text-text-main" />
                 ) : (
-                  <ChevronRight className="size-4 text-gray-400" />
+                  <ChevronRight className="size-3 text-text-dim group-hover:text-text-main" />
                 )}
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                <span className="text-[11px] font-bold text-text-dim uppercase tracking-wider group-hover:text-text-muted transition-colors">
                   {group.name}
                 </span>
               </button>
@@ -133,16 +136,23 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
                       <button
                         key={item.id}
                         onClick={() => onFileSelect(item)}
-                        className={`w-full flex items-center gap-2 px-4 py-1.5 pl-10 hover:bg-white/5 transition-colors ${
-                          isSelected ? 'bg-white/10' : ''
-                        }`}
+                        className={`w-full flex items-center gap-3 px-4 py-1.5 pl-9 transition-all relative ${isSelected
+                            ? 'bg-accent/10 text-accent'
+                            : 'text-text-muted hover:text-text-main hover:bg-white/5'
+                          }`}
                       >
-                        <Icon className="size-4 text-gray-400 flex-shrink-0" />
-                        <span className="text-sm text-gray-300 truncate flex-1 text-left">
+                        {isSelected && (
+                          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent shadow-[0_0_8px_currentColor]" />
+                        )}
+                        <Icon className={`size-4 flex-shrink-0 ${isSelected ? 'text-accent' : 'text-text-dim'}`} />
+                        <span className="text-xs truncate flex-1 text-left font-mono">
                           {item.name}
                         </span>
                         {badgeText && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected
+                              ? 'bg-accent/20 text-accent-text border border-accent/20'
+                              : 'bg-white/10 text-text-dim'
+                            }`}>
                             {badgeText}
                           </span>
                         )}
@@ -157,11 +167,11 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
       </div>
 
       {/* 快速链接 */}
-      <div className="border-t border-gray-800 p-2 space-y-1">
+      <div className="border-t border-white/5 p-2 space-y-1 bg-black/20">
         <button
           type="button"
           onClick={onOpenWorkspace}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-muted hover:text-accent hover:bg-white/5 rounded transition-colors"
         >
           <Folder className="size-4" />
           <span>打开 Workspace</span>
@@ -170,7 +180,7 @@ export function ArtifactsSidebar({ onFileSelect, selectedFileId, onOpenWorkspace
           <button
             type="button"
             onClick={onOpenHistory}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-muted hover:text-accent hover:bg-white/5 rounded transition-colors"
           >
             <History className="size-4" />
             <span>运行历史</span>

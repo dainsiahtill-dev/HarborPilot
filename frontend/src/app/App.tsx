@@ -1305,9 +1305,9 @@ export default function App() {
             toast.error(`Failed to stop models: ${names}`);
           }
         } else if (payload.stopped && payload.stopped.length > 0) {
-           toast.success(`Stopped models: ${payload.stopped.join(', ')}`);
+          toast.success(`Stopped models: ${payload.stopped.join(', ')}`);
         } else {
-           toast.info('No running models to stop');
+          toast.info('No running models to stop');
         }
       } catch {
         // ignore parse errors
@@ -1610,482 +1610,491 @@ export default function App() {
         ]
       });
     }}>
-      <div className="size-full flex flex-col bg-[#1e1e1e] text-gray-200">
+      <div className="size-full flex flex-col bg-bg text-text-main font-sans selection:bg-accent selection:text-bg overflow-hidden antialiased relative">
+        <div className="cyberpunk-border" />
         {/* 增强通知管理器 */}
         <EnhancedNotificationManager
           notifications={notifications}
           onDismiss={removeNotification}
           maxVisible={5}
         />
-        
+
         {/* 顶部控制面板 */}
         <ControlPanel
-        workspace={settings?.workspace || ''}
-        pmRunning={!!pmStatus?.running}
-        directorRunning={!!directorStatus?.running}
-        pmToggleDisabled={(lancedbBlocked || docsMissing) && !pmStatus?.running}
-        directorToggleDisabled={((lancedbBlocked || docsMissing) && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
-        directorBlockedReason={
-          docsMissing && !directorStatus?.running
-            ? 'docs/ missing'
-            : agentsRequired && !directorStatus?.running
-              ? agentsDraftFailed
-                ? 'AGENTS 草稿生成失败'
-                : agentsDraftReady
-                  ? '需要先确认 AGENTS.md'
-                  : '请先运行 PM 生成 AGENTS 草稿'
-              : undefined
-        }
-        runOnceDisabled={lancedbBlocked || docsMissing || !!pmStatus?.running}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onWorkspaceCommit={handleWorkspaceCommit}
-        onPickWorkspace={handlePickWorkspace}
-        onTogglePm={togglePm}
-        onRunPmOnce={runPmOnce}
-        onResumePm={() => startPmLoop(true)}
-        onToggleDirector={toggleDirector}
-        onStopOllama={stopOllamaModels}
-        onRefresh={handleRefresh}
-        agentsNeeded={agentsRequired}
-        agentsDraftReady={agentsDraftReady}
-        agentsDraftFailed={agentsDraftFailed}
-        onOpenAgentsReview={() => setIsAgentsDialogOpen(true)}
-        onGenerateAgentsDraft={() => {
-          runPmOnce().catch(() => undefined);
-        }}
-        workspaceError={workspaceError}
-        isStartingPM={isStartingPM}
-        isStoppingPM={isStoppingPM}
-        isStartingDirector={isStartingDirector}
-        isStoppingDirector={isStoppingDirector}
-        isStoppingOllama={isStoppingOllama}
-      />
-
-      {docsMissing ? (
-        <div className="mx-4 mb-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold text-emerald-100">Docs initialization required</div>
-              <div className="text-xs text-emerald-200/80">
-                {workspaceStatus?.reason || 'docs/ directory not found'}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsDocsInitOpen(true)}
-              className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-400"
-            >
-              Initialize docs
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {agentsReview?.needs_review ? (
-        <div className="mx-4 mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold text-amber-100">
-                {agentsDraftFailed
-                  ? 'AGENTS draft failed'
+          workspace={settings?.workspace || ''}
+          pmRunning={!!pmStatus?.running}
+          directorRunning={!!directorStatus?.running}
+          pmToggleDisabled={(lancedbBlocked || docsMissing) && !pmStatus?.running}
+          directorToggleDisabled={((lancedbBlocked || docsMissing) && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
+          directorBlockedReason={
+            docsMissing && !directorStatus?.running
+              ? 'docs/ missing'
+              : agentsRequired && !directorStatus?.running
+                ? agentsDraftFailed
+                  ? 'AGENTS 草稿生成失败'
                   : agentsDraftReady
-                    ? 'AGENTS draft ready'
-                    : 'AGENTS missing'}
-              </div>
-              <div className="text-xs text-amber-200/80">
-                {agentsDraftFailed
-                  ? 'Check PM log and retry.'
-                  : agentsDraftReady
-                    ? 'Open draft and apply to AGENTS.md.'
-                    : 'Run PM once to generate the draft.'}
-              </div>
-            </div>
-            {agentsDraftReady || agentsDraftFailed ? (
-              <button
-                type="button"
-                onClick={() => setIsAgentsDialogOpen(true)}
-                className="rounded bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-400"
-              >
-                Open AGENTS Review
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  runPmOnce().catch(() => undefined);
-                }}
-                className="rounded bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-400"
-              >
-                Generate AGENTS
-              </button>
-            )}
-          </div>
-        </div>
-      ) : null}
+                    ? '需要先确认 AGENTS.md'
+                    : '请先运行 PM 生成 AGENTS 草稿'
+                : undefined
+          }
+          runOnceDisabled={lancedbBlocked || docsMissing || !!pmStatus?.running}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onWorkspaceCommit={handleWorkspaceCommit}
+          onPickWorkspace={handlePickWorkspace}
+          onTogglePm={togglePm}
+          onRunPmOnce={runPmOnce}
+          onResumePm={() => startPmLoop(true)}
+          onToggleDirector={toggleDirector}
+          onStopOllama={stopOllamaModels}
+          onRefresh={handleRefresh}
+          agentsNeeded={agentsRequired}
+          agentsDraftReady={agentsDraftReady}
+          agentsDraftFailed={agentsDraftFailed}
+          onOpenAgentsReview={() => setIsAgentsDialogOpen(true)}
+          onGenerateAgentsDraft={() => {
+            runPmOnce().catch(() => undefined);
+          }}
+          workspaceError={workspaceError}
+          isStartingPM={isStartingPM}
+          isStoppingPM={isStoppingPM}
+          isStartingDirector={isStartingDirector}
+          isStoppingDirector={isStoppingDirector}
+          isStoppingOllama={isStoppingOllama}
+        />
 
-      <SnapshotPanel
-        timestamp={snapshot?.timestamp ?? null}
-        focus={snapshot?.focus ?? null}
-        notes={snapshot?.notes ?? null}
-        tasks={snapshotTasks}
-        fileStatus={snapshot?.file_status ?? null}
-        filePaths={snapshot?.file_paths ?? null}
-        directorState={snapshot?.director_state ?? null}
-      />
-
-      {/* 主内容区 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：运行产物导航 */}
-        <div className="w-72 flex-shrink-0">
-          <ArtifactsSidebar
-            onFileSelect={(file) =>
-              setSelectedFile({
-                id: file.id,
-                name: file.name,
-                path: file.path,
-              })
-            }
-            selectedFileId={selectedFile?.id || null}
-            onOpenWorkspace={handleOpenWorkspace}
-            onOpenHistory={() => setIsHistoryOpen(true)}
-            fileStatusLines={snapshot?.file_status ?? null}
-          />
-        </div>
-
-        {/* 中间：文件内容查看器 */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          <ProjectProgressPanel
-            tasks={snapshotTasks || []}
-            pmState={snapshot?.pm_state ?? null}
-            focus={snapshot?.focus ?? null}
-            notes={snapshot?.notes ?? null}
-            goals={snapshot?.goals ?? null}
-            planText={snapshot?.plan_text ?? null}
-            planMtime={snapshot?.plan_mtime ?? null}
-            successStats={successStats}
+        <div className="z-40 border-b border-border shadow-sm bg-bg-panel">
+          <StatusBar
             pmRunning={!!pmStatus?.running}
-            className="flex-1 min-h-0"
+            directorRunning={!!directorStatus?.running}
+            pmStartedAt={pmStatus?.started_at ?? null}
+            directorStartedAt={directorStatus?.started_at ?? null}
+            pmMode={pmStatus?.mode ?? null}
+            failures={pmFailures}
+            iteration={pmIteration}
+            pmBackend={settings?.pm_backend || 'codex'}
+            directorModel={settings?.director_model || settings?.model || ''}
+            backendError={backendError}
+            onOpenLogs={() => {
+              setLogsSourceId('pm-subprocess');
+              setIsLogsOpen(true);
+            }}
+            gitPresent={gitPresent}
+            pmError={pmActionError}
+            directorError={directorActionError}
+            ollamaError={ollamaActionError}
+            successes={successStats.successes ?? null}
+            total={successStats.total ?? null}
+            rate={typeof successStats.rate === 'number' ? successStats.rate : null}
+            onPingHealth={async () => {
+              try {
+                const res = await apiFetch('/health');
+                if (!res.ok) {
+                  setHealthStatus('unhealthy');
+                  return;
+                }
+                const payload = await res.json();
+                const ts = String(payload?.timestamp || '');
+                setHealthStatus(ts || 'ok');
+              } catch {
+                setHealthStatus('unhealthy');
+              }
+            }}
+            healthStatus={healthStatus}
+            lancedbOk={lancedbStatus?.ok ?? null}
+            lancedbError={lancedbStatus?.error ?? null}
           />
         </div>
 
-        {/* 右侧：Dialogue 对话流 */}
-        <div className="w-96 flex-shrink-0 flex flex-col min-h-0">
-          <div className="flex-1 min-h-0">
-            <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
-          </div>
-          <div className={`border-t border-gray-800 transition-all duration-300 overflow-hidden ${memoCollapsed ? 'h-12' : 'h-64'}`}>
-            <MemoPanel
-              items={memoItems}
-              selected={memoSelected}
-              content={memoData.content}
-              mtime={memoData.mtime}
-              loading={memoLoading}
-              error={memoError}
-              onSelect={(item) => setMemoSelected(item)}
-              collapsed={memoCollapsed}
-              onToggle={() => setMemoCollapsed((prev) => !prev)}
-            />
-          </div>
-          {settings?.show_memory ? (
-            <div className={`border-t border-gray-800 transition-all duration-300 overflow-hidden ${memoryCollapsed ? 'h-12' : 'h-52'}`}>
-              <MemoryPanel
-                content={memoryData.content}
-                mtime={memoryData.mtime}
-                loading={memoryLoading}
-                error={memoryError}
-                collapsed={memoryCollapsed}
-                onToggle={() => setMemoryCollapsed((prev) => !prev)}
-              />
+        {docsMissing ? (
+          <div className="mx-4 mb-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold text-emerald-100">Docs initialization required</div>
+                <div className="text-xs text-emerald-200/80">
+                  {workspaceStatus?.reason || 'docs/ directory not found'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDocsInitOpen(true)}
+                className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-400"
+              >
+                Initialize docs
+              </button>
             </div>
-          ) : null}
-        </div>
-      </div>
+          </div>
+        ) : null}
 
-      {/* 底部状态栏 */}
-      <StatusBar
-        pmRunning={!!pmStatus?.running}
-        directorRunning={!!directorStatus?.running}
-        pmStartedAt={pmStatus?.started_at ?? null}
-        directorStartedAt={directorStatus?.started_at ?? null}
-        pmMode={pmStatus?.mode ?? null}
-        failures={pmFailures}
-        iteration={pmIteration}
-        pmBackend={settings?.pm_backend || 'codex'}
-        directorModel={settings?.director_model || settings?.model || ''}
-        backendError={backendError}
-        onOpenLogs={() => {
-          setLogsSourceId('pm-subprocess');
-          setIsLogsOpen(true);
-        }}
-        gitPresent={gitPresent}
-        pmError={pmActionError}
-        directorError={directorActionError}
-        ollamaError={ollamaActionError}
-        successes={successStats.successes ?? null}
-        total={successStats.total ?? null}
-        rate={typeof successStats.rate === 'number' ? successStats.rate : null}
-        onPingHealth={async () => {
-          try {
-            const res = await apiFetch('/health');
-            if (!res.ok) {
-              setHealthStatus('unhealthy');
-              return;
-            }
-            const payload = await res.json();
-            const ts = String(payload?.timestamp || '');
-            setHealthStatus(ts || 'ok');
-          } catch {
-            setHealthStatus('unhealthy');
-          }
-        }}
-        healthStatus={healthStatus}
-        lancedbOk={lancedbStatus?.ok ?? null}
-        lancedbError={lancedbStatus?.error ?? null}
-      />
-
-      {/* 设置弹窗 */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onSave={saveSettings}
-      />
-
-      <DocsInitDialog
-        open={isDocsInitOpen}
-        onOpenChange={setIsDocsInitOpen}
-        workspace={settings?.workspace}
-        workspaceStatus={workspaceStatus}
-        docsPresent={snapshot?.docs_present}
-        onApplied={() => {
-          refreshSnapshot().catch(() => undefined);
-          refreshSettings().catch(() => undefined);
-        }}
-      />
-
-      <LogsModal
-        isOpen={isLogsOpen}
-        onClose={() => {
-          setIsLogsOpen(false);
-          setLogsBanner(null);
-        }}
-        initialSourceId={logsSourceId}
-        banner={logsBanner}
-        onDismissBanner={() => setLogsBanner(null)}
-      />
-      <AlertDialog
-        open={isAgentsDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setIsAgentsDialogOpen(true);
-          } else {
-            setIsAgentsDialogOpen(false);
-          }
-        }}
-      >
-        <AlertDialogContent className="border border-emerald-500/30 bg-[#1f2125] max-w-3xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-emerald-200">
-              {agentsDraftFailed ? 'AGENTS.md 草稿生成失败' : 'AGENTS.md 草稿已生成'}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
-              {agentsDraftFailed
-                ? '草稿生成失败（内容不完整或为空）。请先查看 PM 日志，修复后再重试生成。'
-                : '请审阅 AGENTS.md 草稿。如需修改，请填写反馈并提交，PM 将根据反馈重新生成草稿（窗口将暂时关闭）。'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
-            <div className="flex items-center justify-between gap-2">
-              <span>草稿: {agentsReview?.draft_path || '.harborpilot/runtime/AGENTS.generated.md'}</span>
-              <div className="flex items-center gap-2">
+        {agentsReview?.needs_review ? (
+          <div className="mx-4 mb-3 rounded border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold text-amber-100">
+                  {agentsDraftFailed
+                    ? 'AGENTS draft failed'
+                    : agentsDraftReady
+                      ? 'AGENTS draft ready'
+                      : 'AGENTS missing'}
+                </div>
+                <div className="text-xs text-amber-200/80">
+                  {agentsDraftFailed
+                    ? 'Check PM log and retry.'
+                    : agentsDraftReady
+                      ? 'Open draft and apply to AGENTS.md.'
+                      : 'Run PM once to generate the draft.'}
+                </div>
+              </div>
+              {agentsDraftReady || agentsDraftFailed ? (
+                <button
+                  type="button"
+                  onClick={() => setIsAgentsDialogOpen(true)}
+                  className="rounded bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-400"
+                >
+                  Open AGENTS Review
+                </button>
+              ) : (
                 <button
                   type="button"
                   onClick={() => {
-                    setLogsSourceId('pm-subprocess');
-                    setIsLogsOpen(true);
+                    runPmOnce().catch(() => undefined);
                   }}
-                  className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
+                  className="rounded bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-400"
                 >
-                  查看日志
+                  Generate AGENTS
                 </button>
-                <button
-                  type="button"
-                  onClick={openAgentsDraft}
-                  className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
-                >
-                  打开草稿
-                </button>
-              </div>
+              )}
             </div>
-            <div>
-              目标: {settings?.workspace ? `${settings.workspace}\\AGENTS.md` : 'workspace/AGENTS.md'}
-            </div>
-            {agentsDraftMtime ? <div>更新时间: {agentsDraftMtime}</div> : null}
-            {agentsFeedbackSavedAt ? <div>反馈更新时间: {agentsFeedbackSavedAt}</div> : null}
           </div>
-          <div className="grid gap-3">
-            <div className="rounded-md border border-gray-700 bg-[#181a1f]">
-              <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
-                <span>AGENTS.generated.md</span>
-                {agentsLoading ? <span>加载中...</span> : null}
-              </div>
-              <pre className="h-[60vh] overflow-auto whitespace-pre-wrap p-3 text-xs text-gray-200">
-                {agentsDraftContent || '(empty)'}
-              </pre>
+        ) : null}
+
+        <SnapshotPanel
+          timestamp={snapshot?.timestamp ?? null}
+          focus={snapshot?.focus ?? null}
+          notes={snapshot?.notes ?? null}
+          tasks={snapshotTasks}
+          fileStatus={snapshot?.file_status ?? null}
+          filePaths={snapshot?.file_paths ?? null}
+          directorState={snapshot?.director_state ?? null}
+        />
+
+        {/* Main Content Area: Mission Control Grid */}
+        <div className="flex-1 flex overflow-hidden relative">
+          {/* Left Sidebar: Artifacts */}
+          {/* Left Sidebar: Artifacts */}
+          <div className="w-64 flex-shrink-0 border-r border-white/10 bg-bg-panel/30 backdrop-blur-md flex flex-col z-0">
+            <ArtifactsSidebar
+              onFileSelect={(file) =>
+                setSelectedFile({
+                  id: file.id,
+                  name: file.name,
+                  path: file.path,
+                })
+              }
+              selectedFileId={selectedFile?.id || null}
+              onOpenWorkspace={handleOpenWorkspace}
+              onOpenHistory={() => setIsHistoryOpen(true)}
+              fileStatusLines={snapshot?.file_status ?? null}
+            />
+          </div>
+
+          {/* Center: Workspace / Progress */}
+          <div className="flex-1 min-w-0 flex flex-col bg-transparent relative z-0">
+            {/* Gradient overlay for depth */}
+            <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
+            <ProjectProgressPanel
+              tasks={(snapshotTasks as any[]) || []}
+              pmState={snapshot?.pm_state ?? null}
+              focus={snapshot?.focus ?? null}
+              notes={snapshot?.notes ?? null}
+              goals={snapshot?.goals ?? null}
+              planText={snapshot?.plan_text ?? null}
+              planMtime={snapshot?.plan_mtime ?? null}
+              successStats={successStats}
+              pmRunning={!!pmStatus?.running}
+              className="flex-1 min-h-0"
+            />
+          </div>
+
+          {/* Right Sidebar: Dialogue & Memory */}
+          <div className="w-96 flex-shrink-0 flex flex-col min-h-0 border-l border-white/10 bg-bg-panel/30 backdrop-blur-md z-0">
+            <div className="flex-1 min-h-0 flex flex-col">
+              <DialoguePanel events={dialogueEvents} live={wsLive} loading={!wsLive && dialogueEvents.length === 0} />
             </div>
-            <div className="rounded-md border border-gray-700 bg-[#181a1f] p-3">
-              <div className="text-xs text-gray-400">修改建议（可多次提交）</div>
-              <textarea
-                className="mt-2 h-28 w-full resize-none rounded border border-gray-700 bg-[#0f1115] p-2 text-xs text-gray-200 outline-none focus:border-emerald-400"
-                placeholder="请描述你希望 AGENTS.md 如何调整，例如：增加编码规范、补充必读文档路径、明确UTF-8要求..."
-                value={agentsFeedback}
-                onChange={(event) => {
-                  setAgentsFeedback(event.target.value);
-                  setAgentsFeedbackDirty(true);
-                }}
+
+            <div className={`border-t border-border transition-all duration-300 overflow-hidden ${memoCollapsed ? 'h-9 flex-none' : 'h-64 flex-shrink-0'}`}>
+              <MemoPanel
+                items={memoItems}
+                selected={memoSelected}
+                content={memoData.content}
+                mtime={memoData.mtime}
+                loading={memoLoading}
+                error={memoError}
+                onSelect={(item) => setMemoSelected(item)}
+                collapsed={memoCollapsed}
+                onToggle={() => setMemoCollapsed((prev) => !prev)}
               />
-              <div className="mt-2 text-[11px] text-gray-500">
-                提交后窗口会自动关闭，待 PM 生成新草稿后会自动重新弹出。
+            </div>
+            {settings?.show_memory ? (
+              <div className={`border-t border-border transition-all duration-300 overflow-hidden ${memoryCollapsed ? 'h-9 flex-none' : 'h-52 flex-shrink-0'}`}>
+                <MemoryPanel
+                  content={memoryData.content}
+                  mtime={memoryData.mtime}
+                  loading={memoryLoading}
+                  error={memoryError}
+                  collapsed={memoryCollapsed}
+                  onToggle={() => setMemoryCollapsed((prev) => !prev)}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* 底部状态栏 */}
+
+
+        {/* 设置弹窗 */}
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          onSave={saveSettings}
+        />
+
+        <DocsInitDialog
+          open={isDocsInitOpen}
+          onOpenChange={setIsDocsInitOpen}
+          workspace={settings?.workspace}
+          workspaceStatus={workspaceStatus}
+          docsPresent={snapshot?.docs_present}
+          onApplied={() => {
+            refreshSnapshot().catch(() => undefined);
+            refreshSettings().catch(() => undefined);
+          }}
+        />
+
+        <LogsModal
+          isOpen={isLogsOpen}
+          onClose={() => {
+            setIsLogsOpen(false);
+            setLogsBanner(null);
+          }}
+          initialSourceId={logsSourceId}
+          banner={logsBanner}
+          onDismissBanner={() => setLogsBanner(null)}
+        />
+        <AlertDialog
+          open={isAgentsDialogOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setIsAgentsDialogOpen(true);
+            } else {
+              setIsAgentsDialogOpen(false);
+            }
+          }}
+        >
+          <AlertDialogContent className="border border-emerald-500/30 bg-[#1f2125] max-w-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-emerald-200">
+                {agentsDraftFailed ? 'AGENTS.md 草稿生成失败' : 'AGENTS.md 草稿已生成'}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
+                {agentsDraftFailed
+                  ? '草稿生成失败（内容不完整或为空）。请先查看 PM 日志，修复后再重试生成。'
+                  : '请审阅 AGENTS.md 草稿。如需修改，请填写反馈并提交，PM 将根据反馈重新生成草稿（窗口将暂时关闭）。'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+              <div className="flex items-center justify-between gap-2">
+                <span>草稿: {agentsReview?.draft_path || '.harborpilot/runtime/AGENTS.generated.md'}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogsSourceId('pm-subprocess');
+                      setIsLogsOpen(true);
+                    }}
+                    className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
+                  >
+                    查看日志
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openAgentsDraft}
+                    className="rounded px-2 py-1 text-[11px] text-emerald-100 bg-emerald-500/20 hover:bg-emerald-500/30"
+                  >
+                    打开草稿
+                  </button>
+                </div>
+              </div>
+              <div>
+                目标: {settings?.workspace ? `${settings.workspace}\\AGENTS.md` : 'workspace/AGENTS.md'}
+              </div>
+              {agentsDraftMtime ? <div>更新时间: {agentsDraftMtime}</div> : null}
+              {agentsFeedbackSavedAt ? <div>反馈更新时间: {agentsFeedbackSavedAt}</div> : null}
+            </div>
+            <div className="grid gap-3">
+              <div className="rounded-md border border-gray-700 bg-[#181a1f]">
+                <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
+                  <span>AGENTS.generated.md</span>
+                  {agentsLoading ? <span>加载中...</span> : null}
+                </div>
+                <pre className="h-[60vh] overflow-auto whitespace-pre-wrap p-3 text-xs text-gray-200">
+                  {agentsDraftContent || '(empty)'}
+                </pre>
+              </div>
+              <div className="rounded-md border border-gray-700 bg-[#181a1f] p-3">
+                <div className="text-xs text-gray-400">修改建议（可多次提交）</div>
+                <textarea
+                  className="mt-2 h-28 w-full resize-none rounded border border-gray-700 bg-[#0f1115] p-2 text-xs text-gray-200 outline-none focus:border-emerald-400"
+                  placeholder="请描述你希望 AGENTS.md 如何调整，例如：增加编码规范、补充必读文档路径、明确UTF-8要求..."
+                  value={agentsFeedback}
+                  onChange={(event) => {
+                    setAgentsFeedback(event.target.value);
+                    setAgentsFeedbackDirty(true);
+                  }}
+                />
+                <div className="mt-2 text-[11px] text-gray-500">
+                  提交后窗口会自动关闭，待 PM 生成新草稿后会自动重新弹出。
+                </div>
               </div>
             </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsAgentsDialogOpen(false)}>稍后</AlertDialogCancel>
-            {agentsDraftFailed ? (
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsAgentsDialogOpen(false)}>稍后</AlertDialogCancel>
+              {agentsDraftFailed ? (
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault();
+                    runPmOnce().catch(() => undefined);
+                  }}
+                  className="bg-blue-500 text-white hover:bg-blue-400"
+                >
+                  重试生成
+                </AlertDialogAction>
+              ) : null}
               <AlertDialogAction
                 onClick={(event) => {
                   event.preventDefault();
-                  runPmOnce().catch(() => undefined);
+                  saveAgentsFeedback().catch(() => undefined);
                 }}
                 className="bg-blue-500 text-white hover:bg-blue-400"
               >
-                重试生成
+                提交反馈 (将重生成)
               </AlertDialogAction>
-            ) : null}
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                saveAgentsFeedback().catch(() => undefined);
-              }}
-              className="bg-blue-500 text-white hover:bg-blue-400"
-            >
-              提交反馈 (将重生成)
-            </AlertDialogAction>
-            <AlertDialogAction
-              onClick={applyAgentsDraft}
-              disabled={agentsApplying || agentsDraftFailed}
-              className="bg-emerald-500 text-white hover:bg-emerald-400"
-            >
-              {agentsApplying ? '复制中...' : '确认复制'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <Toaster />
-      <AlertDialog
-        open={isRuntimeDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setIsRuntimeDialogOpen(true);
-          } else {
-            setIsRuntimeDialogOpen(false);
-          }
-        }}
-      >
-        <AlertDialogContent className="border border-amber-500/30 bg-[#1f2125] max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-amber-200">{runtimeIssue?.title || '运行环境缺失'}</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
-              {runtimeIssue?.detail || '运行环境缺失，需要人工接入处理。'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            <div>问题代码: {runtimeIssue?.code || 'RUNTIME_ISSUE'}</div>
-            <div>建议：安装缺失依赖或在设置中切换 backend。</div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsRuntimeDialogOpen(false)}>稍后</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setIsRuntimeDialogOpen(false);
-                setIsSettingsOpen(true);
-              }}
-              className="bg-amber-500 text-white hover:bg-amber-400"
-            >
-              打开设置
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog
-        open={isPlanDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setIsPlanDialogOpen(true);
-          } else {
-            setIsPlanDialogOpen(false);
-          }
-        }}
-      >
-        <AlertDialogContent className="border border-blue-500/30 bg-[#1f2125] max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-blue-200">PLAN.md 需要人工补充</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
-              {planIssue?.detail || '请先编辑 PLAN.md，然后再继续运行 Director。'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-100">
-            <div>路径: .harborpilot/runtime/PLAN.md</div>
-            <div>建议：补充清晰的下一步计划/任务。</div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsPlanDialogOpen(false)}>稍后</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={openPlanFile}
-              className="bg-blue-500 text-white hover:bg-blue-400"
-            >
-              打开 PLAN.md
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={isLanceDbDialogOpen} onOpenChange={setIsLanceDbDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>LanceDB required</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
-              {lancedbBlockMessage || 'LanceDB is required to continue.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsLanceDbDialogOpen(false)}>Close</AlertDialogCancel>
-            <AlertDialogAction onClick={() => refreshLanceDbStatus().catch(() => undefined)}>
-              Check again
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{errorDialogTitle || 'Action failed'}</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
-              {errorDialogContent}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsErrorDialogOpen(false)}>Close</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setIsErrorDialogOpen(false);
-                setIsLogsOpen(true);
-              }}
-            >
-              View logs
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <AlertDialogAction
+                onClick={applyAgentsDraft}
+                disabled={agentsApplying || agentsDraftFailed}
+                className="bg-emerald-500 text-white hover:bg-emerald-400"
+              >
+                {agentsApplying ? '复制中...' : '确认复制'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <Toaster />
+        <AlertDialog
+          open={isRuntimeDialogOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setIsRuntimeDialogOpen(true);
+            } else {
+              setIsRuntimeDialogOpen(false);
+            }
+          }}
+        >
+          <AlertDialogContent className="border border-amber-500/30 bg-[#1f2125] max-w-lg">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-amber-200">{runtimeIssue?.title || '运行环境缺失'}</AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
+                {runtimeIssue?.detail || '运行环境缺失，需要人工接入处理。'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              <div>问题代码: {runtimeIssue?.code || 'RUNTIME_ISSUE'}</div>
+              <div>建议：安装缺失依赖或在设置中切换 backend。</div>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsRuntimeDialogOpen(false)}>稍后</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setIsRuntimeDialogOpen(false);
+                  setIsSettingsOpen(true);
+                }}
+                className="bg-amber-500 text-white hover:bg-amber-400"
+              >
+                打开设置
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={isPlanDialogOpen}
+          onOpenChange={(open) => {
+            if (open) {
+              setIsPlanDialogOpen(true);
+            } else {
+              setIsPlanDialogOpen(false);
+            }
+          }}
+        >
+          <AlertDialogContent className="border border-blue-500/30 bg-[#1f2125] max-w-lg">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-blue-200">PLAN.md 需要人工补充</AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-wrap text-gray-300">
+                {planIssue?.detail || '请先编辑 PLAN.md，然后再继续运行 Director。'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-100">
+              <div>路径: .harborpilot/runtime/PLAN.md</div>
+              <div>建议：补充清晰的下一步计划/任务。</div>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsPlanDialogOpen(false)}>稍后</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={openPlanFile}
+                className="bg-blue-500 text-white hover:bg-blue-400"
+              >
+                打开 PLAN.md
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={isLanceDbDialogOpen} onOpenChange={setIsLanceDbDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>LanceDB required</AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
+                {lancedbBlockMessage || 'LanceDB is required to continue.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsLanceDbDialogOpen(false)}>Close</AlertDialogCancel>
+              <AlertDialogAction onClick={() => refreshLanceDbStatus().catch(() => undefined)}>
+                Check again
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{errorDialogTitle || 'Action failed'}</AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-wrap break-words text-left">
+                {errorDialogContent}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsErrorDialogOpen(false)}>Close</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setIsErrorDialogOpen(false);
+                  setIsLogsOpen(true);
+                }}
+              >
+                View logs
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       <LogsModal isOpen={showLogs} onClose={() => setShowLogs(false)} workspace={settings?.workspace} />

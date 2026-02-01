@@ -79,104 +79,89 @@ export function StatusBar({
       : '—';
 
   return (
-    <div className="h-8 bg-[#252526] border-t border-gray-800 flex items-center justify-between px-4 text-xs">
+    <div className="h-8 bg-bg-panel/30 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 text-[10px] font-mono select-none">
       {/* 左侧：运行状态 */}
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
           <div
-            className={`w-2 h-2 rounded-full ${pmRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`}
+            className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${pmRunning ? 'bg-status-success text-status-success animate-pulse' : 'bg-text-dim text-text-dim'}`}
           />
-          <span className="text-gray-400">
-            PM: {pmRunning ? `运行中${pmModeLabel}` : '空闲'}
+          <span className="text-text-muted">
+            PM <span className={pmRunning ? 'text-status-success' : ''}>{pmRunning ? `ACTV${pmModeLabel}` : 'IDLE'}</span>
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Activity className="size-3 text-purple-400" />
-          <span className="text-gray-400">Director: {directorRunning ? '运行中' : '空闲'}</span>
+        <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/5">
+          <Activity className={`size-3 ${directorRunning ? 'text-status-secondary' : 'text-text-dim'}`} />
+          <span className="text-text-muted">DIR <span className={directorRunning ? 'text-status-secondary' : ''}>{directorRunning ? 'ACTV' : 'IDLE'}</span></span>
         </div>
-        <div className="w-px h-4 bg-gray-700" />
-        <div className="flex items-center gap-1.5">
-          <Clock className="size-3 text-gray-500" />
-          <span className="text-gray-400">运行时长: {pmDuration}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Clock className="size-3 text-gray-500" />
-          <span className="text-gray-400">Director 时长: {directorDuration}</span>
+        <div className="w-px h-3 bg-white/10" />
+        <div className="flex items-center gap-1.5 text-text-dim">
+          <Clock className="size-3" />
+          <span>{pmDuration}</span>
         </div>
         {pmError ? (
           <>
-            <div className="w-px h-4 bg-gray-700" />
-            <span className="text-red-400">PM 错误: {pmError}</span>
-          </>
-        ) : null}
-        {directorError ? (
-          <>
-            <div className="w-px h-4 bg-gray-700" />
-            <span className="text-red-400">Director 错误: {directorError}</span>
-          </>
-        ) : null}
-        {ollamaError ? (
-          <>
-            <div className="w-px h-4 bg-gray-700" />
-            <span className="text-red-400">Ollama 错误: {ollamaError}</span>
+            <div className="w-px h-3 bg-white/10" />
+            <span className="text-status-error font-bold flex items-center gap-1 animate-pulse">
+              PM ERR: {pmError}
+            </span>
           </>
         ) : null}
       </div>
 
       {/* 中间：统计信息 */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1.5">
-          <CheckCircle className="size-3 text-green-400" />
-          <span className="text-gray-400">成功: {successLabel}</span>
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-1.5" title="Success Rate">
+          <CheckCircle className="size-3 text-status-success drop-shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+          <span className="text-text-main font-bold">{successLabel}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <AlertTriangle className="size-3 text-yellow-400" />
-          <span className="text-gray-400">重试: {failures ?? '—'}</span>
+        <div className="flex items-center gap-1.5" title="Failures">
+          <AlertTriangle className={`size-3 ${failures ? 'text-status-warning drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]' : 'text-text-dim'}`} />
+          <span className={failures ? 'text-status-warning' : 'text-text-dim'}>{failures ?? '0'}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Zap className="size-3 text-blue-400" />
-          <span className="text-gray-400">迭代: {iteration ?? '—'}</span>
+        <div className="flex items-center gap-1.5" title="Iteration">
+          <Zap className="size-3 text-accent drop-shadow-[0_0_5px_rgba(124,58,237,0.5)]" />
+          <span className="text-text-main">{iteration ?? '-'}</span>
         </div>
       </div>
 
       {/* 右侧：后端信息 */}
-      <div className="flex items-center gap-4">
-        <span className="text-gray-500">PM: {pmBackend || '-'}</span>
-        <span className="text-gray-500">|</span>
-        <span className="text-gray-500">Director: {directorModel || '-'}</span>
-        <span className="text-gray-500">|</span>
-        <span className="text-gray-500">Memory: LanceDB</span>
-        <span className={lancedbClass} title={lancedbError || undefined}>
-          {lancedbState}
-        </span>
-        <span className="text-gray-500">|</span>
-        <span className={backendClass}>Backend: {backendState}</span>
-        <span className="text-gray-500">|</span>
-        <span className={gitClass}>Git: {gitState}</span>
+      <div className="flex items-center gap-3 text-text-muted">
+        <span className="px-1.5 py-0.5 rounded bg-white/5">PM[{pmBackend || '-'}]</span>
+        <span className="text-white/10">/</span>
+        <span className="px-1.5 py-0.5 rounded bg-white/5">DIR[{directorModel || '-'}]</span>
+        <span className="text-white/10">/</span>
+        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-white/5">
+          <span>LANCE</span>
+          <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_currentColor] ${lancedbOk ? 'bg-status-success text-status-success' : 'bg-status-error text-status-error'}`} title={lancedbError || undefined}></span>
+        </div>
+        <span className="text-white/10">|</span>
+        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-white/5">
+          <span>GIT</span>
+          <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_currentColor] ${gitPresent ? 'bg-status-success text-status-success' : 'bg-status-warning text-status-warning'}`}></span>
+        </div>
+
         {onPingHealth ? (
           <>
-            <span className="text-gray-500">|</span>
+            <span className="text-white/10">|</span>
             <button
               onClick={onPingHealth}
-              className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-200 transition-colors"
+              className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
             >
               <Activity className="size-3" />
-              <span>Ping</span>
+              <span>{healthStatus || 'PING'}</span>
             </button>
-            {healthStatus ? (
-              <span className="text-gray-500">{healthStatus}</span>
-            ) : null}
           </>
         ) : null}
         {onOpenLogs ? (
           <>
-            <span className="text-gray-500">|</span>
+            <span className="text-white/10">|</span>
             <button
               onClick={onOpenLogs}
-              className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-200 transition-colors"
+              className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
             >
               <FileText className="size-3" />
-              <span>日志</span>
+              <span>LOGS</span>
             </button>
           </>
         ) : null}

@@ -164,32 +164,32 @@ export function ProjectProgressPanel({
 
   return (
     <div
-      className={`border-b border-gray-800 bg-gradient-to-br from-[#161a22] via-[#1b202a] to-[#12151b] px-5 py-4 flex flex-col min-h-0 ${className || ''}`}
+      className={`border-b border-white/5 bg-transparent px-5 py-4 flex flex-col min-h-0 ${className || ''}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-200">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-accent/10 text-accent shadow-[0_0_15px_rgba(124,58,237,0.2)]">
             <Target className="size-5" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-slate-100">PM 项目进度</span>
+              <span className="text-sm font-heading font-bold text-text-main">PM 项目进度</span>
               {pmRunning ? (
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-200">Running</span>
+                <span className="rounded-full bg-status-success/10 px-2 py-0.5 text-[11px] text-status-success shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse">Running</span>
               ) : (
-                <span className="rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] text-slate-300">Idle</span>
+                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-text-dim">Idle</span>
               )}
               {iteration !== null && Number.isFinite(iteration) ? (
-                <span className="rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] text-slate-300">
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent-text border border-accent/20">
                   Iteration {iteration}
                 </span>
               ) : null}
             </div>
-            <div className="mt-1 text-xs text-slate-400">
+            <div className="mt-1 text-xs text-text-muted">
               {focusText || notesText ? (
                 <>
-                  {focusText ? <span>目标: {focusText}</span> : null}
-                  {focusText && notesText ? <span className="mx-2 text-slate-600">|</span> : null}
+                  {focusText ? <span>目标: <span className="text-text-main">{focusText}</span></span> : null}
+                  {focusText && notesText ? <span className="mx-2 text-white/10">|</span> : null}
                   {notesText ? <span>备注: {notesText}</span> : null}
                 </>
               ) : (
@@ -198,96 +198,95 @@ export function ProjectProgressPanel({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-slate-700/60 bg-[#0f1117] px-3 py-2 text-xs text-slate-300">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-text-main backdrop-blur-sm">
           {statusIcon}
-          <span className={statusTone}>{lastStatus ? lastStatus.toUpperCase() : 'NO STATUS'}</span>
+          <span className={`font-mono ${statusTone}`}>{lastStatus ? lastStatus.toUpperCase() : 'NO STATUS'}</span>
           {lastUpdated ? (
             <>
-              <span className="text-slate-600">|</span>
-              <Clock className="size-3 text-slate-500" />
-              <span className="text-slate-400">{lastUpdated}</span>
+              <span className="text-white/10">|</span>
+              <Clock className="size-3 text-text-dim" />
+              <span className="text-text-dim">{lastUpdated}</span>
             </>
           ) : null}
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div className="rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
+        <div className="rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm hover:border-accent/30 transition-colors">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-slate-400">整体完成度</div>
-            <div className="text-xs text-slate-400">{progressHint}</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">整体完成度</div>
+            <div className="text-xs text-text-dim font-mono">{progressHint}</div>
           </div>
-          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-800/80">
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/5">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-blue-400 transition-all"
+              className="h-full rounded-full bg-gradient-primary shadow-[0_0_10px_rgba(124,58,237,0.5)] transition-all duration-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+          <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
             <span>{progressMode === 'done' ? '已完成' : progressMode === 'position' ? '进行中' : '估算'}</span>
-            <span className="text-slate-200">{progressPct}%</span>
+            <span className="text-accent font-mono font-bold">{progressPct}%</span>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-400">
-            <span className="rounded-full border border-slate-700/60 px-2 py-0.5">
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-dim">
+            <span className="rounded-full border border-white/10 px-2 py-0.5 hover:bg-white/5 transition-colors">
               总任务: {totalTasks || '-'}
             </span>
-            <span className="rounded-full border border-slate-700/60 px-2 py-0.5">
+            <span className="rounded-full border border-white/10 px-2 py-0.5 hover:bg-white/5 transition-colors">
               已完成: {totalTasks ? completedCount : '-'}
             </span>
             {typeof successStats?.successes === 'number' && typeof successStats?.total === 'number' ? (
-              <span className="rounded-full border border-slate-700/60 px-2 py-0.5">
+              <span className="rounded-full border border-white/10 px-2 py-0.5 hover:bg-white/5 transition-colors">
                 Director 成功率: {Math.round((successStats.rate ?? 0) * 100)}%
               </span>
             ) : null}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
+        <div className="rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm hover:border-accent/30 transition-colors">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-slate-400">{'\u5f53\u524d Director \u4efb\u52a1'}</div>
-            <ArrowRight className="size-4 text-emerald-300" />
+            <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">{'\u5f53\u524d Director \u4efb\u52a1'}</div>
+            <ArrowRight className="size-4 text-accent animate-pulse" />
           </div>
           {currentSummary ? (
             <div className="mt-3 flex items-start gap-3">
-              <div className="mt-1 flex size-8 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-200">
+              <div className="mt-1 flex size-8 items-center justify-center rounded-full bg-accent/20 text-accent shadow-[0_0_10px_rgba(124,58,237,0.3)]">
                 <ArrowRight className="size-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-100">{currentSummary}</div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="text-sm font-semibold text-text-main">{currentSummary}</div>
+                <div className="mt-1 text-xs text-text-dim font-mono">
                   {lastTaskId ? <span>ID: {lastTaskId}</span> : <span>{'\u7b49\u5f85 PM \u5206\u914d\u4efb\u52a1'}</span>}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="mt-3 text-sm text-slate-500">{'\u6682\u65e0\u5f53\u524d\u4efb\u52a1\u4fe1\u606f'}</div>
+            <div className="mt-3 text-sm text-text-dim">{'\u6682\u65e0\u5f53\u524d\u4efb\u52a1\u4fe1\u606f'}</div>
           )}
 
-          <div className="mt-4 border-t border-slate-800/60 pt-3">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+          <div className="mt-4 border-t border-white/5 pt-3">
+            <div className="flex items-center justify-between text-xs text-text-muted">
               <span className="font-medium uppercase tracking-wide">{'PM \u2192 Director \u4efb\u52a1\u961f\u5217'}</span>
-              <span>{queueItems.length ? `${queueItems.length} \u9879` : '-'}</span>
+              <span className="font-mono">{queueItems.length ? `${queueItems.length} \u9879` : '-'}</span>
             </div>
-            <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+            <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1 custom-scrollbar">
               {queueItems.length === 0 ? (
-                <div className="text-xs text-slate-500">{'\u6682\u65e0\u5206\u914d\u4efb\u52a1'}</div>
+                <div className="text-xs text-text-dim">{'\u6682\u65e0\u5206\u914d\u4efb\u52a1'}</div>
               ) : (
                 queueItems.map((item, idx) => (
                   <div
                     key={`${item.key}-${idx}`}
-                    className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs ${
-                      item.isCurrent
-                        ? 'bg-emerald-500/10 text-emerald-200'
-                        : item.isCompleted
-                          ? 'bg-emerald-500/5 text-emerald-300/80'
-                          : 'bg-slate-800/40 text-slate-300'
-                    }`}
+                    className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs transition-colors ${item.isCurrent
+                      ? 'bg-accent/20 text-accent border border-accent/20'
+                      : item.isCompleted
+                        ? 'bg-status-success/10 text-status-success/80'
+                        : 'bg-white/5 text-text-dim hover:bg-white/10'
+                      }`}
                   >
                     <div className="min-w-0 flex-1 truncate">
-                      <span className="text-slate-500 mr-2">#{idx + 1}</span>
+                      <span className="text-text-dim/50 mr-2 font-mono">#{idx + 1}</span>
                       {item.title}
                     </div>
-                    <span className="shrink-0 text-[10px] text-slate-400">
+                    <span className="shrink-0 text-[10px] opacity-70">
                       {item.isCompleted ? '\u5df2\u5b8c\u6210' : item.isCurrent ? '\u8fdb\u884c\u4e2d' : '\u5f85\u5f00\u59cb'}
                     </span>
                   </div>
@@ -298,18 +297,18 @@ export function ProjectProgressPanel({
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
-        <div className="flex items-center justify-between text-xs text-slate-400">
+      <div className="mt-4 rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between text-xs text-text-muted">
           <span className="font-medium uppercase tracking-wide">{'\u5168\u90e8\u76ee\u6807'}</span>
-          <span>{goalList.length ? `${goalList.length} \u9879` : '-'}</span>
+          <span className="font-mono">{goalList.length ? `${goalList.length} \u9879` : '-'}</span>
         </div>
-        <div className="mt-3 max-h-40 space-y-2 overflow-auto pr-1 text-xs text-slate-300">
+        <div className="mt-3 max-h-40 space-y-2 overflow-auto pr-1 text-xs text-text-main custom-scrollbar">
           {goalList.length === 0 ? (
-            <div className="text-slate-500">{'\u6682\u65e0\u76ee\u6807'}</div>
+            <div className="text-text-dim">{'\u6682\u65e0\u76ee\u6807'}</div>
           ) : (
             goalList.map((item, idx) => (
               <div key={`${idx}-${item}`} className="flex items-start gap-2">
-                <span className="mt-0.5 text-slate-500">{idx + 1}.</span>
+                <span className="mt-0.5 text-accent font-mono text-[10px]">{idx + 1}.</span>
                 <span className="leading-relaxed">{item}</span>
               </div>
             ))
@@ -317,27 +316,27 @@ export function ProjectProgressPanel({
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-800/70 bg-[#0f1117] p-4">
-        <div className="flex items-center justify-between text-xs text-slate-400">
+      <div className="mt-4 rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between text-xs text-text-muted">
           <span className="font-medium uppercase tracking-wide">{'\u603b\u89c4\u5212 (PLAN.md)'}</span>
-          {planUpdated ? <span className="text-slate-500">{planUpdated}</span> : <span className="text-slate-600">-</span>}
+          {planUpdated ? <span className="text-text-dim font-mono">{planUpdated}</span> : <span className="text-text-dim">-</span>}
         </div>
-        <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+        <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-white/5 bg-bg-panel/50 px-3 py-2 text-xs text-text-code whitespace-pre-wrap leading-relaxed custom-scrollbar shadow-inner">
           {planPreview || '\u6682\u65e0\u603b\u89c4\u5212'}
         </div>
       </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
-        <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+        <div className="mb-2 flex items-center justify-between text-xs text-text-muted">
           <div className="flex items-center gap-2">
-            <ListChecks className="size-4 text-slate-300" />
+            <ListChecks className="size-4 text-text-dim" />
             <span className="font-medium uppercase tracking-wide">{'\u4efb\u52a1\u89c4\u5212\uff08PM \u2192 Director\uff09'}</span>
           </div>
-          <span>{totalTasks ? `${totalTasks} \u9879` : '\u6682\u65e0\u4efb\u52a1'}</span>
+          <span className="font-mono">{totalTasks ? `${totalTasks} \u9879` : '\u6682\u65e0\u4efb\u52a1'}</span>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-1 custom-scrollbar">
           {normalizedTasks.length === 0 ? (
-            <div className="col-span-full rounded-xl border border-dashed border-slate-700/70 bg-[#0f1117] p-6 text-center text-sm text-slate-500">
+            <div className="col-span-full rounded-xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-sm text-text-dim">
               等待 PM 生成任务清单...
             </div>
           ) : (
@@ -354,44 +353,43 @@ export function ProjectProgressPanel({
               return (
                 <div
                   key={`${key || title}-${index}`}
-                  className={`rounded-xl border p-3 transition ${
-                    isCurrent
-                      ? 'border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]'
-                      : isCompleted
-                        ? 'border-emerald-900/60 bg-emerald-500/5'
-                        : 'border-slate-800/70 bg-[#0f1117]'
-                  }`}
+                  className={`rounded-xl border p-3 transition-all duration-300 ${isCurrent
+                    ? 'border-accent/50 bg-accent/5 shadow-[0_0_15px_rgba(124,58,237,0.1)]'
+                    : isCompleted
+                      ? 'border-status-success/30 bg-status-success/5 opacity-80'
+                      : 'border-white/5 bg-white/5 hover:border-white/10 hover:bg-white/10'
+                    }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <div className="flex items-center gap-2 text-xs text-text-dim font-mono">
                         <span>#{index + 1}</span>
-                        {task.id ? <span className="rounded-full border border-slate-700/60 px-2 py-0.5">ID: {task.id}</span> : null}
+                        {task.id ? <span className="rounded-full border border-white/10 px-2 py-0.5">ID: {task.id}</span> : null}
                         {task.priority !== undefined ? (
-                          <span className="rounded-full border border-slate-700/60 px-2 py-0.5">P{task.priority}</span>
+                          <span className="rounded-full border border-white/10 px-2 py-0.5">P{task.priority}</span>
                         ) : null}
                       </div>
-                      <div className="mt-1 text-sm font-semibold text-slate-100">{clampText(title, 120)}</div>
-                      {goal ? <div className="mt-2 text-xs text-slate-400">{clampText(goal, 180)}</div> : null}
+                      <div className="mt-1 text-sm font-semibold text-text-main">{clampText(title, 120)}</div>
+                      {goal ? <div className="mt-2 text-xs text-text-muted">{clampText(goal, 180)}</div> : null}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <div className="flex items-center gap-2 text-xs text-text-dim">
                       {isCompleted ? (
-                        <CheckCircle className="size-4 text-emerald-300" />
+                        <CheckCircle className="size-4 text-status-success" />
                       ) : isCurrent ? (
-                        <ArrowRight className="size-4 text-emerald-300" />
+                        <ArrowRight className="size-4 text-accent animate-pulse" />
                       ) : (
-                        <Clock className="size-4 text-slate-500" />
+                        <Clock className="size-4 text-text-dim" />
                       )}
-                      <span className="rounded-full border border-slate-700/60 px-2 py-0.5">
+                      <span className="rounded-full border border-white/10 px-2 py-0.5 backdrop-blur-sm">
                         {isCompleted ? '已完成' : isCurrent ? '进行中' : '待开始'}
                       </span>
                     </div>
                   </div>
                   {acceptance.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-300">
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-muted">
                       {acceptance.map((item, idx) => (
-                        <span key={`${key}-acc-${idx}`} className="rounded-full bg-slate-800/80 px-2 py-0.5">
-                          {clampText(item, 80)}
+                        <span key={`${key}-acc-${idx}`} className="rounded-full bg-bg-surface/50 px-2 py-0.5 border border-white/5">
+                          {clampText(String(item), 80)}
                         </span>
                       ))}
                     </div>

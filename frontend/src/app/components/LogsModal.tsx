@@ -248,10 +248,10 @@ function MarkupCard({
             <XmlTreeNodeView node={xmlTree} depth={0} />
           </div>
         ) : (
-          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{source || '(empty)'}</pre>
+          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap break-all">{source || '(empty)'}</pre>
         )
       ) : (
-        <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{source || '(empty)'}</pre>
+        <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap break-all">{source || '(empty)'}</pre>
       )}
     </div>
   );
@@ -292,10 +292,10 @@ function XmlTreeNodeView({ node, depth }: { node: XmlTreeNode; depth: number }) 
         <span className="text-blue-200">&lt;{node.name}</span>
         {node.attributes.length
           ? node.attributes.map(([key, value]) => (
-              <span key={key} className="ml-1 text-emerald-200">
-                {key}="<span className="text-gray-300">{value}</span>"
-              </span>
-            ))
+            <span key={key} className="ml-1 text-emerald-200">
+              {key}="<span className="text-gray-300">{value}</span>"
+            </span>
+          ))
           : null}
         <span className="text-blue-200">&gt;</span>
       </summary>
@@ -504,53 +504,53 @@ export function LogsModal({
       if (filter !== 'all' && event.kind !== filter) {
         return false;
       }
-      
+
       // 2. Then apply search query (Global Search)
       if (!query.trim()) return true;
       const lowerQuery = query.toLowerCase();
-      
+
       // Helper to check content based on event type
       const checkContent = () => {
         switch (event.kind) {
           case 'json':
-            return (event.raw || '').toLowerCase().includes(lowerQuery) || 
-                   JSON.stringify(event.value).toLowerCase().includes(lowerQuery);
+            return (event.raw || '').toLowerCase().includes(lowerQuery) ||
+              JSON.stringify(event.value).toLowerCase().includes(lowerQuery);
           case 'error':
-            return (event.raw || '').toLowerCase().includes(lowerQuery) || 
-                   (event.errorType || '').toLowerCase().includes(lowerQuery);
+            return (event.raw || '').toLowerCase().includes(lowerQuery) ||
+              (event.errorType || '').toLowerCase().includes(lowerQuery);
           case 'section':
-            return (event.title || '').toLowerCase().includes(lowerQuery) || 
-                   (event.body || '').toLowerCase().includes(lowerQuery);
+            return (event.title || '').toLowerCase().includes(lowerQuery) ||
+              (event.body || '').toLowerCase().includes(lowerQuery);
           case 'exec':
-            return (event.cmd || '').toLowerCase().includes(lowerQuery) || 
-                   (event.cwd || '').toLowerCase().includes(lowerQuery);
+            return (event.cmd || '').toLowerCase().includes(lowerQuery) ||
+              (event.cwd || '').toLowerCase().includes(lowerQuery);
           case 'tool':
-            return (event.tool || '').toLowerCase().includes(lowerQuery) || 
-                   (event.message || '').toLowerCase().includes(lowerQuery);
+            return (event.tool || '').toLowerCase().includes(lowerQuery) ||
+              (event.message || '').toLowerCase().includes(lowerQuery);
           case 'thinking':
-            return (event.title || '').toLowerCase().includes(lowerQuery) || 
-                   (event.body || '').toLowerCase().includes(lowerQuery);
+            return (event.title || '').toLowerCase().includes(lowerQuery) ||
+              (event.body || '').toLowerCase().includes(lowerQuery);
           case 'runStart':
-            return (event.version || '').toLowerCase().includes(lowerQuery) || 
-                   Object.values(event.meta).join(' ').toLowerCase().includes(lowerQuery);
+            return (event.version || '').toLowerCase().includes(lowerQuery) ||
+              Object.values(event.meta).join(' ').toLowerCase().includes(lowerQuery);
           case 'role':
             return (event.role || '').toLowerCase().includes(lowerQuery);
           case 'command':
-            return (event.cmd || '').toLowerCase().includes(lowerQuery) || 
-                   (event.shell || '').toLowerCase().includes(lowerQuery);
+            return (event.cmd || '').toLowerCase().includes(lowerQuery) ||
+              (event.shell || '').toLowerCase().includes(lowerQuery);
           case 'commandResult':
-            return (event.status || '').toLowerCase().includes(lowerQuery) || 
-                   (event.cwd || '').toLowerCase().includes(lowerQuery);
+            return (event.status || '').toLowerCase().includes(lowerQuery) ||
+              (event.cwd || '').toLowerCase().includes(lowerQuery);
           case 'table':
-            return (event.title || '').toLowerCase().includes(lowerQuery) || 
-                   event.columns.join(' ').toLowerCase().includes(lowerQuery) ||
-                   event.rows.flat().join(' ').toLowerCase().includes(lowerQuery);
+            return (event.title || '').toLowerCase().includes(lowerQuery) ||
+              event.columns.join(' ').toLowerCase().includes(lowerQuery) ||
+              event.rows.flat().join(' ').toLowerCase().includes(lowerQuery);
           case 'fileContent':
-            return (event.pathHint || '').toLowerCase().includes(lowerQuery) || 
-                   (event.content || '').toLowerCase().includes(lowerQuery);
+            return (event.pathHint || '').toLowerCase().includes(lowerQuery) ||
+              (event.content || '').toLowerCase().includes(lowerQuery);
           case 'metric':
-            return (event.label || '').toLowerCase().includes(lowerQuery) || 
-                   String(event.value).toLowerCase().includes(lowerQuery);
+            return (event.label || '').toLowerCase().includes(lowerQuery) ||
+              String(event.value).toLowerCase().includes(lowerQuery);
           case 'text':
             return (event.text || '').toLowerCase().includes(lowerQuery);
           default:
@@ -624,11 +624,10 @@ export function LogsModal({
               <button
                 key={item.id}
                 onClick={() => setActive(item.id)}
-                className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
-                  active === item.id
-                    ? 'bg-blue-500/20 text-blue-300'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
+                className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${active === item.id
+                  ? 'bg-blue-500/20 text-blue-300'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
               >
                 {item.label}
               </button>
@@ -646,27 +645,24 @@ export function LogsModal({
             <button
               onClick={() => allowRaw && setViewMode('raw')}
               disabled={!allowRaw}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'raw' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
-              } ${!allowRaw ? 'opacity-40 cursor-not-allowed' : ''}`}
+              className={`px-2 py-1 text-xs rounded ${viewMode === 'raw' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
+                } ${!allowRaw ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               Raw
             </button>
             <button
               onClick={() => allowSmart && setViewMode('smart')}
               disabled={!allowSmart}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'smart' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
-              } ${!allowSmart ? 'opacity-40 cursor-not-allowed' : ''}`}
+              className={`px-2 py-1 text-xs rounded ${viewMode === 'smart' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
+                } ${!allowSmart ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               Smart
             </button>
             <button
               onClick={() => allowJson && setViewMode('json')}
               disabled={!allowJson}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'json' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
-              } ${!allowJson ? 'opacity-40 cursor-not-allowed' : ''}`}
+              className={`px-2 py-1 text-xs rounded ${viewMode === 'json' ? 'bg-blue-500/30 text-blue-200' : 'text-gray-400 hover:text-gray-200'
+                } ${!allowJson ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               JSON
             </button>
@@ -711,7 +707,7 @@ export function LogsModal({
           {error ? (
             <div className="text-sm text-red-300">{error}</div>
           ) : viewMode === 'raw' ? (
-            <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
+            <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-all">
               {loading ? '加载中...' : lines.join('\n') || '(空)'}
             </pre>
           ) : viewMode === 'json' ? (
@@ -722,7 +718,7 @@ export function LogsModal({
                 <div className="text-sm text-gray-400">(empty)</div>
               ) : (
                 jsonEvents.map((event) => (
-                  <pre key={event.id} className="text-xs text-gray-200 font-mono whitespace-pre-wrap">
+                  <pre key={event.id} className="text-xs text-gray-200 font-mono whitespace-pre-wrap break-all">
                     {event.value ? JSON.stringify(event.value, null, 2) : event.raw}
                   </pre>
                 ))
@@ -764,7 +760,7 @@ export function LogsModal({
                           <div className="mt-2 text-xs text-gray-400">
                             File {next.pathHint || ''} {next.encodingWarning ? ' · encoding warning' : ''}
                           </div>
-                          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{next.content || '(empty)'}</pre>
+                          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap break-all">{next.content || '(empty)'}</pre>
                         </div>
                       );
                       i += 1;
@@ -782,7 +778,7 @@ export function LogsModal({
                             {typeof event.ms === 'number' ? `· ${event.ms}ms ` : ''}
                             {typeof event.exitCode === 'number' ? `· exit ${event.exitCode}` : ''}
                           </div>
-                          <pre className="mt-2 text-xs text-red-100 whitespace-pre-wrap">{next.raw}</pre>
+                          <pre className="mt-2 text-xs text-red-100 whitespace-pre-wrap break-all">{next.raw}</pre>
                         </div>
                       );
                       i += 1;
@@ -795,7 +791,7 @@ export function LogsModal({
                             {roleBadge}
                             <span>{event.title}</span>
                           </summary>
-                          <div className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{event.body || '(empty)'}</div>
+                          <div className="mt-2 text-xs text-gray-200 whitespace-pre-wrap break-all">{event.body || '(empty)'}</div>
                         </details>
                       );
                       continue;
@@ -895,7 +891,7 @@ export function LogsModal({
                             <span>Tool</span>
                           </div>
                           <div className="text-sm text-gray-200">{event.tool} · {event.phase}</div>
-                          {event.message ? <div className="mt-1 text-xs text-gray-300">{event.message}</div> : null}
+                          {event.message ? <div className="mt-1 text-xs text-gray-300 whitespace-pre-wrap break-all">{event.message}</div> : null}
                         </div>
                       );
                       continue;
@@ -956,7 +952,7 @@ export function LogsModal({
                           {event.lifecycle === 'open' ? (
                             <div className="mt-1 text-xs text-blue-300">streaming...</div>
                           ) : null}
-                          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap">{event.content || '(empty)'}</pre>
+                          <pre className="mt-2 text-xs text-gray-200 whitespace-pre-wrap break-all">{event.content || '(empty)'}</pre>
                         </div>
                       );
                       continue;
@@ -1019,7 +1015,7 @@ export function LogsModal({
                             <span>{event.title || 'Thinking'}</span>
                           </summary>
                           <div className="mt-2 text-xs text-gray-200">
-                            {event.body ? <div className="mt-2 whitespace-pre-wrap text-gray-200">{event.body}</div> : null}
+                            {event.body ? <div className="mt-2 whitespace-pre-wrap break-all text-gray-200">{event.body}</div> : null}
                           </div>
                         </details>
                       );
@@ -1032,7 +1028,7 @@ export function LogsModal({
                             {roleBadge}
                             <span>{event.errorType}</span>
                           </summary>
-                          <pre className="mt-2 text-xs text-red-100 whitespace-pre-wrap">{event.raw}</pre>
+                          <pre className="mt-2 text-xs text-red-100 whitespace-pre-wrap break-all">{event.raw}</pre>
                         </details>
                       );
                       continue;
@@ -1054,7 +1050,7 @@ export function LogsModal({
                       nodes.push(
                         <div key={event.id} className="rounded border border-gray-700 bg-gray-900/40 p-3">
                           {roleBadge ? <div className="mb-1">{roleBadge}</div> : null}
-                          <div className="text-xs text-gray-200 whitespace-pre-wrap">{event.text}</div>
+                          <div className="text-xs text-gray-200 whitespace-pre-wrap break-all">{event.text}</div>
                         </div>
                       );
                       continue;
