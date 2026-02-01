@@ -413,31 +413,31 @@ class MockDataGenerator:
     
     def save_pm_tasks(self, tasks: Dict[str, Any], file_path: str) -> None:
         """Save PM tasks to file"""
-        with open(file_path, 'w') as f:
-            json.dump(tasks, f, indent=2)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(tasks, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved PM tasks to {file_path}")
     
     def save_director_result(self, result: Dict[str, Any], file_path: str) -> None:
         """Save Director result to file"""
-        with open(file_path, 'w') as f:
-            json.dump(result, f, indent=2)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved Director result to {file_path}")
     
     def save_dialogue_history(self, dialogue: List[Dict[str, Any]], file_path: str) -> None:
         """Save dialogue history to file"""
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             for entry in dialogue:
-                f.write(json.dumps(entry) + '\n')
+                f.write(json.dumps(entry, ensure_ascii=False) + '\n')
         logger.info(f"Saved dialogue history to {file_path}")
     
     def load_pm_tasks(self, file_path: str) -> Dict[str, Any]:
         """Load PM tasks from file"""
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
     def load_director_result(self, file_path: str) -> Dict[str, Any]:
         """Load Director result from file"""
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
 
