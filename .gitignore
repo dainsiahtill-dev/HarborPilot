@@ -19,3 +19,4 @@ __pycache__/
 /desktop/frontend/.vite/
 /desktop/frontend/node_modules/
 /desktop/*.log
+node_modules
