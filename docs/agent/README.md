@@ -22,6 +22,7 @@
 | [参考手册](reference.md) | CLI、工具、事件类型、产物索引 | 开发者 |
 | [拟人化设计](anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind | 工程师 |
 | [Context Engine v2 计划](context_engine_v2_plan.md) | 升级路线与落地阶段 | 工程师 |
+| [Sniper Mode v2.0 计划](sniper_mode_v2_plan.md) | 上下文工程优化与成本感知路线图 | 工程师 |
 
 ---
 
