@@ -97,6 +97,17 @@ def build_evidence_summary(outputs: List[Dict[str, Any]], verbosity: str = "summ
                     "truncated": out.get("truncated"),
                 }
             )
+        elif tool == "repo_map":
+            stats = out.get("stats") if isinstance(out.get("stats"), dict) else {}
+            item.update(
+                {
+                    "root": out.get("root"),
+                    "languages": out.get("languages"),
+                    "mapped_files": stats.get("mapped_files"),
+                    "symbols": stats.get("symbols"),
+                    "truncated": out.get("truncated"),
+                }
+            )
         elif tool == "repo_diff":
             item.update({"exit_code": out.get("exit_code"), "ok": out.get("ok")})
         summary.append(item)

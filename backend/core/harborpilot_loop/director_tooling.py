@@ -165,6 +165,13 @@ _KV_ALLOWED_KEYS = {
     "glob",
     "g",
     "include",
+    "exclude",
+    "languages",
+    "lang",
+    "max_files",
+    "max_lines",
+    "per_file_lines",
+    "per_file",
     "recursive",
 }
 
@@ -315,6 +322,85 @@ def parse_tool_plan_item(item: str) -> Optional[Dict[str, Any]]:
             args["max_results"] = max_results
         if glob_pat:
             args["glob"] = glob_pat
+        return {"tool": tool, "args": args}
+
+    if tool == "repo_map":
+        root_path: Optional[str] = None
+        languages: Optional[str] = None
+        max_files: Optional[int] = None
+        max_lines: Optional[int] = None
+        per_file_lines: Optional[int] = None
+        include: Optional[str] = None
+        exclude: Optional[str] = None
+        positional: List[str] = []
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            kv = _parse_key_value_token(tok)
+            if kv:
+                key, value = kv
+                if key in ("path", "paths"):
+                    root_path = value.strip("'\"")
+                elif key in ("languages", "lang"):
+                    languages = value.strip("'\"")
+                elif key in ("max", "max_files"):
+                    max_files = safe_int(value, -1)
+                elif key == "max_lines":
+                    max_lines = safe_int(value, -1)
+                elif key in ("per_file", "per_file_lines"):
+                    per_file_lines = safe_int(value, -1)
+                elif key == "include":
+                    include = value.strip("'\"")
+                elif key == "exclude":
+                    exclude = value.strip("'\"")
+                i += 1
+                continue
+            if tok in ("--root", "--path") and i + 1 < len(tokens):
+                root_path = tokens[i + 1].strip("'\"")
+                i += 2
+                continue
+            if tok in ("--languages", "--lang", "-l") and i + 1 < len(tokens):
+                languages = tokens[i + 1].strip("'\"")
+                i += 2
+                continue
+            if tok in ("--max", "--max-files") and i + 1 < len(tokens):
+                max_files = safe_int(tokens[i + 1], -1)
+                i += 2
+                continue
+            if tok == "--max-lines" and i + 1 < len(tokens):
+                max_lines = safe_int(tokens[i + 1], -1)
+                i += 2
+                continue
+            if tok in ("--per-file", "--per-file-lines") and i + 1 < len(tokens):
+                per_file_lines = safe_int(tokens[i + 1], -1)
+                i += 2
+                continue
+            if tok == "--include" and i + 1 < len(tokens):
+                include = tokens[i + 1].strip("'\"")
+                i += 2
+                continue
+            if tok == "--exclude" and i + 1 < len(tokens):
+                exclude = tokens[i + 1].strip("'\"")
+                i += 2
+                continue
+            if not tok.startswith("-"):
+                positional.append(tok)
+            i += 1
+        if root_path is None and positional:
+            root_path = positional[0].strip("'\"")
+        args: Dict[str, Any] = {"root": root_path or "."}
+        if languages:
+            args["languages"] = languages
+        if max_files is not None and max_files > 0:
+            args["max_files"] = max_files
+        if max_lines is not None and max_lines > 0:
+            args["max_lines"] = max_lines
+        if per_file_lines is not None and per_file_lines > 0:
+            args["per_file_lines"] = per_file_lines
+        if include:
+            args["include"] = include
+        if exclude:
+            args["exclude"] = exclude
         return {"tool": tool, "args": args}
 
     if tool in ("repo_read_around", "repo_read_slice", "repo_read_head", "repo_read_tail", "repo_tree", "repo_diff"):
@@ -579,6 +665,28 @@ def build_tool_cli_args(tool: str, args: Any) -> List[str]:
         if max_entries is not None:
             tokens += ["--max", str(max_entries)]
         return tokens
+    if tool == "repo_map":
+        root_path = args.get("root") or args.get("path") or "."
+        languages = args.get("languages") or args.get("lang")
+        max_files = args.get("max_files") or args.get("max")
+        max_lines = args.get("max_lines")
+        per_file_lines = args.get("per_file_lines") or args.get("per_file")
+        include = args.get("include")
+        exclude = args.get("exclude")
+        tokens = [str(root_path)]
+        if languages:
+            tokens += ["--languages", str(languages)]
+        if max_files is not None:
+            tokens += ["--max-files", str(max_files)]
+        if max_lines is not None:
+            tokens += ["--max-lines", str(max_lines)]
+        if per_file_lines is not None:
+            tokens += ["--per-file-lines", str(per_file_lines)]
+        if include:
+            tokens += ["--include", str(include)]
+        if exclude:
+            tokens += ["--exclude", str(exclude)]
+        return tokens
     if tool == "repo_rg":
         pattern = args.get("pattern") or args.get("query")
         if not pattern:
@@ -663,6 +771,7 @@ def run_tool_plan(
         "repo_read_head",
         "repo_read_tail",
         "repo_diff",
+        "repo_map",
     }
     tools_path = os.path.join(_tools_root(), "tools", "main.py")
 

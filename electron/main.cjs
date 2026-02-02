@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const { randomBytes } = require("crypto");
 const pty = require("node-pty");
 const net = require("net");
@@ -123,10 +123,79 @@ function getFreePort() {
   });
 }
 
+function resolveVenvPython() {
+  const venvRoot = path.join(repoRoot, ".venv");
+  const venvPython = process.platform === "win32"
+    ? path.join(venvRoot, "Scripts", "python.exe")
+    : path.join(venvRoot, "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return { exists: true, pythonPath: venvPython };
+  }
+  return { exists: false, pythonPath: "" };
+}
+
+function checkVenvDependencies(pythonPath) {
+  if (!pythonPath) {
+    return { ok: false, message: "No venv python configured." };
+  }
+  try {
+    const result = spawnSync(pythonPath, ["-m", "pip", "check"], {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    });
+    if (result.status === 0) {
+      return { ok: true, message: "" };
+    }
+    return {
+      ok: false,
+      message: (result.stdout || result.stderr || "").trim(),
+    };
+  } catch (err) {
+    return { ok: false, message: String(err) };
+  }
+}
+
+function ensureVenvNotice() {
+  const venv = resolveVenvPython();
+  if (!venv.exists) {
+    const text = [
+      "Python 虚拟环境未检测到。",
+      "请先运行 setup_venv.bat（Windows）或 setup_venv.sh（macOS/Linux）。",
+    ].join("\n");
+    console.warn(text);
+    dialog.showMessageBoxSync({
+      type: "warning",
+      title: "HarborPilot",
+      message: "缺少 Python 虚拟环境（.venv）",
+      detail: text,
+    });
+    return { pythonPath: "" };
+  }
+  return { pythonPath: venv.pythonPath };
+}
+
 async function startBackend() {
   const port = await getFreePort();
   const token = randomBytes(16).toString("hex");
+  const venv = ensureVenvNotice();
+  if (!process.env.HARBORPILOT_PYTHON && venv.pythonPath) {
+    process.env.HARBORPILOT_PYTHON = venv.pythonPath;
+  }
   const python = process.env.HARBORPILOT_PYTHON || "python";
+  if (venv.pythonPath) {
+    const depCheck = checkVenvDependencies(venv.pythonPath);
+    if (!depCheck.ok) {
+      const detail = depCheck.message || "依赖检测失败，请重新运行 setup_venv。";
+      console.warn(detail);
+      dialog.showMessageBoxSync({
+        type: "warning",
+        title: "HarborPilot",
+        message: "Python 依赖可能不完整",
+        detail,
+      });
+    }
+  }
   const args = [backendScript, "--host", "127.0.0.1", "--port", String(port), "--token", token];
 
   const workspace = process.env.HARBORPILOT_WORKSPACE;

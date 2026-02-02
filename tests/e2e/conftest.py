@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import shutil
+import time
 from pathlib import Path
 from typing import Dict, Any, Generator, Optional
 import pytest
@@ -15,7 +16,7 @@ from unittest.mock import Mock, patch
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from playwright.sync_api import Page, BrowserContext, Browser
+from playwright.sync_api import Page, BrowserContext, Browser, sync_playwright, Playwright
 from loguru import logger
 
 
@@ -81,17 +82,38 @@ def temp_workspace_root(test_config) -> Generator[Path, None, None]:
 # Browser Fixtures
 # ================================
 
+@pytest.fixture(scope="session")
+def playwright() -> Generator[Playwright, None, None]:
+    with sync_playwright() as instance:
+        yield instance
+
+
+@pytest.fixture(scope="session")
+def browser(playwright: Playwright, test_config) -> Generator[Browser, None, None]:
+    browser_name = os.getenv("HARBORPILOT_TEST_BROWSER", "chromium")
+    headless = os.getenv("HARBORPILOT_TEST_HEADLESS", "true").lower() == "true"
+    browser_type = getattr(playwright, browser_name, playwright.chromium)
+    browser = browser_type.launch(headless=headless)
+    yield browser
+    browser.close()
+
+
 @pytest.fixture(scope="function")
-def page(page: Page, test_config) -> Page:
+def context(browser: Browser) -> Generator[BrowserContext, None, None]:
+    context = browser.new_context()
+    yield context
+    context.close()
+
+
+@pytest.fixture(scope="function")
+def page(context: BrowserContext, test_config) -> Generator[Page, None, None]:
     """Configure page with test settings"""
-    # Set default timeout
+    page = context.new_page()
     page.set_default_timeout(test_config["timeout"])
-    
-    # Add error handling
     page.on("pageerror", lambda error: logger.error(f"Page error: {error}"))
     page.on("requestfailed", lambda request: logger.error(f"Request failed: {request.url}"))
-    
-    return page
+    yield page
+    page.close()
 
 
 @pytest.fixture(scope="function")

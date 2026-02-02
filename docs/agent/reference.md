@@ -249,6 +249,7 @@ HarborPilot 内置了 `tools.py` 统一入口。
 | `HARBORPILOT_PM_BACKEND`       | 默认 PM 后端 (`codex`\|`ollama`)                 |
 | `HARBORPILOT_DIRECTOR_MODEL`   | 默认 Director 模型                               |
 | `HARBORPILOT_CONTEXT_ENGINE`   | 上下文引擎版本（`v1` / `v2`）                    |
+| `HARBORPILOT_COST_MODEL`       | Cost model (`LOCAL` / `FIXED` / `METERED`)           |
 | `HARBORPILOT_CONTEXT_SNAPSHOT` | Context 快照开关（`1` 开 / `0` 关）              |
 
 ### 5.3 Context Engine v2 策略字段（policy hints）

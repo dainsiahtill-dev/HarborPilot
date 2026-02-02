@@ -14,6 +14,9 @@ from .treesitter import (
     treesitter_outline, treesitter_find_symbol, treesitter_replace_node,
     treesitter_insert_method, treesitter_rename_symbol
 )
+from .repo_map import repo_map
+from .context_manager import context_manager
+from .cost_router import cost_router
 from .linters import (
     ruff_check, ruff_format, pytest_run, coverage_run, coverage_report,
     mypy_run, jsonschema_validate, pydantic_validate
@@ -79,6 +82,14 @@ def main():
         result = treesitter_insert_method(tool_args, cwd, timeout)
     elif tool_name == "treesitter_rename_symbol":
         result = treesitter_rename_symbol(tool_args, cwd, timeout)
+
+    # Sniper Mode tools
+    elif tool_name == "repo_map":
+        result = repo_map(tool_args, cwd, timeout)
+    elif tool_name == "context_manager":
+        result = context_manager(tool_args, cwd, timeout)
+    elif tool_name == "cost_router":
+        result = cost_router(tool_args, cwd, timeout)
         
     # Linters
     elif tool_name == "ruff_check":

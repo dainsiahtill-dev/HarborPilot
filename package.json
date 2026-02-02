@@ -6,13 +6,13 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --config frontend/vite.config.ts",
-    "dev:electron": "wait-on http://localhost:5173 && electron electron/main.cjs",
+    "dev:electron": "wait-on http://localhost:5173 && node scripts/run-electron.js",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "build": "npm run build:renderer",
     "build:renderer": "vite build --config frontend/vite.config.ts",
-    "start": "electron electron/main.cjs"
+    "start": "node scripts/run-electron.js"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.1.2",

@@ -220,37 +220,22 @@ def get_anthropomorphic_context_v2(
     """
     Context Engine v2 entrypoint (backwards-compatible payload).
     """
-    from context_engine import ContextBudget, ContextEngine, ContextRequest
+    from context_manager import build_context_window
 
     init_anthropomorphic_modules(project_root)
     policy = policy or {}
     persona_text = get_persona_text(role)
-    budget = ContextBudget(
-        max_tokens=int(policy.get("max_tokens", 0) or 0),
-        max_chars=int(policy.get("max_chars", 0) or 0),
-        cost_class=str(policy.get("cost_class", "LOCAL") or "LOCAL"),
-    )
-    role_key = role.lower().strip()
-    if not sources_enabled:
-        if role_key in ("director", "qa"):
-            sources_enabled = ["docs", "contract", "memory", "events", "repo_evidence"]
-        elif role_key == "pm":
-            sources_enabled = ["docs", "contract", "memory"]
-        else:
-            sources_enabled = ["docs", "contract"]
-    request = ContextRequest(
-        run_id=run_id,
-        step=step,
-        role=role,
-        mode=phase,
-        query=query,
-        budget=budget,
+    pack, _, _, _ = build_context_window(
+        project_root,
+        role,
+        query,
+        step,
+        run_id,
+        phase,
+        events_path=events_path or "",
         sources_enabled=sources_enabled,
         policy=policy,
-        events_path=events_path or "",
     )
-    engine = ContextEngine(project_root)
-    pack = engine.build_context(request)
 
     prompt_context = PromptContext(
         run_id=run_id,

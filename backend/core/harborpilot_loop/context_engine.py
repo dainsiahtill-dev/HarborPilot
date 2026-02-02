@@ -20,6 +20,7 @@ from io_utils import (
     write_text_atomic,
 )
 from anthropomorphic.memory_store import MemoryStore, _has_refs
+from repo_map import build_repo_map
 
 
 def _utc_now() -> datetime:
@@ -365,6 +366,54 @@ class RepoEvidenceProvider(BaseProvider):
         return items
 
 
+class RepoMapProvider(BaseProvider):
+    name = "repo_map"
+
+    def collect_items(self, request: ContextRequest) -> List[ContextItem]:
+        policy = request.policy or {}
+        languages = policy.get("repo_map_languages")
+        if isinstance(languages, str):
+            languages = [part.strip() for part in languages.split(",") if part.strip()]
+        max_files = int(policy.get("repo_map_max_files", 200) or 200)
+        max_lines = int(policy.get("repo_map_max_lines", 200) or 200)
+        per_file_lines = int(policy.get("repo_map_per_file_lines", 12) or 12)
+        include_glob = policy.get("repo_map_include")
+        exclude_glob = policy.get("repo_map_exclude")
+        max_chars = int(policy.get("repo_map_max_chars", 0) or 0)
+        repo_map = build_repo_map(
+            self.project_root,
+            languages=languages if isinstance(languages, list) else None,
+            max_files=max_files,
+            max_lines=max_lines,
+            per_file_lines=per_file_lines,
+            include_glob=include_glob if isinstance(include_glob, str) else None,
+            exclude_glob=exclude_glob if isinstance(exclude_glob, str) else None,
+        )
+        text = repo_map.get("text") or ""
+        if not text:
+            return []
+        if max_chars > 0 and len(text) > max_chars:
+            text = text[:max_chars] + "...[truncated]"
+        refs = dict(repo_map.get("stats") or {})
+        refs.update(
+            {
+                "path": "<repo_map>",
+                "languages": repo_map.get("languages"),
+                "truncated": repo_map.get("truncated", False),
+            }
+        )
+        item = ContextItem(
+            kind="repo_map",
+            content_or_pointer=text,
+            refs=refs,
+            size_est=_estimate_tokens(text),
+            priority=int(policy.get("repo_map_priority", 8) or 8),
+            reason="Repository skeleton map",
+            provider=self.name,
+        )
+        return [item]
+
+
 class ContextEngine:
     def __init__(self, project_root: str, *, cache: Optional[ContextCache] = None) -> None:
         self.project_root = project_root
@@ -375,6 +424,7 @@ class ContextEngine:
             MemoryProvider.name: MemoryProvider(project_root),
             EventsProvider.name: EventsProvider(project_root),
             RepoEvidenceProvider.name: RepoEvidenceProvider(project_root),
+            RepoMapProvider.name: RepoMapProvider(project_root),
         }
 
     def build_context(self, request: ContextRequest) -> ContextPack:

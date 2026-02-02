@@ -127,6 +127,18 @@ HarborPilot 是一款**单人工具**：
 
 ## 🚀 快速开始
 
+### 0️⃣ Python 虚拟环境（推荐）
+
+```bash
+# Windows
+setup_venv.bat
+
+# macOS / Linux
+bash setup_venv.sh
+```
+
+> 如果启动时提示缺少 .venv，请先执行上述脚本。
+
 ### 1️⃣ 启动 Dashboard（推荐）
 
 ```bash
@@ -153,11 +165,19 @@ npm run build
 
 ```bash
 # PM：生成任务合约
-python backend/scripts/loop-pm.py --workspace /path/to/repo
+.venv/bin/python backend/scripts/loop-pm.py --workspace /path/to/repo
 
 # Director：执行任务
-python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
+.venv/bin/python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
 ```
+
+> Windows 请使用 `.venv\\Scripts\\python.exe`。
+
+### 🧰 故障排除（虚拟环境）
+
+- 启动时提示缺少 `.venv`：先运行 `setup_venv.bat` / `setup_venv.sh`
+- 依赖不完整警告：重新执行脚本以补装依赖
+- 想使用系统 Python：设置 `HARBORPILOT_PYTHON` 指向自定义解释器
 
 ---
 
