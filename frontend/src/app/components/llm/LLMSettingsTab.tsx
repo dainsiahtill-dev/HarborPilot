@@ -1,12 +1,49 @@
 import { Loader2, CheckCircle2, AlertTriangle, Plus, PlayCircle, Save } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SimpleModelCard, SimpleProvider, ProviderKind } from './SimpleModelCard';
 import { SimpleRoleCard, SimpleRole } from './SimpleRoleCard';
 
+interface LlmProviderConfig {
+  type?: string;
+  name?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  base_url?: string;
+  api_key_ref?: string;
+  list_args?: string[];
+  tui_args?: string[];
+  output_path?: string;
+  timeout?: number;
+  retries?: number;
+  api_path?: string;
+  models_path?: string;
+  headers?: Record<string, string>;
+  temperature?: number;
+}
+
+interface LlmRoleConfig {
+  provider_id?: string;
+  model?: string;
+  profile?: string;
+}
+
+interface LlmStatusRole {
+  provider_id?: string;
+  model?: string;
+  profile?: string;
+  ready?: boolean;
+  grade?: string;
+  last_run_id?: string | null;
+  timestamp?: string | null;
+  suites?: Record<string, unknown> | null;
+  runtime_supported?: boolean;
+}
+
 interface LlmConfig {
   schema_version: number;
-  providers: Record<string, any>;
-  roles: Record<string, any>;
+  providers: Record<string, LlmProviderConfig>;
+  roles: Record<string, LlmRoleConfig>;
   policies?: {
     required_ready_roles?: string[];
     test_required_suites?: string[];
@@ -18,7 +55,7 @@ interface LlmStatus {
   required_ready_roles: string[];
   blocked_roles: string[];
   unsupported_roles: string[];
-  roles: Record<string, any>;
+  roles: Record<string, LlmStatusRole>;
 }
 
 interface LLMSettingsTabProps {
@@ -114,7 +151,7 @@ export function LLMSettingsTabSimplified({
   });
 
   // Convert legacy config to simplified format
-  useState(() => {
+  useEffect(() => {
     if (llmConfig) {
       const convertedProviders: SimpleProvider[] = Object.entries(llmConfig.providers || {}).map(([id, config]) => ({
         id,
@@ -140,7 +177,7 @@ export function LLMSettingsTabSimplified({
       setProviders(convertedProviders);
       setRoles(convertedRoles);
     }
-  });
+  }, [llmConfig]);
 
   const handleAddProvider = () => {
     if (!newProvider.id.trim() || !newProvider.name.trim()) return;

@@ -1,7 +1,31 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Action/Observation Event",
+  "description": "Append-only event record for actions or observations (event sourcing).",
   "type": "object",
+  "examples": [
+    {
+      "schema_version": 1,
+      "ts": "2026-02-02T12:00:10Z",
+      "ts_epoch": 1738497610.0,
+      "seq": 123,
+      "event_id": "6b3df42e-5d70-4b3b-8b40-2b6f1a7a91e1",
+      "kind": "observation",
+      "actor": "Director",
+      "name": "tool.exec",
+      "summary": "Ran ripgrep to locate invariant references",
+      "refs": {
+        "task_id": "task-001",
+        "run_id": "pm-2026-02-02-0001",
+        "phase": "execute",
+        "files": ["docs/agent/invariants.md"]
+      },
+      "ok": true,
+      "output": {
+        "exit_code": 0
+      }
+    }
+  ],
   "required": [
     "schema_version",
     "ts",
@@ -15,29 +39,35 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Schema version (fixed)."
     },
     "ts": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "UTC timestamp for the event."
     },
     "ts_epoch": {
-      "type": "number"
+      "type": "number",
+      "description": "Epoch seconds for quick sorting."
     },
     "seq": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "description": "Monotonic sequence id within events.jsonl."
     },
     "event_id": {
       "type": "string",
-      "format": "uuid"
+      "format": "uuid",
+      "description": "Unique event identifier."
     },
     "kind": {
       "type": "string",
       "enum": [
         "action",
         "observation"
-      ]
+      ],
+      "description": "Action emits input; observation emits output/ok."
     },
     "actor": {
       "type": "string",
@@ -48,13 +78,17 @@
         "QA",
         "System",
         "Tooling"
-      ]
+      ],
+      "description": "Originating role or subsystem."
     },
     "name": {
-      "type": "string"
+      "type": "string",
+      "description": "Event name or tool identifier.",
+      "examples": ["tool.exec", "invariant.check"]
     },
     "refs": {
       "type": "object",
+      "description": "Cross-links to tasks, runs, phases, and evidence.",
       "properties": {
         "task_id": {
           "type": ["string", "null"]
@@ -89,10 +123,12 @@
       }
     },
     "summary": {
-      "type": "string"
+      "type": "string",
+      "description": "Short human-readable summary."
     },
     "meta": {
-      "type": "object"
+      "type": "object",
+      "description": "Additional metadata for diagnostics or UI."
     },
     "input": {
       "type": "object",
@@ -108,6 +144,7 @@
     },
     "truncation": {
       "type": "object",
+      "description": "Truncation metadata when payloads are trimmed.",
       "properties": {
         "truncated": {
           "type": "boolean"
@@ -130,10 +167,12 @@
       }
     },
     "duration_ms": {
-      "type": ["integer", "null"]
+      "type": ["integer", "null"],
+      "description": "Duration in milliseconds, if applicable."
     },
     "error": {
-      "type": ["string", "null"]
+      "type": ["string", "null"],
+      "description": "Error message if ok=false or exception occurred."
     }
   }
 }

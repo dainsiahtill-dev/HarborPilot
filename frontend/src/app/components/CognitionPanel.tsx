@@ -18,8 +18,24 @@ interface PromptContextObj {
     strategy?: string;
 }
 
+interface CognitionEvent {
+    id?: string | number;
+    type?: string;
+    kind?: string;
+    name?: string;
+    output?: unknown;
+    content?: unknown;
+    timestamp?: string;
+}
+
+interface ReflectionItem {
+    text?: string;
+    scope?: string[];
+    confidence?: number;
+}
+
 interface CognitionPanelProps {
-    events: any[]; // Stream of raw events to filter
+    events: CognitionEvent[]; // Stream of raw events to filter
     loading?: boolean;
     anthroState?: AnthroState | null;
 }
@@ -144,9 +160,11 @@ export function CognitionPanel({ events, loading, anthroState }: CognitionPanelP
                                 </div>
                             ) : (
                                 recallEvents.map((event, idx) => {
-                                    const ctx = (event.output || event.content || {}) as PromptContextObj;
+                                    const rawContext = event.output ?? event.content;
+                                    const ctx = isPromptContextObj(rawContext) ? rawContext : null;
+                                    if (!ctx) return null;
                                     return (
-                                        <RecallCard key={event.id || idx} context={ctx} timestamp={event.timestamp} />
+                                        <RecallCard key={String(event.id ?? idx)} context={ctx} timestamp={event.timestamp} />
                                     );
                                 })
                             )}
@@ -168,9 +186,10 @@ export function CognitionPanel({ events, loading, anthroState }: CognitionPanelP
                                 </div>
                             ) : (
                                 reflectionEvents.map((event, idx) => {
-                                    const items = (Array.isArray(event.output) ? event.output : [event.output]);
-                                    return items.map((item: any, subIdx: number) => (
-                                        <ReflectionCard key={`${event.id}-${subIdx}`} reflection={item} />
+                                    const rawItems = Array.isArray(event.output) ? event.output : event.output ? [event.output] : [];
+                                    const items = rawItems.filter(isReflectionItem);
+                                    return items.map((item, subIdx: number) => (
+                                        <ReflectionCard key={`${String(event.id ?? idx)}-${subIdx}`} reflection={item} />
                                     ));
                                 })
                             )}
@@ -291,7 +310,19 @@ function RecallCard({ context, timestamp }: { context: PromptContextObj; timesta
     );
 }
 
-function ReflectionCard({ reflection }: { reflection: any }) {
+function isPromptContextObj(value: unknown): value is PromptContextObj {
+    if (!value || typeof value !== 'object') return false;
+    const ctx = value as PromptContextObj;
+    return typeof ctx.run_id === 'string' && ctx.run_id.length > 0 && typeof ctx.step === 'number';
+}
+
+function isReflectionItem(value: unknown): value is ReflectionItem {
+    if (!value || typeof value !== 'object') return false;
+    const item = value as ReflectionItem;
+    return typeof item.text === 'string' && item.text.length > 0;
+}
+
+function ReflectionCard({ reflection }: { reflection: ReflectionItem }) {
     return (
         <motion.div
             initial={{ scale: 0.95, opacity: 0 }}

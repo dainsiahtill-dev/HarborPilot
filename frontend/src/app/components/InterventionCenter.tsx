@@ -22,7 +22,7 @@ export interface Intervention {
   description: string;
   created_at: string;
   updated_at?: string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   actions?: Array<{
     label: string;
     value: string;

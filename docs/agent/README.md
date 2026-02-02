@@ -25,10 +25,21 @@
 
 ---
 
+## AI Agent Quick Context
+
+- `.ai-agent/context.json` (machine-readable core context)
+- `.ai-agent/project_context.md` (human-friendly overview)
+- `.ai-agent/project_map.xml` (compressed navigation map)
+- `.ai-agent/best_practices.md` (AI do/don't)
+- `.ai-agent/templates/` (refactor / new_feature / bug_fix templates)
+
+---
+
 ## 🔍 快速入口
 
 - 项目总览：[`../../README.md`](../../README.md)
 - 文档入口：[`../README.md`](../README.md)
+- AI agent context：`.ai-agent/context.json`
 - Context Engine v2：[`architecture.md#3-上下文引擎-context-engine-v2`](architecture.md#3-上下文引擎-context-engine-v2)
 
 ---
@@ -51,4 +62,3 @@
 | 日期       | 更新内容 |
 | ---------- | -------- |
 | 2026-02-02 | 重构为人类/Agent 双入口文档结构 |
-

@@ -108,7 +108,7 @@ interface LlmStatus {
       grade?: string;
       last_run_id?: string | null;
       timestamp?: string | null;
-      suites?: any;
+      suites?: Record<string, unknown> | null;
       runtime_supported?: boolean;
     }
   >;
@@ -159,7 +159,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [providerJsonDrafts, setProviderJsonDrafts] = useState<Record<string, { env: string; headers: string }>>({});
   const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, string>>({});
-  const [reportDrawer, setReportDrawer] = useState<{ open: boolean; data: any | null }>({ open: false, data: null });
+  const [reportDrawer, setReportDrawer] = useState<{ open: boolean; data: unknown | null }>({ open: false, data: null });
   const [testSuites, setTestSuites] = useState({ connectivity: true, response: true, qualification: true });
   const [testLevel, setTestLevel] = useState<'quick' | 'full'>('quick');
   const [runAllBusy, setRunAllBusy] = useState(false);
@@ -466,8 +466,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     if (!res.ok) {
       return;
     }
-    const payload = await res.json();
-    const models = Array.isArray(payload.models) ? payload.models.map((m: any) => m.id || m) : [];
+    const payload = (await res.json()) as { supported?: boolean; models?: Array<string | { id?: string }> };
+    const rawModels = Array.isArray(payload.models) ? payload.models : [];
+    const models = rawModels
+      .map((model) => (typeof model === 'string' ? model : model?.id))
+      .filter((modelId): modelId is string => typeof modelId === 'string' && modelId.length > 0);
     setProviderModels((prev) => ({ ...prev, [providerId]: { supported: !!payload.supported, models } }));
   };
 

@@ -254,7 +254,12 @@ export function LogViewer({ sourceId, runId, className }: LogViewerProps) {
                 <select 
                     className="bg-black/20 border border-white/5 rounded px-2 py-1 text-[10px] text-gray-300 focus:outline-none"
                     value={filter}
-                    onChange={e => setFilter(e.target.value as any)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === 'all' || next === 'error' || next === 'exec' || next === 'tool') {
+                        setFilter(next);
+                      }
+                    }}
                 >
                     <option value="all">All Events</option>
                     <option value="error">Errors Only</option>
@@ -292,11 +297,11 @@ export function LogViewer({ sourceId, runId, className }: LogViewerProps) {
                                     event.kind === 'exec' ? 'text-blue-400' : 
                                     event.kind === 'tool' ? 'text-emerald-400' : 'text-gray-500'
                                 }`}>{event.kind}</span>
-                                {event.kind === 'role' && <RoleBadge role={(event as any).role} />}
+                                {event.kind === 'role' && <RoleBadge role={event.role} />}
                             </div>
                             <div className="text-gray-300 break-words whitespace-pre-wrap">
-                                {event.kind === 'text' ? (event as any).text : 
-                                 event.kind === 'exec' ? (event as any).cmd :
+                                {event.kind === 'text' ? event.text : 
+                                 event.kind === 'exec' ? event.cmd :
                                  JSON.stringify(event, (k, v) => k === 'kind' || k === 'id' ? undefined : v, 2)}
                             </div>
                         </div>

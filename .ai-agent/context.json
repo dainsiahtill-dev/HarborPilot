@@ -1,0 +1,67 @@
+{
+  "project_name": "HarborPilot",
+  "tagline": "Local-first, fixed-cost, unattended automation programming command center",
+  "core_philosophy": [
+    "Local-first inference",
+    "Fixed-cost channels (CLI subscriptions)",
+    "Long-running unattended operation",
+    "Read-only mission control UI",
+    "Event-sourced traceability"
+  ],
+  "invariants": [
+    "Contract immutable: PM_TASKS.json goal/acceptance_criteria cannot be modified by execution; only evidence appended.",
+    "Events append-only: events.jsonl must never be rewritten or truncated.",
+    "Run id globally unique across artifacts and references.",
+    "UI is read-only for execution decisions; execution happens in loops.",
+    "Replayable: events + trajectory + artifacts reconstruct runs.",
+    "Failure traceable (3 hops): Phase -> Evidence -> Tool Output.",
+    "Atomic writes for critical state files (write tmp then rename).",
+    "Memory/reflection must be evidence-backed (refs)."
+  ],
+  "critical_paths": {
+    "pm_loop": "backend/scripts/loop-pm.py",
+    "director_loop": "backend/scripts/loop-director.py",
+    "invariant_sentinel": "backend/core/harborpilot_loop/invariant_sentinel.py",
+    "context_engine": "backend/core/harborpilot_loop/context_engine.py"
+  },
+  "entrypoints": {
+    "backend_api": "backend/app/main.py",
+    "frontend_app": "frontend/src/app/App.tsx",
+    "electron_main": "electron/main.cjs"
+  },
+  "schemas": {
+    "pm_tasks": "schema/pm_tasks.schema.json",
+    "director_result": "schema/director_result.schema.json",
+    "event": "schema/event.schema.json",
+    "trajectory": "schema/trajectory.schema.json",
+    "interventions": "schema/interventions.schema.json"
+  },
+  "artifacts": {
+    "pm_tasks": ".harborpilot/runtime/PM_TASKS.json",
+    "plan": ".harborpilot/runtime/PLAN.md",
+    "director_result": ".harborpilot/runtime/DIRECTOR_RESULT.json",
+    "qa_response": ".harborpilot/runtime/QA_RESPONSE.md",
+    "runlog": ".harborpilot/runtime/RUNLOG.md",
+    "dialogue": ".harborpilot/runtime/DIALOGUE.jsonl",
+    "events": ".harborpilot/runtime/events.jsonl",
+    "trajectory": ".harborpilot/runtime/trajectory.json",
+    "memory_state": ".harborpilot/runtime/memory/last_state.json"
+  },
+  "tech_stack": {
+    "backend": "Python 3.10+, FastAPI",
+    "frontend": "React + TypeScript + Vite",
+    "desktop": "Electron",
+    "llm_channels": "Local (Ollama) + CLI subscription + OpenAI-compatible HTTPS"
+  },
+  "tests": {
+    "python": "pytest",
+    "frontend": "vitest"
+  },
+  "docs": {
+    "agent_readme": "docs/agent/README.md",
+    "invariants": "docs/agent/invariants.md",
+    "architecture": "docs/agent/architecture.md",
+    "reference": "docs/agent/reference.md",
+    "human_readme": "docs/human/README.md"
+  }
+}

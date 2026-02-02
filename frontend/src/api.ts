@@ -5,6 +5,15 @@ export type BackendInfo = {
   pid: number | null;
 };
 
+type DevBackendInfo = {
+  baseUrl?: string;
+  token?: string;
+};
+
+type WindowWithDevBackend = Window & {
+  __DEV_BACKEND__?: DevBackendInfo;
+};
+
 let cachedInfo: BackendInfo | null = null;
 
 export async function getBackendInfo(): Promise<BackendInfo> {
@@ -12,13 +21,13 @@ export async function getBackendInfo(): Promise<BackendInfo> {
     return cachedInfo;
   }
   if (!window.harborpilot?.getBackendInfo) {
-    const anyWindow = window as any;
+    const devBackend = (window as WindowWithDevBackend).__DEV_BACKEND__;
     const fallbackBase =
-      (anyWindow.__DEV_BACKEND__ && anyWindow.__DEV_BACKEND__.baseUrl) ||
+      devBackend?.baseUrl ||
       localStorage.getItem("harborpilot.baseUrl") ||
       "http://127.0.0.1:49977";
     const fallbackToken =
-      (anyWindow.__DEV_BACKEND__ && anyWindow.__DEV_BACKEND__.token) ||
+      devBackend?.token ||
       localStorage.getItem("harborpilot.token") ||
       null;
     const info: BackendInfo = {

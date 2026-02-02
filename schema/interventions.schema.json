@@ -3,6 +3,28 @@
   "title": "Intervention Hub Schema",
   "description": "Schema for the INTERVENTIONS.json file used by the Intervention Hub",
   "type": "object",
+  "examples": [
+    {
+      "version": 1,
+      "interventions": [
+        {
+          "id": "c3fce34a-22f4-4bde-8db5-8a7c43c63f1f",
+          "type": "manual_approval",
+          "status": "pending",
+          "title": "Approve dependency install",
+          "description": "Approve installing npm dependencies for UI build.",
+          "created_at": "2026-02-02T12:05:00Z",
+          "context": {
+            "workspace": "C:/repo/HarborPilot"
+          },
+          "actions": [
+            { "label": "Approve", "value": "approve", "style": "primary" },
+            { "label": "Reject", "value": "reject", "style": "danger" }
+          ]
+        }
+      ]
+    }
+  ],
   "properties": {
     "version": {
       "type": "integer",

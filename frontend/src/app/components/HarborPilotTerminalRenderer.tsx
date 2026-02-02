@@ -51,8 +51,8 @@ const TAG_LINE_RE = /^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/;
 function safeJsonParse(raw: string): { value?: unknown; error?: string } {
   try {
     return { value: JSON.parse(raw) };
-  } catch (e: any) {
-    return { error: e?.message ?? String(e) };
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
   }
 }
 

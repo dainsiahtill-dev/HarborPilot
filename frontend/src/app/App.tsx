@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
 import { LivingBackground } from '@/app/components/LivingBackground';
 import { UsageHUD, type UsageStats } from '@/app/components/UsageHUD';
+import type { PmTask } from '@/types/task';
 
 // Lazy Loaded Components
 const ProcessMonitorSidebar = lazy(() => import('./components/ProcessMonitorSidebar').then(module => ({ default: module.ProcessMonitorSidebar })));
@@ -109,7 +110,7 @@ interface LlmStatus {
       grade?: string;
       last_run_id?: string | null;
       timestamp?: string | null;
-      suites?: any;
+      suites?: Record<string, unknown> | null;
       runtime_supported?: boolean;
     }
   >;
@@ -199,26 +200,33 @@ function appendLiveContent(prev: string, incoming: string, maxLines = 2000) {
   return lines.slice(-maxLines).join('\n');
 }
 
-function normalizeDialogueEvent(raw: Record<string, any>): DialogueEvent | null {
+function normalizeDialogueEvent(raw: Record<string, unknown>): DialogueEvent | null {
   if (!raw) return null;
-  const eventId = String(raw.event_id || '').trim();
-  const rawSpeaker = String(raw.speaker || 'System');
+  const eventId = String(raw.event_id ?? '').trim();
+  const rawSpeakerValue = raw.speaker ?? 'System';
+  const rawSpeaker = typeof rawSpeakerValue === 'string' ? rawSpeakerValue : String(rawSpeakerValue);
   const speaker = ['PM', 'Director', 'QA', 'Reviewer', 'System'].includes(rawSpeaker)
     ? (rawSpeaker as DialogueEvent['speaker'])
     : 'System';
-  const content = String(raw.text || raw.summary || raw.content || '').trim();
-  let timestamp = String(raw.timestamp || raw.ts || raw.time || '').trim();
+  const content = String(raw.text ?? raw.summary ?? raw.content ?? '').trim();
+  let timestamp = String(raw.timestamp ?? raw.ts ?? raw.time ?? '').trim();
   if (timestamp.includes('T')) {
     timestamp = timestamp.split('T')[1].replace('Z', '');
   }
+  const seq = typeof raw.seq === 'number' ? raw.seq : undefined;
+  const type = typeof raw.type === 'string' ? raw.type : undefined;
+  const refs =
+    raw.refs && typeof raw.refs === 'object'
+      ? (raw.refs as DialogueEvent['refs'])
+      : undefined;
   return {
-    seq: raw.seq,
+    seq,
     eventId: eventId || undefined,
     speaker,
-    type: raw.type,
+    type,
     content: content || '(empty)',
     timestamp,
-    refs: raw.refs,
+    refs,
   };
 }
 
@@ -494,7 +502,7 @@ export default function App() {
       if (!res.ok) return;
       const payload = (await res.json()) as FilePayload;
       if (!payload.content) return;
-      let parsed: any = null;
+      let parsed: unknown = null;
       try {
         parsed = JSON.parse(payload.content);
       } catch {
@@ -503,21 +511,27 @@ export default function App() {
       let successes = 0;
       let total = 0;
       let rate: number | undefined = undefined;
-      if (typeof parsed.successes === 'number') successes = parsed.successes;
-      if (typeof parsed.total === 'number') total = parsed.total;
-      if (typeof parsed.success_rate === 'number') rate = parsed.success_rate;
-      if (Array.isArray(parsed.results)) {
-        total = parsed.results.length;
-        successes = parsed.results.filter((r: any) => String(r?.status || '').toLowerCase() === 'success').length;
+      if (parsed && typeof parsed === 'object') {
+        const parsedObj = parsed as Record<string, unknown>;
+        if (typeof parsedObj.successes === 'number') successes = parsedObj.successes;
+        if (typeof parsedObj.total === 'number') total = parsedObj.total;
+        if (typeof parsedObj.success_rate === 'number') rate = parsedObj.success_rate;
+        if (Array.isArray(parsedObj.results)) {
+          total = parsedObj.results.length;
+          successes = parsedObj.results.filter((result) => {
+            if (!result || typeof result !== 'object') return false;
+            const status = (result as { status?: unknown }).status;
+            return typeof status === 'string' && status.toLowerCase() === 'success';
+          }).length;
+        }
+        if (parsedObj.usage_summary && typeof parsedObj.usage_summary === 'object') {
+          setUsageStats(parsedObj.usage_summary as UsageStats);
+        }
       }
       if (total > 0 && rate === undefined) {
         rate = successes / total;
       }
       setSuccessStats({ successes, total, rate });
-      
-      if (parsed.usage_summary) {
-        setUsageStats(parsed.usage_summary);
-      }
     } catch {
       setSuccessStats({});
       setUsageStats(null);
@@ -665,7 +679,7 @@ export default function App() {
       setIsPlanDialogOpen(false);
       return;
     }
-    const state = snapshot?.pm_state as Record<string, any> | undefined;
+    const state = snapshot?.pm_state;
     const code = String(state?.last_director_error_code || '');
     if (code === 'PLAN_MISSING') {
       const detail = String(state?.last_director_error_detail || 'PLAN.md missing.');
@@ -974,14 +988,16 @@ export default function App() {
           const payload = (await res.json()) as FilePayload;
           if (controller.signal.aborted) return;
           if (!payload.content) return;
-          let parsed: any = null;
+          let parsed: unknown = null;
           try {
             parsed = JSON.parse(payload.content);
           } catch {
             return;
           }
-          const status = String(parsed?.status || '').trim().toUpperCase();
-          const acceptance = parsed?.acceptance;
+          if (!parsed || typeof parsed !== 'object') return;
+          const parsedObj = parsed as Record<string, unknown>;
+          const status = typeof parsedObj.status === 'string' ? parsedObj.status.trim().toUpperCase() : '';
+          const acceptance = parsedObj.acceptance;
           if (controller.signal.aborted) return;
           if (acceptance === true || status === 'SUCCESS') {
             setFileBadge({ text: '✓ PASSED', tone: 'green' });
@@ -1550,13 +1566,13 @@ export default function App() {
   };
 
   const pmIteration = useMemo(() => {
-    const state = snapshot?.pm_state as Record<string, any> | undefined;
+    const state = snapshot?.pm_state;
     if (!state) return null;
     return typeof state.pm_iteration === 'number' ? state.pm_iteration : null;
   }, [snapshot]);
 
   const pmFailures = useMemo(() => {
-    const state = snapshot?.pm_state as Record<string, any> | undefined;
+    const state = snapshot?.pm_state;
     if (!state) return null;
     return typeof state.consecutive_failures === 'number' ? state.consecutive_failures : null;
   }, [snapshot]);
@@ -1587,7 +1603,8 @@ export default function App() {
   }, [agentsDraftContent, agentsReview?.draft_failed]);
 
   const snapshotTasks = useMemo(() => {
-    return Array.isArray(snapshot?.tasks) ? snapshot?.tasks : null;
+    if (!Array.isArray(snapshot?.tasks)) return [];
+    return snapshot.tasks.filter((task): task is PmTask => Boolean(task && typeof task === 'object'));
   }, [snapshot]);
 
   const handleRefresh = () => {
@@ -1845,7 +1862,7 @@ export default function App() {
             {/* Gradient overlay for depth */}
             <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
             <ProjectProgressPanel
-              tasks={(snapshotTasks as any[]) || []}
+              tasks={snapshotTasks}
               pmState={snapshot?.pm_state ?? null}
               focus={snapshot?.focus ?? null}
               notes={snapshot?.notes ?? null}

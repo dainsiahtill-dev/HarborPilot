@@ -31,7 +31,14 @@ interface ContextSidebarProps {
     showCognition: boolean;
     setShowCognition: (show: boolean) => void;
     settingsShowMemory: boolean;
-    anthroState?: any | null;
+    anthroState?: AnthroState | null;
+}
+
+interface AnthroState {
+    last_reflection_step: number;
+    recent_error_count: number;
+    total_memories: number;
+    total_reflections: number;
 }
 
 export function ContextSidebar({

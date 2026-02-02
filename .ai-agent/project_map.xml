@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="HarborPilot">
+  <module name="backend" path="backend">
+    <entry path="backend/app/main.py" desc="FastAPI app factory and router wiring" />
+    <entry path="backend/app/routers" desc="HTTP API surface (pm, director, llm, files, history, websocket)" />
+    <entry path="backend/app/services" desc="Backend services for process, artifacts, LLM tests, memos" />
+  </module>
+  <module name="loops" path="backend/scripts">
+    <entry path="backend/scripts/loop-pm.py" desc="PM loop: planning -> PM_TASKS.json contract" />
+    <entry path="backend/scripts/loop-director.py" desc="Director loop: execute contract, QA, results" />
+  </module>
+  <module name="core_loop" path="backend/core/harborpilot_loop">
+    <entry path="backend/core/harborpilot_loop/context_engine.py" desc="Context assembly and retrieval" />
+    <entry path="backend/core/harborpilot_loop/invariant_sentinel.py" desc="Invariant enforcement" />
+    <entry path="backend/core/harborpilot_loop/io_utils.py" desc="Atomic IO + artifact resolution" />
+  </module>
+  <module name="frontend" path="frontend/src">
+    <entry path="frontend/src/app/App.tsx" desc="Primary UI composition" />
+    <entry path="frontend/src/app/components" desc="UI components (panels, modals, logs)" />
+    <entry path="frontend/src/types" desc="Shared UI types" />
+  </module>
+  <module name="electron" path="electron">
+    <entry path="electron/main.cjs" desc="Desktop shell + preload wiring" />
+  </module>
+  <module name="schemas" path="schema">
+    <entry path="schema/pm_tasks.schema.json" desc="PM contract schema" />
+    <entry path="schema/director_result.schema.json" desc="Director result schema" />
+    <entry path="schema/event.schema.json" desc="Event log schema" />
+    <entry path="schema/trajectory.schema.json" desc="Trajectory index schema" />
+  </module>
+  <module name="docs" path="docs">
+    <entry path="docs/agent/README.md" desc="Agent-facing entry doc" />
+    <entry path="docs/agent/invariants.md" desc="System invariants" />
+    <entry path="docs/agent/architecture.md" desc="Architecture overview" />
+    <entry path="docs/agent/reference.md" desc="Artifact/index reference" />
+  </module>
+</project>

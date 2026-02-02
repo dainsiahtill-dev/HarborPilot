@@ -1,10 +1,12 @@
 import { FileJson, FileText, MessageSquare, Activity, Folder, ChevronDown, ChevronRight, History } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ComponentType, type SVGProps } from 'react';
 
-interface ArtifactItem {
+type IconType = ComponentType<SVGProps<SVGSVGElement>>;
+
+export interface ArtifactItem {
   id: string;
   name: string;
-  icon: any;
+  icon: IconType;
   path: string;
   badge?: string;
 }

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { FileJson, Terminal, Activity, Folder, TrendingUp, PieChart } from 'lucide-react';
 import { LogViewer } from './LogViewer';
-import { ArtifactsSidebar } from './ArtifactsSidebar';
+import { ArtifactsSidebar, type ArtifactItem } from './ArtifactsSidebar';
 import type { UsageStats } from './UsageHUD';
 
 interface ProcessMonitorSidebarProps {
-  onFileSelect: (file: any) => void;
+  onFileSelect: (file: ArtifactItem) => void;
   selectedFileId: string | null;
   onOpenWorkspace?: () => void;
   onOpenHistory?: () => void;
