@@ -79,6 +79,8 @@ class SettingsUpdate(BaseModel):
     refresh_interval: Optional[int] = None
     auto_refresh: Optional[bool] = None
     show_memory: Optional[bool] = None
+    io_fsync_mode: Optional[str] = None
+    memory_refs_mode: Optional[str] = None
     prompt_profile: Optional[str] = None
     ramdisk_root: Optional[str] = None
     json_log_path: Optional[str] = None
@@ -113,6 +115,8 @@ class Settings(BaseModel):
     refresh_interval: int = 3
     auto_refresh: bool = True
     show_memory: bool = False
+    io_fsync_mode: str = "strict"
+    memory_refs_mode: str = "soft"
     prompt_profile: str = "demo_ming_armada"
     ramdisk_root: str = DEFAULT_RAMDISK_ROOT
     json_log_path: str = DEFAULT_PM_LOG

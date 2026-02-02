@@ -2,7 +2,7 @@ import json
 import math
 import os
 from datetime import datetime
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 from pydantic import ValidationError
 
 from .schema import MemoryItem
@@ -16,6 +16,33 @@ except ImportError:
 from ollama_utils import get_embedding
 
 EMBEDDING_MODEL = os.environ.get("HARBORPILOT_EMBEDDING_MODEL", "nomic-embed-text")
+_MEMORY_REFS_MODE_ENV = "HARBORPILOT_MEMORY_REFS_MODE"
+
+def _memory_refs_mode() -> str:
+    raw = os.environ.get(_MEMORY_REFS_MODE_ENV, "soft").strip().lower()
+    if raw in ("off", "disabled", "none", "0", "false", "no"):
+        return "off"
+    if raw in ("strict", "soft"):
+        return raw
+    return "soft"
+
+def _has_refs(context: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(context, dict):
+        return False
+    run_id = str(context.get("run_id") or "").strip()
+    if not run_id:
+        return False
+    ref_keys = ("event_seq", "event_id", "artifact", "artifact_path", "code_ref", "file_path", "path")
+    for key in ref_keys:
+        value = context.get(key)
+        if value:
+            return True
+    nested = context.get("refs")
+    if isinstance(nested, dict):
+        for key in ref_keys:
+            if nested.get(key):
+                return True
+    return False
 
 
 class MemoryStore:
@@ -56,6 +83,17 @@ class MemoryStore:
 
     def append(self, item: MemoryItem):
         """Appends a memory item to the store and file."""
+        mode = _memory_refs_mode()
+        if mode != "off":
+            has_refs = _has_refs(item.context)
+            if mode == "strict" and not has_refs:
+                print("[memory] Skipping item without evidence refs (strict mode).")
+                return
+            if mode == "soft" and not has_refs:
+                context = dict(item.context or {})
+                context.setdefault("refs_missing", True)
+                context.setdefault("refs_mode", "soft")
+                item.context = context
         self.memories.append(item)
         
         # Ensure directory exists

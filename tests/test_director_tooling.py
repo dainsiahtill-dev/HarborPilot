@@ -50,7 +50,7 @@ class TestDirectorTooling(unittest.TestCase):
         payload = {
             "tool_plan": [
                 "repo_rg -p \"foo\" src --max 5",
-                "cat docs/README.md",
+                "cat docs/agent/README.md",
             ]
         }
         steps = self.tooling.extract_tool_plan(payload)

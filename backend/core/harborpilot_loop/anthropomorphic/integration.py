@@ -203,3 +203,69 @@ def run_reflection_cycle(
             summary=f"Generated {len(reflections)} insights",
             output=[r.model_dump() for r in reflections]
         )
+
+
+def get_anthropomorphic_context_v2(
+    project_root: str,
+    role: str,
+    query: str,
+    step: int,
+    run_id: str,
+    phase: str,
+    *,
+    events_path: str = "",
+    sources_enabled: Optional[List[str]] = None,
+    policy: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Context Engine v2 entrypoint (backwards-compatible payload).
+    """
+    from context_engine import ContextBudget, ContextEngine, ContextRequest
+
+    init_anthropomorphic_modules(project_root)
+    policy = policy or {}
+    persona_text = get_persona_text(role)
+    budget = ContextBudget(
+        max_tokens=int(policy.get("max_tokens", 0) or 0),
+        max_chars=int(policy.get("max_chars", 0) or 0),
+        cost_class=str(policy.get("cost_class", "LOCAL") or "LOCAL"),
+    )
+    role_key = role.lower().strip()
+    if not sources_enabled:
+        if role_key in ("director", "qa"):
+            sources_enabled = ["docs", "contract", "memory", "events", "repo_evidence"]
+        elif role_key == "pm":
+            sources_enabled = ["docs", "contract", "memory"]
+        else:
+            sources_enabled = ["docs", "contract"]
+    request = ContextRequest(
+        run_id=run_id,
+        step=step,
+        role=role,
+        mode=phase,
+        query=query,
+        budget=budget,
+        sources_enabled=sources_enabled,
+        policy=policy,
+        events_path=events_path or "",
+    )
+    engine = ContextEngine(project_root)
+    pack = engine.build_context(request)
+
+    prompt_context = PromptContext(
+        run_id=run_id,
+        phase=phase,
+        step=step,
+        persona_id=f"{role}.v1",
+        retrieved_mem_ids=[i.id for i in pack.items if i.kind == "memory"],
+        retrieved_mem_scores=[],
+        retrieved_ref_ids=[i.id for i in pack.items if i.kind == "reflection"],
+        token_usage_estimate=pack.total_tokens,
+    )
+
+    return {
+        "persona_instruction": persona_text,
+        "anthropomorphic_context": pack.rendered_prompt,
+        "prompt_context_obj": prompt_context,
+        "context_pack": pack,
+    }

@@ -6,76 +6,156 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
 
-**一套"PM 规划 → Director 执行 → QA 校验 → Dashboard 可视化"的自动化脚本项目**
+**单人 · 本地优先 · 固定成本优先 · 无人值守自动化编程指挥台**
 
-默认 **PM 用 Codex（更聪明）**，**Director 用本地 Ollama（更省成本）**，并支持多 profile 的提示词模板化管理。
+PM 规划 → Director 执行 → QA 校验 → Dashboard 可视化（Mission Control）
+
+---
+
+HarborPilot 的核心不是"更花哨的 Agent"，而是**面向现实**：
+
+以 **本地推理（电费）** + **包月/订阅 CLI（固定成本）** 为主，
+
+构建一个**可控、可追溯、可回放、可长期长跑**的个人软件工厂。
 
 </div>
 
 ---
 
-## 📋 目录
+## 📌 目录
 
-- [🎯 核心特性](#-核心特性)
+- [🎯 项目定位](#-项目定位)
+- [✨ 独特优势与特色](#-独特优势与特色)
+- [✅ 已有功能一览](#-已有功能一览)
 - [🚀 快速开始](#-快速开始)
 - [🏗️ 系统架构](#️-系统架构)
-- [📁 产物说明](#-产物说明)
-- [⚖️ 系统不变量](#️-系统不变量)
+- [📁 产物与目录结构](#-产物与目录结构)
+- [⚖️ 六条系统不变量](#️-六条系统不变量)
+- [🧠 拟人化核心与 Glass Mind](#-拟人化核心与-glass-mind)
+- [🎛️ 模型路由与接入验证](#️-模型路由与接入验证)
+- [📊 用量与成本观测](#-用量与成本观测)
+- [🗣️ Inner Voice（自言自语）](#️-inner-voice自言自语)
+- [🆚 与行业工具的差异](#-与行业工具的差异)
+- [🗺️ Roadmap：工具 × 游戏](#️-roadmap工具--游戏)
 - [📚 文档](#-文档)
-- [🛠️ 依赖要求](#️-依赖要求)
+- [🤝 贡献与许可](#-贡献与许可)
 
 ---
 
-## 🎯 核心特性
+## 🎯 项目定位
 
-- 🧠 **智能规划**: PM 使用 Codex 进行任务规划
-- ⚡ **本地执行**: Director 使用 Ollama 本地模型执行
-- 🔍 **质量保证**: 内置 QA 系统进行代码校验
-- 📊 **可视化面板**: 实时 Dashboard 展示执行状态，集成 **Process Monitor** 侧边栏，多维度追踪运行日志与文件变更
-- 🧠 **拟人化核心**: 引入 **Memory**, **Reflection**, **Persona** 三大认知模块，让 Agent 具备长期记忆与自我反思能力。
-- 🔮 **Glass Mind**: 实时观测 Agent 的思维过程，包括记忆检索、反思生成与上下文构建。
-- ⚡ **高性能架构**: 深度优化的前端体验，采用 **Code Splitting** 与 **虚拟滚动 (Virtual Scrolling)** 技术，轻松应对百万行级日志，保持界面丝滑流畅
-- 🧪 **测试完备**: 集成 Vitest 测试框架，支持单元测试与覆盖率报告
-- 🔄 **多 Profile 支持**: 灵活的提示词模板管理
-- 📝 **完整追踪**: 事件流记录，支持回放和调试
+HarborPilot 是一款**单人工具**：
+
+- 既是 **无人值守自动化编程工具**（可长期跑、可回放、可定位）
+- 也将演进为一款 **"经营 + 叙事"的游戏化指挥台**（基于拟人化核心延展）
+
+### 成本哲学（Reality-first）
+
+| 通道           | 说明                      | 边际成本                       |
+| -------------- | ------------------------- | ------------------------------ |
+| 🖥️ **LOCAL**   | 本地模型（Ollama 等）     | ≈ 电费                         |
+| 📦 **FIXED**   | 订阅/包月 CLI（Codex 等） | 固定成本，适合长跑             |
+| 💳 **METERED** | 标准化 HTTPS API          | 受控"紧急通道"，**默认强门禁** |
+
+---
+
+## ✨ 独特优势与特色
+
+### 1️⃣ 双循环 + 合同机制：把 Agent 变成"可管理的工程协作"
+
+| 循环              | 职责                                          |
+| ----------------- | --------------------------------------------- |
+| **PM Loop**       | 高阶规划、拆解、写验收（Acceptance Criteria） |
+| **Director Loop** | 取证 → 计划 → 执行 → 复核 → QA                |
+
+**合同**：通过 `PM_TASKS.json` 严格通信，配合"合同不可变"约束，避免目标漂移与越权改动。
+
+### 2️⃣ 事实流 Append-Only + 可回放：长期无人值守的底座
+
+- `events.jsonl` 记录所有关键原子事件（工具调用、文件读写、QA 输出…），**只追加不覆盖**
+- `run_id` 串联所有产物与引用，支持**回放、对比、复盘与归因**
+- 失败要求在 **3 hops** 内定位到 Phase → Evidence → Tool Output
+
+### 3️⃣ Mission Control Dashboard：以"观测与追踪"为核心
+
+- UI 强调 **Read-Only 观测优先**（不在 UI 里直接做决策/改代码）
+- **Process Monitor / Smart View / 虚拟滚动**：百万行日志仍可流畅查看
+- **Glass Mind**：透明显示记忆检索、反思触发、上下文构建过程
+
+### 4️⃣ 拟人化核心：Memory / Reflection / Persona（不是噱头，是稳定性）
+
+| 模块                   | 能力                                    |
+| ---------------------- | --------------------------------------- |
+| **Memory（记忆）**     | 长期记忆（默认基于 LanceDB）            |
+| **Reflection（反思）** | 从历史 run 抽象启发式规则，减少重复踩坑 |
+| **Persona（人设）**    | 约束风格与禁忌，强化"职责边界"          |
+| **Glass Mind**         | 把"内在过程"投影成可读的观测面板        |
+
+---
+
+## ✅ 已有功能一览
+
+> 本节按"当前已具备/已在工程化落地"的能力列举；后续增强见 [Roadmap](#️-roadmap工具--游戏)。
+
+### 工作流闭环
+
+- PM 规划 → Director 执行 → QA 校验 → Dashboard 可视化
+- 结构化任务合约：`PM_TASKS.json`
+- Director 执行产物：`DIRECTOR_RESULT.json`、`QA_RESPONSE.md`、`RUNLOG.md`
+
+### 可观测性与高性能 UI
+
+- Mission Control 暗色系作战台 UI
+- **Process Monitor** 侧边栏：状态/日志/变更追踪
+- **Smart View**：将终端输出结构化渲染（增量解析、JSON 块、cmd/exit 等卡片化）
+- **虚拟滚动**（Virtual Scrolling）：面向超长日志与密集事件
+
+### 工具链与工程化
+
+- **repo 工具**：tree / rg / slice read / diff
+- **Tree-sitter**：符号定位、结构化替换/插入
+- **QA**：ruff / mypy / pytest / jsonschema / pydantic 校验
+- 端口策略、风险门禁、（可选）回滚与自动修复策略
+
+### 拟人化核心
+
+- Memory / Reflection / Persona
+- Glass Mind 透明思维侧栏（记忆/反思/上下文构建可视化）
+- Inner Voice（内心独白 / Thinking 投影）
 
 ---
 
 ## 🚀 快速开始
 
-### 🎨 启动 Dashboard (推荐)
-
-最简单的上手方式是使用可视化面板：
+### 1️⃣ 启动 Dashboard（推荐）
 
 ```bash
 # 安装依赖
 npm install
 
-# 开发模式（同时启动 Vite + Electron）
+# 开发模式（Vite + Electron）
 npm run dev
 
-# 运行测试
+# 测试
 npm run test
 
-# 构建生产版本
+# 构建
 npm run build
 ```
 
 在界面中：
 
-1. 选择 **Workspace** (缺少 `docs/` 时会提示初始化向导)
-2. 设置 **PM Backend** (推荐 Codex) 和 **Director Model** (推荐 Ollama)
-3. 点击 **Start PM** 开始规划循环
+1. 选择 **Workspace**（缺少 `docs/` 会触发初始化引导）
+2. 设置 **PM / Director / QA** 模型
+3. 点击 **Start PM** → 进入闭环
 
-### 💻 CLI 运行
-
-如果你喜欢命令行：
+### 2️⃣ CLI 运行
 
 ```bash
-# 1. 运行 PM (生成任务)
+# PM：生成任务合约
 python backend/scripts/loop-pm.py --workspace /path/to/repo
 
-# 2. 运行 Director (执行任务)
+# Director：执行任务
 python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
 ```
 
@@ -85,136 +165,330 @@ python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
 
 ```mermaid
 graph LR
-    PM[🧠 PM Loop] -->|📋 Tasks| Dir[⚡ Director Loop]
-    Dir -->|💻 Code| Repo[📁 Workspace]
-    Repo -->|✅ Test Result| QA[🔍 QA System]
-    QA -->|📊 Report| Dir
-    Dir -->|🎯 Result| PM
-    User[🖥️ Dashboard] -.->|👀 Observe| PM
-    User -.->|👀 Observe| Dir
+    PM[🧠 PM Loop] -->|📋 PM_TASKS.json| Dir[⚡ Director Loop]
+    Dir -->|💻 Patch/Commands| Repo[📁 Workspace]
+    Repo -->|✅ Test Logs| QA[🔍 QA System]
+    QA -->|🧾 QA_RESPONSE.md| Dir
+    Dir -->|🎯 DIRECTOR_RESULT.json| PM
+
+    UI[🖥️ Dashboard Read-Only] -.->|👀 Observe| PM
+    UI -.->|👀 Observe| Dir
 
     style PM fill:#e1f5fe
     style Dir fill:#f3e5f5
     style QA fill:#e8f5e8
-    style User fill:#fff3e0
+    style UI fill:#fff3e0
 ```
 
+### 关键设计点
+
+| 设计                           | 说明                                                         |
+| ------------------------------ | ------------------------------------------------------------ |
+| **Control/Execute Separation** | PM 定义合约，Director 执行合约                               |
+| **Event Sourcing**             | 事实流（events.jsonl）+ 投影层（DIALOGUE/RUNLOG/Smart View） |
+| **Policy 合并**                | CLI > Task Overrides > Policy File > Env Vars > Defaults     |
+| **成本模型**                   | LOCAL/FIXED/METERED 三类通道治理                             |
+
 ---
 
-## 🧠 拟人化核心 (Anthropomorphic Core)
+## 📁 产物与目录结构
 
-HarborPilot 不仅仅是一个任务执行器，更是一个具备**认知能力**的数字员工。
+默认运行产物输出到（建议可指向 RAMDISK）：`.harborpilot/runtime/`
 
-### 1. 三大认知模块
+| 文件/目录              | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| `PM_TASKS.json`        | PM 任务合约（目标、AC、证据需求、策略覆盖）    |
+| `PLAN.md`              | 规划与拆解（人类可读）                         |
+| `DIRECTOR_RESULT.json` | 执行结果摘要（状态、失败码、风险等）           |
+| `RUNLOG.md`            | 详细运行日志                                   |
+| `QA_RESPONSE.md`       | QA 报告                                        |
+| `DIALOGUE.jsonl`       | 拟人化叙事流（Dashboard 展示，含 Inner Voice） |
+| `events.jsonl`         | 事实流（append-only，回放/评测/归因）          |
+| `trajectory.json`      | 轨迹索引（串联事件与产物）                     |
+| `memos/`               | 备忘录归档（任务完成后的总结）                 |
 
-- **Memory (记忆)**: 基于 `lancedb` 的向量数据库，自动存储关键事件与对话。支持基于 Relevance (相关性), Recency (时效性), Importance (重要性) 的混合检索。
-- **Reflection (反思)**: 定期从记忆流中抽象出高层见解 (Heuristics)，避免重蹈覆辙（例如："上次修改 auth 模块导致了死循环，这次要先写测试"）。
-- **Persona (人设)**: 通过 `prompts/role_persona.yaml` 定义角色的行事风格与禁忌。
-  - **PM (项目经理)**: 负责架构顶层设计与需求拆解，关注任务的依赖关系与可行性，确保开发路径清晰。
-  - **Director (技术主管)**: 下场执行具体编程任务，具备资深工程师思维，严谨引用日志证据，拒绝模棱两可。
-  - **QA (质量保证)**: 担任代码审计员，仅基于测试结果和运行日志进行客观验收，严格把控质量关。
+> 💡 **RAMDISK**：推荐配置 `HARBORPILOT_STATE_TO_RAMDISK=1` 将 runtime 指向内存盘（更快、更干净）。
 
-### 2. Glass Mind (透明思维)
+---
 
-Dashboard 右侧的 **Context Sidebar** 提供了一个 "Glass Mind" 视图，允许用户实时查看：
+## ⚖️ 系统不变量（v2：核心 6 + 修正案 2）
 
-- 当前 Step 检索到了哪些记忆？
+> 这组不变量是 HarborPilot 的"**系统宪法**"。详见 [完整文档](docs/agent/invariants.md)。
+
+| #   | 不变量                       | 一句话说明                                                  |
+| --- | ---------------------------- | ----------------------------------------------------------- |
+| 1️⃣  | **合同不可变**               | `PM_TASKS.json` 的 goal/AC 不可被执行侧改写，只能追加证据   |
+| 2️⃣  | **事实流 Append-Only**       | `events.jsonl` 只能追加，修正/回滚必须新增事件              |
+| 3️⃣  | **Run ID 全局唯一**          | 产物/引用/轨迹必须以 `run_id` 串联，孤儿数据无效            |
+| 4️⃣  | **观测优先（UI Read-Only）** | 运行态 UI 不修改任务/代码/状态；控制面只在 Loop             |
+| 5️⃣  | **可回放**                   | 仅依赖 events + trajectory + artifacts paths 能重建关键过程 |
+| 6️⃣  | **失败可定位**               | 失败必须在 3 hops 内定位到 Phase → Evidence → Tool Output   |
+| 7️⃣  | **原子写入与一致性读取**     | 关键状态文件写入必须原子化，读取永不读到半截                |
+| 8️⃣  | **记忆必须可溯源**           | memory/reflection 不能当事实，只能当建议，且必须带 refs     |
+
+> 💡 **例外**：Setup/Onboarding 模式允许"受限写入"（仅写 `docs/` 与 `config`），且同样写入事件流以审计。
+
+---
+
+## 🧠 拟人化核心与 Glass Mind
+
+### Memory（记忆）
+
+- 默认采用 **LanceDB** 作为长期记忆后端（面向单人长期项目的经验积累）
+- **混合检索**：相关性 / 时效性 / 重要性
+
+### Reflection（反思）
+
+- 从历史 run/memos 抽象启发式规则
+- 目的不是"更像人"，而是**减少重复踩坑、提高稳定性**
+
+### Persona（人设）
+
+- 为 PM/Director/QA/Docs 等角色定义**风格与禁忌**
+- 强化"职责边界"，减少漂移
+
+### Glass Mind（透明思维）
+
+UI 侧边栏展示：
+
+- 检索到了哪些记忆？
 - 触发了哪些反思？
-- Agent 的短期情绪与置信度状态。
+- 上下文如何构建？
+
+> 强化"**可解释性**"与"**可控性**"
 
 ---
 
-## 📁 产物说明
+## 🎛️ 模型路由与接入验证
 
-所有运行产物默认生成在 workspace 下的 `.harborpilot/runtime/` 目录 (建议配置 `.harborpilot/runtime/runs/` 指向内存盘)：
+> 目标：无论接入命令行 LLM、本地运行时、还是第三方 HTTPS API，都必须能在 UI 中完成**接入验证与胜任性测试**，确保"可用且胜任"。
 
-| 📄 文件                | 📝 描述                            |
-| ---------------------- | ---------------------------------- |
-| `PM_TASKS.json`        | 🎯 任务与计划                      |
-| `PLAN.md`              | 📋 详细规划文档                    |
-| `DIRECTOR_RESULT.json` | ⚡ 执行结果                        |
-| `RUNLOG.md`            | 📝 运行日志                        |
-| `QA_RESPONSE.md`       | 🔍 QA 报告                         |
-| `DIALOGUE.jsonl`       | 💬 对话记录 (Dashboard 读取此文件) |
-| `memos/`               | 📚 备忘录 (任务完成后的归档)       |
+### 角色路由（Role Routing）
 
-> 💡 **提示**: 推荐配置 `HARBORPILOT_STATE_TO_RAMDISK=1` 将此目录指向内存盘，保持项目整洁。
+HarborPilot 支持为不同角色选择不同模型：
+
+- **PM** / **Director** / **QA** / **Docs Generator**
+
+### Provider 类型（统一抽象）
+
+| 类型                        | 示例                              | 成本通道          |
+| --------------------------- | --------------------------------- | ----------------- |
+| **CLI Provider**            | Codex CLI、Gemini CLI             | FIXED             |
+| **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp | LOCAL             |
+| **Standard HTTPS Provider** | OpenAI-compatible API             | METERED（强门禁） |
+
+### 接入验证（必做）
+
+每个 Provider/Role 都必须支持 **"Test"**：
+
+#### Layer 1：可用性测试（Connectivity & Capability）
+
+- ✅ 能启动/连通（health）
+- ✅ model id 可用
+- ✅ 能回答一个最小问题（response 非空）
+- ✅ 超时/错误处理可控
+- ✅ usage/tokens：能取则取，不能取则标估算
+
+#### Layer 2：胜任性测试（Role Qualification）
+
+| 角色         | 胜任标准                         |
+| ------------ | -------------------------------- |
+| **PM**       | 能输出结构化任务与 AC            |
+| **Director** | 证据优先、计划可执行、不臆造文件 |
+| **QA**       | 严格 PASS/FAIL + 原因与证据引用  |
+| **Docs**     | 按模板生成，不编造事实           |
+
+- ✅ 通过 → role **READY**
+- ❌ 未通过 → role **BLOCKED**（对应运行按钮置灰，跳转到 Test Center）
 
 ---
 
-## ⚖️ 六条系统不变量
+## 📊 用量与成本观测
 
-为了防止系统在长期迭代中失控，HarborPilot 遵循以下 6 条不可打破的约束：
+> HarborPilot 不崇拜 token，但必须"**可观测**"。
+>
+> 对单人长跑而言，真正重要的是：**成本通道（LOCAL/FIXED/METERED）+ 调用次数 + 延迟 +（能拿到则记录 tokens）**。
 
-### 1️⃣ 合同不可变 (Immutable Contract)
+### 计划中的用量观测（与 Mission Control 融合）
 
-`PM_TASKS.json` 中的 `task goal` 和 `acceptance_criteria` 不允许 Director 或记忆模块改写。执行过程中只能追加 `evidence`，不能篡改原始目标。
+| 组件                          | 功能                                  |
+| ----------------------------- | ------------------------------------- |
+| **Header Usage HUD**          | TOKENS / CALLS / LATENCY / BUDGET     |
+| **Process Monitor Usage Tab** | 按角色/模式/模型分解 + 时间轴         |
+| **Budget Gate**               | 对 METERED 通道默认强门禁，避免误烧钱 |
 
-### 2️⃣ 事实流 Append-Only
+---
 
-`events.jsonl` 只能追加，**严禁覆盖**。任何"修正"或"回滚"操作都必须产生新的 Event，保留完整的历史记录。
+## 🗣️ Inner Voice（自言自语）
 
-### 3️⃣ Run ID 全局唯一
+> 可选增强：从模型输出中提取 "thinking / reasoning summary / `<think>…</think>`" 等内容，作为角色的"内心独白"展示在对话流中。
 
-所有产物、引用 (refs)、备忘录 (memo)、轨迹 (trajectory) 都必须以 `run_id` 为主键串联。无 `run_id` 的孤儿数据将被视为无效。
+### 设计原则
 
-### 4️⃣ 观测优先 (UI Read-Only)
+| 原则                 | 说明                         |
+| -------------------- | ---------------------------- |
+| **只展示已输出内容** | 不试图还原隐藏推理链         |
+| **强制脱敏/裁剪**    | 防泄露 prompt/密钥/隐私      |
+| **默认折叠显示**     | 作为 Glass Mind 的"旁路投影" |
 
-Dashboard UI **只读**。UI 不产生决策、不修改状态、不直接操作代码。所有状态变更必须由 CLI Loop 产生。
+### 用途
 
-### 5️⃣ 可回放 (Replayable)
+- 🎭 更沉浸的拟人化体验（像"自言自语"）
+- 🔍 更强的可解释性：你能看到它"为什么这样想"（摘要级）
 
-仅依靠 `events.jsonl` + `trajectory.json` + `artifacts paths` 必须能完全重建关键过程。不应依赖任何未记录的外部状态。
+> 💡 示例独白："我需要先读哪些文件…我怀疑类型定义重复…我打算先跑 type-check…"
 
-### 6️⃣ 失败可定位 (Traceable Failure)
+---
 
-任何失败都必须能在 **3 跳 (Hops)** 内定位到：
+## 🆚 与行业工具的差异
 
-- 哪个 Phase (Tool/Patch/QA)？
-- 依据哪条 Evidence？
-- 哪个工具输出了错误信息？
+> HarborPilot 的差异化不是"更炫更全"，而是更像 **"可运营的个人软件工厂"**。
+
+### 与 IDE 一体化助手/代理对比
+
+**代表产品**：Cursor、Windsurf、Cline、Continue、GitHub Copilot、Codex (IDE)
+
+| 维度         | 他们通常强在哪里        | HarborPilot 的核心区别               |
+| ------------ | ----------------------- | ------------------------------------ |
+| **定位**     | 编辑器内的智能助手/插件 | **指挥台/流水线**，不是插件          |
+| **交互模式** | 对话式辅助、Tab 补全    | **合同闭环 + 事实流可回放**          |
+| **成本模型** | 通常按 token 计费       | **LOCAL/FIXED 优先**，METERED 强门禁 |
+| **可追溯性** | 有限的历史记录          | **失败 3 hops 可定位**，全量事件流   |
+| **无人值守** | 需要人工交互            | 支持**长期无人值守运行**             |
+
+### 与终端/CLI 编码代理对比
+
+**代表产品**：Claude Code、Aider
+
+| 维度         | 他们通常强在哪里   | HarborPilot 的核心区别                 |
+| ------------ | ------------------ | -------------------------------------- |
+| **使用方式** | 终端交互、轻量灵活 | **Dashboard 可视化** + CLI 双模        |
+| **状态管理** | 会话级别           | **run_id 全局串联**，跨会话追踪        |
+| **可观测性** | 终端输出           | **Smart View + Glass Mind** 结构化展示 |
+| **经验积累** | 有限               | **Memory/Reflection** 长期记忆         |
+
+### 与云端交付型工程代理对比
+
+**代表产品**：Devin、各类云沙箱 coding agent
+
+| 维度         | 他们通常强在哪里   | HarborPilot 的核心区别          |
+| ------------ | ------------------ | ------------------------------- |
+| **执行环境** | 云端沙箱、并行执行 | **本地优先**，数据不出本机      |
+| **成本结构** | 按使用量/订阅计费  | **电费 + 包月 CLI**，边际成本低 |
+| **透明度**   | 云端黑箱           | **Glass Mind** 透明观测         |
+| **控制力**   | 有限干预           | **合同不可变 + 6 条不变量**     |
+
+### 与开源框架/平台对比
+
+**代表产品**：OpenHands
+
+| 维度         | 他们通常强在哪里          | HarborPilot 的核心区别            |
+| ------------ | ------------------------- | --------------------------------- |
+| **设计目标** | 通用 Agent 框架、生态扩展 | **软件开发闭环专精**              |
+| **约束程度** | 灵活可配置                | **强约束 + 不变量**，减少失控     |
+| **可复盘性** | 依赖日志                  | **事实流 + 轨迹索引**，完全可重建 |
+
+### 与通用型自动化 Agent 对比
+
+**代表产品**：Manus
+
+| 维度         | 他们通常强在哪里       | HarborPilot 的核心区别            |
+| ------------ | ---------------------- | --------------------------------- |
+| **覆盖范围** | 多种任务类型、覆盖面广 | **更克制**，只做开发流水线        |
+| **稳定性**   | 通用带来不确定性       | **强边界**，减少失控面            |
+| **成本控制** | 通用成本模型           | **三分法**（LOCAL/FIXED/METERED） |
+
+### 与新型管制塔/平台工具对比
+
+**代表产品**：Antigravity、TRAE
+
+| 维度         | 他们通常强在哪里 | HarborPilot 的核心区别                 |
+| ------------ | ---------------- | -------------------------------------- |
+| **定位**     | 企业级/团队协作  | **单人优先**，面向个人开发者           |
+| **成本模型** | 企业订阅         | **电费/包月**，适合长期长跑            |
+| **拟人化**   | 功能性设计       | **Memory/Reflection/Persona** 认知架构 |
+
+### 差异总结
+
+| 对比维度        | HarborPilot 的做法                    |
+| --------------- | ------------------------------------- |
+| 🎯 **成本模型** | LOCAL/FIXED 为主，METERED 强门禁      |
+| 📜 **行为约束** | 合同 + 6 条不变量，边界写死           |
+| 🔄 **可追溯性** | 事实流可回放，3 hops 可定位           |
+| 🧠 **可解释性** | 拟人化核心 + Glass Mind + Inner Voice |
+| 🖥️ **UI 体验**  | Mission Control 作战指挥台            |
+
+> 💡 **一句话总结**：很多工具是"更聪明的助手/插件"，HarborPilot 是 **"更工程化的个人软件工厂"**。
+
+---
+
+## 🗺️ Roadmap：工具 × 游戏
+
+> HarborPilot 将演进为 **"无人值守软件工厂 + 游戏化拟人世界"**
+>
+> 参考：[Game Dev Story](https://kairosoft.net/game/appli/gamedev.html)（公司经营）+ [AI Town](https://github.com/a16z-infra/ai-town)（角色叙事）
+
+### 三视图形态（规划）
+
+| 视图           | 定位       | 说明                       |
+| -------------- | ---------- | -------------------------- |
+| 🛰️ **Mission** | 生产指挥台 | 默认主视图，工具优先       |
+| 🏢 **Studio**  | 办公室经营 | 工位、项目看板、成长与解锁 |
+| 🏙️ **Town**    | 拟人化小镇 | 事实驱动的叙事与陪伴       |
+
+### 核心规则（永不妥协）
+
+- **Tool-first**：游戏层永远不干扰真实工程执行
+- **事实驱动剧情**：剧情卡必须绑定 `run_id` / 事件引用，禁止"编造成功"
+- **成长解锁带来现实收益**：更稳的 QA、更好的取证、更可控的流程
+
+### 分阶段路线
+
+| Phase       | 内容                                            |
+| ----------- | ----------------------------------------------- |
+| **Phase 0** | Story Cards、成就系统、角色名片（零侵入游戏化） |
+| **Phase 1** | Studio 工位布局、项目进度可视化、成长系统       |
+| **Phase 2** | Town 角色日常、城市事件系统                     |
 
 ---
 
 ## 📚 文档
 
-| 📖 文档                                                    | 🎯 读者       | 📝 描述                                                              |
-| ---------------------------------------------------------- | ------------- | -------------------------------------------------------------------- |
-| [🏗️ 架构文档](docs/architecture.md)                        | 👨‍💻 工程师     | 详解状态机、事件模型、Policy 合并规则、并发约束与 Smart 视图解析原理 |
-| [📖 参考手册](docs/reference.md)                           | 🔍 查字典     | 包含 CLI 参数全集、目录结构索引、工具清单 (Tools) 及产物说明         |
-| [🧪 测试指南](TESTING.md)                                  | 🐛 测试与调试 | 详细的测试环境搭建、运行命令及测试编写规范                           |
-| [🛠️ Troubleshooting](docs/reference.md#6-ramdisk-机制-faq) | 🚨 排障       | 常见问题排查                                                         |
+| 文档                                            | 说明                                       | 读者   |
+| ----------------------------------------------- | ------------------------------------------ | ------ |
+| [👀 人类文档入口](docs/human/README.md)         | 面向产品/业务/首次使用的阅读顺序           | 所有人 |
+| [🤖 Agent 文档入口](docs/agent/README.md)       | 约束/证据链/工程细节（可执行）             | 工程师 |
+| [🏗️ 架构文档](docs/agent/architecture.md)       | 状态机、事件模型、Context Engine           | 工程师 |
+| [🧠 拟人化设计](docs/agent/anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind  | 工程师 |
+| [📖 参考手册](docs/agent/reference.md)          | CLI 参数、工具清单、环境变量、产物索引     | 开发者 |
+| [📄 产品说明书](docs/product/product_spec.md)   | 产品定位、核心优势、行业对比               | 所有人 |
+| [🧪 测试指南](TESTING.md)                       | 测试环境搭建、运行命令                     | 测试   |
 
 ---
 
-## 🛠️ 依赖要求
+## 🤝 贡献与许可
 
-### 🔧 核心依赖
+欢迎提交 Issue / PR！
 
-- **Python 3.10+**
-- **Node.js 18+** (Dashboard)
-- **PM**: 推荐 Codex CLI (默认)
-- **Director**: 推荐 Ollama CLI (默认)
+> 建议优先从：Docs、UI 投影、工具适配、测试用例、Doctor/Setup 规则开始
 
-### 📦 可选依赖
-
-- `lancedb` (长期记忆)
-
----
-
-<div align="center">
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+**License**：MIT
 
 ---
 
 <div align="center">
+
+## 🔖 现实主义三件套（优先落地建议）
+
+如果你想把系统从"能跑"推进到"**可长期运营**"，优先级建议：
+
+| #   | 模块                            | 说明                                     |
+| --- | ------------------------------- | ---------------------------------------- |
+| 1️⃣  | **Provider 接入 + Test Center** | 强门禁，确保模型可用且胜任               |
+| 2️⃣  | **Usage/Cost-class 观测**       | LOCAL/FIXED/METERED 可见可控             |
+| 3️⃣  | **Eval/回归对比**               | 升级不退化（成功率/耗时/调用次数可量化） |
+
+---
 
 **⭐ 如果这个项目对你有帮助，请给个 Star！**
 

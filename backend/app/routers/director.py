@@ -3,7 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..state import AppState, Auth
 from ..config import DEFAULT_DIRECTOR_SUBPROCESS_LOG
 from ..utils import require_lancedb, resolve_artifact_path, build_cache_root
-from ..services.process import director_command, spawn_process, terminate_process, clear_director_stop_flag
+from ..llm import config as llm_config
+from ..services.llm_tests import load_llm_test_index
+from ..services.process import director_command, spawn_process, terminate_process, clear_director_stop_flag, build_invariants_env
 from ..services.artifacts import read_director_status
 
 router = APIRouter()
@@ -16,10 +18,26 @@ def require_auth(request: Request):
     if not auth.check(request.headers.get("authorization", "")):
         raise HTTPException(status_code=401, detail="unauthorized")
 
+
+def _ensure_llm_ready(state: AppState, role: str) -> None:
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
+    config = llm_config.load_llm_config(state.settings.workspace, cache_root, settings=state.settings)
+    index = load_llm_test_index(state.settings)
+    role_status = (index.get("roles") or {}).get(role) if isinstance(index, dict) else None
+    if not isinstance(role_status, dict) or not role_status.get("ready"):
+        raise HTTPException(status_code=409, detail=f"{role} LLM not ready; run tests first")
+    role_cfg = (config.get("roles") or {}).get(role, {}) if isinstance(config.get("roles"), dict) else {}
+    providers = config.get("providers") if isinstance(config.get("providers"), dict) else {}
+    provider_cfg = providers.get(role_cfg.get("provider_id"), {}) if isinstance(providers, dict) else {}
+    provider_type = str(provider_cfg.get("type") or "").strip().lower()
+    if role == "director" and provider_type != "ollama":
+        raise HTTPException(status_code=409, detail="Director provider not supported for runtime")
+
 @router.post("/director/start", dependencies=[Depends(require_auth)])
 def director_start(request: Request) -> Dict[str, Any]:
     state = get_state(request)
     require_lancedb()
+    _ensure_llm_ready(state, "director")
     if state.director.process is not None:
         if state.director.process.poll() is None:
             return {"ok": False, "error": "running", "pid": state.director.process.pid}
@@ -32,7 +50,8 @@ def director_start(request: Request) -> Dict[str, Any]:
     
     log_path = resolve_artifact_path(workspace, cache_root, DEFAULT_DIRECTOR_SUBPROCESS_LOG)
     try:
-        handle = spawn_process(cmd, workspace, log_path)
+        extra_env = build_invariants_env(state.settings)
+        handle = spawn_process(cmd, workspace, log_path, extra_env=extra_env)
         state.director = handle
         state.director.mode = "director"
         return {"ok": True, "pid": handle.process.pid}

@@ -1,27 +1,22 @@
-﻿import { X, Save } from 'lucide-react';
+import { X, Save, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
+import { apiFetch } from '@/api';
+import { PtyDrawer } from '@/app/components/PtyDrawer';
+import { LLMSettingsTab } from '@/app/components/llm/LLMSettingsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   settings: {
-    pm_backend?: string;
-    pm_model?: string;
-    director_model?: string;
-    model?: string;
     prompt_profile?: string;
-    docs_init_model?: string;
-    docs_init_provider?: string;
-    docs_init_base_url?: string;
-    docs_init_api_key?: string;
-    docs_init_api_path?: string;
-    docs_init_timeout?: number;
     interval?: number;
     timeout?: number;
     refresh_interval?: number;
     auto_refresh?: boolean;
     show_memory?: boolean;
+    io_fsync_mode?: string;
+    memory_refs_mode?: string;
     ramdisk_root?: string;
     json_log_path?: string;
     pm_show_output?: boolean;
@@ -39,22 +34,14 @@ interface SettingsModalProps {
     qa_enabled?: boolean;
   } | null;
   onSave: (payload: {
-    pm_backend?: string;
-    pm_model?: string;
-    director_model?: string;
-    model?: string;
     prompt_profile?: string;
-    docs_init_model?: string;
-    docs_init_provider?: string;
-    docs_init_base_url?: string;
-    docs_init_api_key?: string;
-    docs_init_api_path?: string;
-    docs_init_timeout?: number;
     interval?: number;
     timeout?: number;
     refresh_interval?: number;
     auto_refresh?: boolean;
     show_memory?: boolean;
+    io_fsync_mode?: string;
+    memory_refs_mode?: string;
     ramdisk_root?: string;
     json_log_path?: string;
     pm_show_output?: boolean;
@@ -73,18 +60,69 @@ interface SettingsModalProps {
   }) => Promise<void>;
 }
 
+type LlmProviderType = 'cli' | 'ollama' | 'openai_compat';
+
+interface LlmProviderConfig {
+  type: LlmProviderType;
+  command?: string;
+  working_dir?: string;
+  env?: Record<string, string>;
+  args?: string[];
+  list_args?: string[];
+  tui_args?: string[];
+  output_path?: string;
+  base_url?: string;
+  api_key_ref?: string;
+  api_path?: string;
+  models_path?: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+  retries?: number;
+}
+
+interface LlmRoleConfig {
+  provider_id?: string;
+  model?: string;
+  profile?: string;
+}
+
+interface LlmConfig {
+  schema_version: number;
+  providers: Record<string, LlmProviderConfig>;
+  roles: Record<string, LlmRoleConfig>;
+  policies?: {
+    required_ready_roles?: string[];
+    test_required_suites?: string[];
+  };
+}
+
+interface LlmStatus {
+  state: string;
+  required_ready_roles: string[];
+  blocked_roles: string[];
+  unsupported_roles: string[];
+  roles: Record<
+    string,
+    {
+      ready?: boolean;
+      grade?: string;
+      last_run_id?: string | null;
+      timestamp?: string | null;
+      suites?: any;
+      runtime_supported?: boolean;
+    }
+  >;
+}
+
+const ROLE_META: Record<string, { label: string; color: string; badge: string }> = {
+  pm: { label: 'PM', color: 'text-cyan-300', badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30' },
+  director: { label: 'Director', color: 'text-purple-300', badge: 'bg-purple-500/20 text-purple-200 border-purple-500/30' },
+  qa: { label: 'QA', color: 'text-blue-200', badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30' },
+  docs: { label: 'Docs', color: 'text-emerald-300', badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30' },
+};
+
 export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsModalProps) {
-  const defaultModel = 'modelscope.cn/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:latest';
   const defaultProfile = 'demo_ming_armada';
-  const [pmBackend, setPmBackend] = useState('codex');
-  const [pmModel, setPmModel] = useState(defaultModel);
-  const [directorModel, setDirectorModel] = useState(defaultModel);
-  const [docsInitModel, setDocsInitModel] = useState(defaultModel);
-  const [docsInitProvider, setDocsInitProvider] = useState('ollama');
-  const [docsInitBaseUrl, setDocsInitBaseUrl] = useState('');
-  const [docsInitApiKey, setDocsInitApiKey] = useState('');
-  const [docsInitApiPath, setDocsInitApiPath] = useState('/v1/chat/completions');
-  const [docsInitTimeout, setDocsInitTimeout] = useState(60);
   const [promptProfile, setPromptProfile] = useState(defaultProfile);
   const [refreshInterval, setRefreshInterval] = useState(3);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -106,21 +144,36 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [ramdiskRoot, setRamdiskRoot] = useState('');
   const [jsonLogPath, setJsonLogPath] = useState('.harborpilot/runtime/PM_LOG.jsonl');
   const [showMemory, setShowMemory] = useState(false);
+  const [ioFsyncMode, setIoFsyncMode] = useState<'strict' | 'relaxed'>('strict');
+  const [memoryRefsMode, setMemoryRefsMode] = useState<'strict' | 'soft' | 'off'>('soft');
   const [activeTab, setActiveTab] = useState('general');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null);
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmSaving, setLlmSaving] = useState(false);
+  const [llmError, setLlmError] = useState<string | null>(null);
+  const [llmTesting, setLlmTesting] = useState<Record<string, boolean>>({});
+  const [providerModels, setProviderModels] = useState<Record<string, { supported: boolean; models: string[] }>>({});
+  const [providerJsonDrafts, setProviderJsonDrafts] = useState<Record<string, { env: string; headers: string }>>({});
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
+  const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, string>>({});
+  const [reportDrawer, setReportDrawer] = useState<{ open: boolean; data: any | null }>({ open: false, data: null });
+  const [testSuites, setTestSuites] = useState({ connectivity: true, response: true, qualification: true });
+  const [testLevel, setTestLevel] = useState<'quick' | 'full'>('quick');
+  const [runAllBusy, setRunAllBusy] = useState(false);
+  const [tuiDrawer, setTuiDrawer] = useState<{ open: boolean; role: string; providerId: string }>({
+    open: false,
+    role: '',
+    providerId: '',
+  });
+  const [tuiModelDraft, setTuiModelDraft] = useState('');
+  const [tuiError, setTuiError] = useState<string | null>(null);
 
+  
   useEffect(() => {
     if (!settings) return;
-    setPmBackend(settings.pm_backend || 'codex');
-    setPmModel(settings.pm_model || settings.model || defaultModel);
-    setDirectorModel(settings.director_model || settings.model || defaultModel);
-    setDocsInitModel(settings.docs_init_model || settings.pm_model || settings.model || defaultModel);
-    setDocsInitProvider(settings.docs_init_provider || 'ollama');
-    setDocsInitBaseUrl(settings.docs_init_base_url || '');
-    setDocsInitApiKey(settings.docs_init_api_key || '');
-    setDocsInitApiPath(settings.docs_init_api_path || '/v1/chat/completions');
-    setDocsInitTimeout(settings.docs_init_timeout ?? 60);
     setPromptProfile(settings.prompt_profile || defaultProfile);
     setRefreshInterval(settings.refresh_interval ?? 3);
     setAutoRefresh(settings.auto_refresh ?? true);
@@ -142,7 +195,342 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setRamdiskRoot(settings.ramdisk_root ?? '');
     setJsonLogPath(settings.json_log_path ?? '.harborpilot/runtime/PM_LOG.jsonl');
     setShowMemory(settings.show_memory ?? false);
+    setIoFsyncMode(settings.io_fsync_mode === 'relaxed' ? 'relaxed' : 'strict');
+    setMemoryRefsMode(
+      settings.memory_refs_mode === 'strict'
+        ? 'strict'
+        : settings.memory_refs_mode === 'off'
+          ? 'off'
+          : 'soft'
+    );
   }, [settings]);
+
+  const loadLlmConfig = async () => {
+    setLlmLoading(true);
+    setLlmError(null);
+    try {
+      const res = await apiFetch('/llm/config');
+      if (!res.ok) {
+        throw new Error('Failed to load LLM config');
+      }
+      const data = (await res.json()) as LlmConfig;
+      setLlmConfig(data);
+      setProviderJsonDrafts((prev) => {
+        const next = { ...prev };
+        const providers = data.providers || {};
+        Object.entries(providers).forEach(([id, cfg]) => {
+          next[id] = {
+            env: JSON.stringify(cfg.env || {}, null, 2),
+            headers: JSON.stringify(cfg.headers || {}, null, 2),
+          };
+        });
+        return next;
+      });
+      await refreshProviderKeyStatus(data.providers || {});
+    } catch (err) {
+      setLlmError(err instanceof Error ? err.message : 'Failed to load LLM config');
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  const loadLlmStatus = async () => {
+    try {
+      const res = await apiFetch('/llm/status');
+      if (!res.ok) {
+        throw new Error('Failed to load LLM status');
+      }
+      const data = (await res.json()) as LlmStatus;
+      setLlmStatus(data);
+    } catch (err) {
+      setLlmStatus(null);
+    }
+  };
+
+  const refreshProviderKeyStatus = async (providers: Record<string, LlmProviderConfig>) => {
+    if (!window.harborpilot?.secrets?.get) {
+      return;
+    }
+    const status: Record<string, string> = {};
+    for (const [providerId, cfg] of Object.entries(providers)) {
+      if (cfg.type !== 'openai_compat') continue;
+      const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
+      const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;
+      try {
+        const result = await window.harborpilot.secrets.get(keyName);
+        if (result?.ok && result.value) {
+          const value = String(result.value);
+          const mask = value.length > 8 ? `${value.slice(0, 3)}****${value.slice(-4)}` : 'stored';
+          status[providerId] = mask;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    setProviderKeyStatus(status);
+  };
+
+  const resolveApiKey = async (providerId: string, cfg: LlmProviderConfig) => {
+    if (cfg.type !== 'openai_compat') return null;
+    if (!window.harborpilot?.secrets?.get) return null;
+    const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
+    const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;
+    try {
+      const result = await window.harborpilot.secrets.get(keyName);
+      if (result?.ok && result.value) {
+        return String(result.value);
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadLlmConfig().catch(() => undefined);
+    loadLlmStatus().catch(() => undefined);
+  }, [isOpen]);
+
+  const updateRole = (role: string, updates: Partial<LlmRoleConfig>) => {
+    setLlmConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        roles: {
+          ...prev.roles,
+          [role]: {
+            ...prev.roles[role],
+            ...updates,
+          },
+        },
+      };
+    });
+  };
+
+  const updateProvider = (providerId: string, updates: Partial<LlmProviderConfig>) => {
+    setLlmConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [providerId]: {
+            ...prev.providers[providerId],
+            ...updates,
+          },
+        },
+      };
+    });
+  };
+
+  const parseListInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+    } catch {
+      // fallback to line split
+    }
+    return trimmed
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  };
+
+  const saveProviderKey = async (providerId: string) => {
+    const key = providerKeyDrafts[providerId];
+    if (!key || !window.harborpilot?.secrets?.set) return;
+    const ref = `keychain:llm:${providerId}`;
+    const keyName = ref.slice('keychain:'.length);
+    const result = await window.harborpilot.secrets.set(keyName, key);
+    if (result?.ok) {
+      updateProvider(providerId, { api_key_ref: ref });
+      setProviderKeyDrafts((prev) => ({ ...prev, [providerId]: '' }));
+      setProviderKeyStatus((prev) => ({ ...prev, [providerId]: `${key.slice(0, 3)}****${key.slice(-4)}` }));
+    }
+  };
+
+  const saveLlmConfig = async () => {
+    if (!llmConfig) return;
+    setLlmSaving(true);
+    setLlmError(null);
+    try {
+      const res = await apiFetch('/llm/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(llmConfig),
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save LLM config');
+      }
+      const data = (await res.json()) as LlmConfig;
+      setLlmConfig(data);
+      setProviderJsonDrafts((prev) => {
+        const next = { ...prev };
+        const providers = data.providers || {};
+        Object.entries(providers).forEach(([id, cfg]) => {
+          next[id] = {
+            env: JSON.stringify(cfg.env || {}, null, 2),
+            headers: JSON.stringify(cfg.headers || {}, null, 2),
+          };
+        });
+        return next;
+      });
+      await loadLlmStatus();
+    } catch (err) {
+      setLlmError(err instanceof Error ? err.message : 'Failed to save LLM config');
+    } finally {
+      setLlmSaving(false);
+    }
+  };
+
+  const runLlmTest = async (
+    role: string,
+    level: 'quick' | 'full' = 'quick',
+    suites?: string[],
+    showReport: boolean = true,
+    overrides?: { providerId?: string; model?: string },
+  ) => {
+    if (!llmConfig) return;
+    const roleCfg = llmConfig.roles?.[role];
+    const providerId = overrides?.providerId || roleCfg?.provider_id;
+    const model = overrides?.model || roleCfg?.model;
+    if (!providerId || !model) return;
+    const providerCfg = llmConfig.providers?.[providerId];
+    const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    setLlmTesting((prev) => ({ ...prev, [role]: true }));
+    try {
+      const res = await apiFetch('/llm/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          provider_id: providerId,
+          model,
+          suites: suites || llmConfig.policies?.test_required_suites,
+          test_level: level,
+          api_key: apiKey,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error('LLM test failed');
+      }
+      const report = await res.json();
+      if (showReport) {
+        setReportDrawer({ open: true, data: report });
+      }
+      await loadLlmStatus();
+    } catch (err) {
+      setLlmError(err instanceof Error ? err.message : 'LLM test failed');
+    } finally {
+      setLlmTesting((prev) => ({ ...prev, [role]: false }));
+    }
+  };
+
+  const runAllTests = async () => {
+    if (!llmConfig) return;
+    setRunAllBusy(true);
+    const suites = getSelectedSuites();
+    for (const role of Object.keys(llmConfig.roles || {})) {
+      await runLlmTest(role, testLevel, suites, false);
+    }
+    setRunAllBusy(false);
+  };
+
+  const getSelectedSuites = () => {
+    if (!llmConfig) {
+      return ['connectivity', 'response', 'qualification'];
+    }
+    const suites = Object.entries(testSuites)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name);
+    if (suites.length === 0) {
+      return llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+    }
+    return suites;
+  };
+
+  const loadProviderModels = async (providerId: string) => {
+    if (!llmConfig) return;
+    if (!providerId) return;
+    const providerCfg = llmConfig.providers?.[providerId];
+    if (!providerCfg) return;
+    const apiKey = await resolveApiKey(providerId, providerCfg);
+    const res = await apiFetch(`/llm/providers/${providerId}/models`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    if (!res.ok) {
+      return;
+    }
+    const payload = await res.json();
+    const models = Array.isArray(payload.models) ? payload.models.map((m: any) => m.id || m) : [];
+    setProviderModels((prev) => ({ ...prev, [providerId]: { supported: !!payload.supported, models } }));
+  };
+
+  const openReport = async (runId: string) => {
+    try {
+      const res = await apiFetch(`/llm/test/${runId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setReportDrawer({ open: true, data });
+    } catch {
+      // ignore
+    }
+  };
+
+  const openTuiBrowser = (role: string) => {
+    if (!llmConfig) return;
+    const roleCfg = llmConfig.roles?.[role];
+    const providerId = roleCfg?.provider_id || '';
+    if (!providerId) return;
+    setTuiModelDraft(roleCfg?.model || '');
+    setTuiError(null);
+    setTuiDrawer({ open: true, role, providerId });
+  };
+
+  const handleTuiSave = async (runTest: boolean) => {
+    const trimmed = tuiModelDraft.trim();
+    if (!trimmed) {
+      setTuiError('Model id is required.');
+      return;
+    }
+    setTuiError(null);
+    if (tuiDrawer.role) {
+      updateRole(tuiDrawer.role, { model: trimmed });
+    }
+    if (runTest && tuiDrawer.role && tuiDrawer.providerId) {
+      await runLlmTest(tuiDrawer.role, 'quick', undefined, true, {
+        providerId: tuiDrawer.providerId,
+        model: trimmed,
+      });
+    }
+  };
+
+  const handleTuiModelChange = (value: string) => {
+    setTuiModelDraft(value);
+    if (tuiError && value.trim()) {
+      setTuiError(null);
+    }
+  };
+
+  const renderSuiteStatus = (label: string, ok?: boolean) => {
+    let icon = <AlertTriangle className="size-3 text-amber-300" />;
+    if (ok === true) {
+      icon = <CheckCircle2 className="size-3 text-emerald-300" />;
+    } else if (ok === undefined) {
+      icon = <div className="size-2 rounded-full bg-gray-500/60" />;
+    }
+    return (
+      <div className="flex items-center gap-1 text-[10px] text-text-dim">
+        {icon}
+        <span>{label}</span>
+      </div>
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -151,17 +539,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setError(null);
     try {
       await onSave({
-        pm_backend: pmBackend,
-        pm_model: pmModel,
-        director_model: directorModel,
-        model: pmModel,
         prompt_profile: promptProfile,
-        docs_init_model: docsInitModel,
-        docs_init_provider: docsInitProvider,
-        docs_init_base_url: docsInitBaseUrl,
-        docs_init_api_key: docsInitApiKey,
-        docs_init_api_path: docsInitApiPath,
-        docs_init_timeout: docsInitTimeout,
         refresh_interval: refreshInterval,
         auto_refresh: autoRefresh,
         interval: pmInterval,
@@ -182,6 +560,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         ramdisk_root: ramdiskRoot || '',
         json_log_path: jsonLogPath || '.harborpilot/runtime/PM_LOG.jsonl',
         show_memory: showMemory,
+        io_fsync_mode: ioFsyncMode,
+        memory_refs_mode: memoryRefsMode,
       });
       onClose();
     } catch (err) {
@@ -217,11 +597,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           ) : null}
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
-            <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg">
+            <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg flex-wrap">
               <TabsTrigger value="general" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">通用设置</TabsTrigger>
-              <TabsTrigger value="pm-llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">PM LLM</TabsTrigger>
-              <TabsTrigger value="director-llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Director LLM</TabsTrigger>
-              <TabsTrigger value="docs-ai" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Docs 提示</TabsTrigger>
+              <TabsTrigger value="llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">LLM 设置</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="mt-6 space-y-6">
@@ -497,6 +875,46 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 </div>
               </div>
 
+              {/* 不变量策略 */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-accent"></span>
+                  不变量策略
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">原子写入 (fsync)</label>
+                    <select
+                      value={ioFsyncMode}
+                      onChange={(e) => setIoFsyncMode(e.target.value as 'strict' | 'relaxed')}
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
+                    >
+                      <option value="strict">严格：fsync + 原子替换</option>
+                      <option value="relaxed">宽松：跳过 fsync（仍原子替换）</option>
+                    </select>
+                    <p className="text-[10px] text-text-dim mt-1.5">
+                      严格模式最安全，宽松模式更快但降低断电一致性保障。
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Memory 证据引用</label>
+                    <select
+                      value={memoryRefsMode}
+                      onChange={(e) => setMemoryRefsMode(e.target.value as 'strict' | 'soft' | 'off')}
+                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
+                    >
+                      <option value="strict">严格：缺 refs 直接丢弃</option>
+                      <option value="soft">软性：保留但标记未验证</option>
+                      <option value="off">关闭：不检查</option>
+                    </select>
+                    <p className="text-[10px] text-text-dim mt-1.5">
+                      refs 包含 run_id / event / artifact / code_ref 等可回放证据。
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* 存储与日志 */}
               <div className="bg-white/5 rounded-xl p-4 border border-white/5">
                 <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
@@ -543,140 +961,60 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               </div>
             </TabsContent>
 
-            <TabsContent value="pm-llm" className="mt-6 space-y-6">
-              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
-                  <span className="size-1.5 rounded-full bg-accent"></span>
-                  PM LLM 设置
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">PM Backend</label>
-                    <select
-                      value={pmBackend}
-                      onChange={(e) => setPmBackend(e.target.value)}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
-                    >
-                      <option value="codex">Codex (OpenAI 兼容)</option>
-                      <option value="ollama">Ollama (本地模型)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">PM 模型名称</label>
-                    <input
-                      type="text"
-                      value={pmModel}
-                      onChange={(e) => setPmModel(e.target.value)}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
+            <TabsContent value="llm" className="mt-6">
+              <LLMSettingsTab
+                llmConfig={llmConfig}
+                llmStatus={llmStatus}
+                llmLoading={llmLoading}
+                llmSaving={llmSaving}
+                llmError={llmError}
+                onSaveConfig={saveLlmConfig}
+                onTestModel={runLlmTest}
+                onTestRole={runLlmTest}
+                onOpenTuiBrowser={openTuiBrowser}
+                onViewTestReport={openReport}
+              />
             </TabsContent>
 
-            <TabsContent value="director-llm" className="mt-6 space-y-6">
-              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
-                  <span className="size-1.5 rounded-full bg-accent"></span>
-                  Director LLM 设置
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Director 模型名称</label>
-                    <input
-                      type="text"
-                      value={directorModel}
-                      onChange={(e) => setDirectorModel(e.target.value)}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="docs-ai" className="mt-6 space-y-6">
-              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
-                  <span className="size-1.5 rounded-full bg-accent"></span>
-                  Docs 提示模型
-                </h3>
-                <p className="text-[10px] text-text-dim mb-4">
-                  用于 Docs 向导里的 Goal 自动补全/润色。只读仓库不受影响。
-                </p>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">LLM Provider</label>
-                    <select
-                      value={docsInitProvider}
-                      onChange={(e) => setDocsInitProvider(e.target.value)}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
-                    >
-                      <option value="ollama">Ollama</option>
-                      <option value="codex">Codex CLI</option>
-                      <option value="custom">其他 (OpenAI 兼容)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">Model</label>
-                    <input
-                      type="text"
-                      value={docsInitModel}
-                      onChange={(e) => setDocsInitModel(e.target.value)}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                    />
-                  </div>
-
-                  {docsInitProvider === 'custom' ? (
-                    <>
-                      <div>
-                        <label className="block text-xs text-text-muted mb-1.5 font-medium">Base URL</label>
-                        <input
-                          type="text"
-                          value={docsInitBaseUrl}
-                          onChange={(e) => setDocsInitBaseUrl(e.target.value)}
-                          placeholder="http://localhost:8000"
-                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-text-muted mb-1.5 font-medium">API Key</label>
-                        <input
-                          type="password"
-                          value={docsInitApiKey}
-                          onChange={(e) => setDocsInitApiKey(e.target.value)}
-                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-text-muted mb-1.5 font-medium">API Path</label>
-                        <input
-                          type="text"
-                          value={docsInitApiPath}
-                          onChange={(e) => setDocsInitApiPath(e.target.value)}
-                          className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all font-mono"
-                        />
-                        <p className="text-[10px] text-text-dim mt-1.5">默认 /v1/chat/completions</p>
-                      </div>
-                    </>
-                  ) : null}
-
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1.5 font-medium">超时（秒）</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={docsInitTimeout}
-                      onChange={(e) => setDocsInitTimeout(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full bg-black/20 text-text-main px-3 py-2 rounded border border-white/10 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all"
-                    />
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
           </Tabs>
-        </div>
+          {reportDrawer.open ? (
+            <div className="mt-4 rounded-lg border border-white/10 bg-black/40 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-text-main">LLM Test Report</span>
+                <button
+                  type="button"
+                  onClick={() => setReportDrawer({ open: false, data: null })}
+                  className="text-[10px] text-text-dim hover:text-text-main"
+                >
+                  Close
+                </button>
+              </div>
+              <pre className="text-[11px] text-text-muted whitespace-pre-wrap font-mono max-h-64 overflow-auto">
+                {JSON.stringify(reportDrawer.data, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+          <PtyDrawer
+            open={tuiDrawer.open}
+            onOpenChange={(open) => {
+              setTuiDrawer((prev) => ({ ...prev, open }));
+              if (!open) setTuiError(null);
+            }}
+            roleLabel={ROLE_META[tuiDrawer.role]?.label || tuiDrawer.role || 'Role'}
+            providerId={tuiDrawer.providerId || ''}
+            providerConfig={
+              tuiDrawer.providerId && llmConfig?.providers?.[tuiDrawer.providerId]
+                ? { id: tuiDrawer.providerId, ...llmConfig.providers[tuiDrawer.providerId] }
+                : null
+            }
+            modelValue={tuiModelDraft}
+            onModelChange={handleTuiModelChange}
+            onSaveModel={() => handleTuiSave(false)}
+            onSaveAndTest={() => handleTuiSave(true)}
+            error={tuiError}
+          />
+
+                  </div>
 
         {/* 底部按钮 */}
         <div className="flex items-center justify-end gap-3 p-4 border-t border-white/10 bg-black/20 backdrop-blur-md">

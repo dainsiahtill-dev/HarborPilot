@@ -41,12 +41,9 @@ Encoding guardrail (HARD RULE):
 - Do NOT set global PowerShell defaults; include `-Encoding utf8` on each command instead.
 
 Context references (must read before changes):
-- docs/README.md
+- docs/agent/README.md
 - docs/product/requirements.md
-- docs/product/vision.md
-- docs/systems/
-- docs/ux/ui-ux.md
-- docs/engineering/engineering-notes.md
+- docs/product/product_spec.md
 - README.md
 
 Memory summary (previous run):
@@ -94,12 +91,9 @@ Encoding guardrail (HARD RULE):
 - Do NOT set global PowerShell defaults; include `-Encoding utf8` on each command instead.
 
 Context references (must read before changes):
-- docs/README.md
+- docs/agent/README.md
 - docs/product/requirements.md
-- docs/product/vision.md
-- docs/systems/
-- docs/ux/ui-ux.md
-- docs/engineering/engineering-notes.md
+- docs/product/product_spec.md
 - README.md
 
 Memory summary (previous run):
@@ -173,12 +167,9 @@ Constraints:
 - If editing browser client code, avoid Node-only APIs (process.env/require/fs) unless explicitly required.
 
 Context references (must read before changes):
-- docs/README.md
+- docs/agent/README.md
 - docs/product/requirements.md
-- docs/product/vision.md
-- docs/systems/
-- docs/ux/ui-ux.md
-- docs/engineering/engineering-notes.md
+- docs/product/product_spec.md
 - README.md
 
 Memory summary (previous run):

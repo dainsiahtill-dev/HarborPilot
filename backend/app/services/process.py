@@ -77,6 +77,23 @@ def director_command(settings: Settings) -> List[str]:
         cmd.append("--show-output")
     return cmd
 
+_INVARIANT_IO_FSYNC_MODES = {"strict", "relaxed"}
+_INVARIANT_MEMORY_REFS_MODES = {"strict", "soft", "off"}
+
+def _normalize_invariant_mode(value: Optional[str], allowed: set, default: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in allowed:
+        return raw
+    return default
+
+def build_invariants_env(settings: Settings) -> Dict[str, str]:
+    io_mode = _normalize_invariant_mode(getattr(settings, "io_fsync_mode", None), _INVARIANT_IO_FSYNC_MODES, "strict")
+    mem_mode = _normalize_invariant_mode(getattr(settings, "memory_refs_mode", None), _INVARIANT_MEMORY_REFS_MODES, "soft")
+    return {
+        "HARBORPILOT_IO_FSYNC_MODE": io_mode,
+        "HARBORPILOT_MEMORY_REFS_MODE": mem_mode,
+    }
+
 def spawn_process(cmd: List[str], cwd: str, log_path: str, extra_env: Optional[Dict[str, str]] = None) -> ProcessHandle:
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log_handle = open(log_path, "a", encoding="utf-8", errors="ignore")

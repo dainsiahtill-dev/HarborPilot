@@ -1,12 +1,16 @@
-# Documentation Index
+# HarborPilot 文档入口
 
-This directory contains project documentation.
+本项目文档分为两套：
 
-## Core Documents
-- [Requirements](product/requirements.md): High-level product requirements and goals.
-- [Architecture](architecture.md): System architecture and design decisions.
-- [Reference](reference.md): Technical reference, CLI args, and configuration.
+- **给人看的**：产品定位、用法与高层说明（见 `docs/human/README.md`）
+- **给 AI Agent 看的**：可执行约束、证据链与工程细节（见 `docs/agent/README.md`）
 
-## Additional Resources
-- [Design System](../design_system_v2.md): UI design tokens and component guidelines.
-- [Test Plans](../tests/): Automated test specifications and E2E tests.
+---
+
+## 快速入口
+
+- 人类读者文档：`docs/human/README.md`
+- Agent 文档入口：`docs/agent/README.md`
+- 产品规格：`docs/product/product_spec.md`
+- 需求文档：`docs/product/requirements.md`
+

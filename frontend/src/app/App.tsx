@@ -55,6 +55,8 @@ interface BackendSettings {
   refresh_interval: number;
   auto_refresh: boolean;
   show_memory: boolean;
+  io_fsync_mode?: string;
+  memory_refs_mode?: string;
   ramdisk_root?: string;
   json_log_path?: string;
   pm_show_output?: boolean;
@@ -90,6 +92,34 @@ interface LanceDbStatus {
   error?: string | null;
   python?: string | null;
   version?: string | null;
+}
+
+interface LlmStatus {
+  state: string;
+  required_ready_roles: string[];
+  blocked_roles: string[];
+  unsupported_roles: string[];
+  roles: Record<
+    string,
+    {
+      provider_id?: string;
+      model?: string;
+      profile?: string;
+      ready?: boolean;
+      grade?: string;
+      last_run_id?: string | null;
+      timestamp?: string | null;
+      suites?: any;
+      runtime_supported?: boolean;
+    }
+  >;
+}
+
+interface AnthroState {
+  last_reflection_step: number;
+  recent_error_count: number;
+  total_memories: number;
+  total_reflections: number;
 }
 
 interface SnapshotPayload {
@@ -312,6 +342,7 @@ export default function App() {
   const [planIssue, setPlanIssue] = useState<{ detail: string } | null>(null);
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
   const [dialogueEvents, setDialogueEvents] = useState<DialogueEvent[]>([]);
+  const [anthroState, setAnthroState] = useState<AnthroState | null>(null);
   const [wsLive, setWsLive] = useState(false);
   const seenDialogueIds = useRef<Set<string>>(new Set());
   const agentsDialogHoldRef = useRef<string | null>(null);
@@ -332,6 +363,7 @@ export default function App() {
   const [ollamaActionError, setOllamaActionError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
   const [successStats, setSuccessStats] = useState<{ successes?: number; total?: number; rate?: number }>({});
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
   const [errorDialogTitle, setErrorDialogTitle] = useState<string>('');
   const [errorDialogContent, setErrorDialogContent] = useState<string>('');
@@ -348,6 +380,13 @@ export default function App() {
     const python = lancedbStatus?.python || 'unknown';
     return `LanceDB is required to run PM/Director.\n\nError: ${error}\nPython: ${python}`;
   }, [lancedbBlocked, lancedbStatus]);
+
+  const pmLlmReady = llmStatus?.roles?.pm?.ready ?? false;
+  const pmLlmSupported = llmStatus?.roles?.pm?.runtime_supported ?? true;
+  const pmLlmBlocked = !pmLlmReady || !pmLlmSupported;
+  const directorLlmReady = llmStatus?.roles?.director?.ready ?? false;
+  const directorLlmSupported = llmStatus?.roles?.director?.runtime_supported ?? true;
+  const directorLlmBlocked = !directorLlmReady || !directorLlmSupported;
 
   const markBackendError = (err: unknown) => {
     if (err instanceof Error && err.message) {
@@ -433,6 +472,19 @@ export default function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'LanceDB unavailable';
       setLancedbStatus({ ok: false, error: message });
+    }
+  };
+
+  const refreshLlmStatus = async () => {
+    try {
+      const res = await apiFetch('/llm/status');
+      if (!res.ok) {
+        throw new Error('Failed to load LLM status');
+      }
+      const data = (await res.json()) as LlmStatus;
+      setLlmStatus(data);
+    } catch (err) {
+      console.error('Failed to load LLM status:', err);
     }
   };
 
@@ -549,6 +601,7 @@ export default function App() {
       refreshMemory(),
       refreshMemos(),
       refreshLanceDbStatus(),
+      refreshLlmStatus(),
       refreshSuccessStats(),
     ]);
   };
@@ -640,36 +693,6 @@ export default function App() {
     agentsReview?.feedback_path,
     agentsReview?.draft_mtime,
   ]);
-
-  useEffect(() => {
-    if (settings && settings.auto_refresh === false) {
-      return undefined;
-    }
-    const intervalMs = Math.max(1, settings?.refresh_interval ?? 3) * 1000;
-    const timer = window.setInterval(() => {
-      if (!wsLive) {
-        refreshStatus().catch((err) => {
-          console.error('Failed to refresh status:', err);
-        });
-        refreshSnapshot().catch((err) => {
-          console.error('Failed to refresh snapshot:', err);
-        });
-        refreshLanceDbStatus().catch((err) => {
-          console.error('Failed to refresh LanceDB status:', err);
-        });
-        refreshMemory().catch((err) => {
-          console.error('Failed to refresh memory:', err);
-        });
-        refreshMemos().catch((err) => {
-          console.error('Failed to refresh memos:', err);
-        });
-        refreshSuccessStats().catch((err) => {
-          console.error('Failed to refresh success stats:', err);
-        });
-      }
-    }, intervalMs);
-    return () => window.clearInterval(timer);
-  }, [settings?.refresh_interval, settings?.auto_refresh, wsLive]);
 
   useEffect(() => {
     if (!pmStatus) return;
@@ -784,6 +807,9 @@ export default function App() {
             }
             if (payload.success_stats) {
               setSuccessStats(payload.success_stats as { successes?: number; total?: number; rate?: number });
+            }
+            if (payload.anthro_state) {
+              setAnthroState(payload.anthro_state as AnthroState);
             }
             return;
           }
@@ -1490,6 +1516,8 @@ export default function App() {
     refresh_interval?: number;
     auto_refresh?: boolean;
     show_memory?: boolean;
+    io_fsync_mode?: string;
+    memory_refs_mode?: string;
     ramdisk_root?: string;
     json_log_path?: string;
     pm_show_output?: boolean;
@@ -1647,8 +1675,8 @@ export default function App() {
           workspace={settings?.workspace || ''}
           pmRunning={!!pmStatus?.running}
           directorRunning={!!directorStatus?.running}
-          pmToggleDisabled={(lancedbBlocked || docsMissing) && !pmStatus?.running}
-          directorToggleDisabled={((lancedbBlocked || docsMissing) && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
+          pmToggleDisabled={(lancedbBlocked || docsMissing || pmLlmBlocked) && !pmStatus?.running}
+          directorToggleDisabled={((lancedbBlocked || docsMissing || directorLlmBlocked) && !directorStatus?.running) || (agentsRequired && !directorStatus?.running)}
           directorBlockedReason={
             docsMissing && !directorStatus?.running
               ? 'docs/ missing'
@@ -1656,9 +1684,13 @@ export default function App() {
                 ? agentsDraftFailed
                   ? 'AGENTS 草稿生成失败'
                   : '需要先确认 AGENTS.md'
-                : undefined
+                : directorLlmBlocked && !directorStatus?.running
+                  ? directorLlmSupported
+                    ? 'LLM tests required'
+                    : 'LLM provider unsupported'
+                  : undefined
           }
-          runOnceDisabled={lancedbBlocked || docsMissing || !!pmStatus?.running}
+          runOnceDisabled={lancedbBlocked || docsMissing || pmLlmBlocked || !!pmStatus?.running}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onWorkspaceCommit={handleWorkspaceCommit}
           onPickWorkspace={handlePickWorkspace}
@@ -1704,6 +1736,8 @@ export default function App() {
           isArtifactsOpen={isMonitorOpen}
           onToggleArtifacts={() => setIsMonitorOpen(!isMonitorOpen)}
           usageStats={usageStats}
+          ioFsyncMode={settings?.io_fsync_mode}
+          memoryRefsMode={settings?.memory_refs_mode}
         />
 
         {docsMissing ? (
@@ -1855,6 +1889,7 @@ export default function App() {
               showCognition={showCognition}
               setShowCognition={setShowCognition}
               settingsShowMemory={!!settings?.show_memory}
+              anthroState={anthroState}
             />
           </Panel>
         </PanelGroup>
@@ -2145,7 +2180,7 @@ export default function App() {
               <X className="size-5" />
             </button>
             <div className="flex-1 overflow-hidden p-6 relative">
-              <CognitionPanel events={dialogueEvents} loading={!wsLive} />
+              <CognitionPanel events={dialogueEvents} loading={!wsLive} anthroState={anthroState} />
             </div>
           </div>
         </div>

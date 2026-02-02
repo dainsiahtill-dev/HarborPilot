@@ -151,6 +151,7 @@ try:
     )
     from shared import normalize_path, _truncate_for_review, strip_ansi
     from anthropomorphic.integration import run_reflection_cycle
+    from invariant_sentinel import compute_contract_fingerprint, run_invariant_sentinel
     from app.services.director_logic import (
         parse_acceptance,
         parse_json_payload,
@@ -700,6 +701,12 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     state.current_task_fingerprint = ""
     state.current_run_id = f"dir-{index:05d}"
     event_seq_start = get_event_seq() + 1
+    events_size_start = 0
+    if state.events_full and os.path.exists(state.events_full):
+        try:
+            events_size_start = os.path.getsize(state.events_full)
+        except Exception:
+            events_size_start = 0
     append_log(log_path, f"\n## Run {index} - {stamp}\n")
     pm_iteration = None
     pm_task_id = ""
@@ -845,6 +852,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     target_note = "none"
     pm_task_note = ""
     pm_payload: Optional[Dict[str, Any]] = None
+    contract_fingerprint = ""
     pm_task_id = ""
     pm_task_fingerprint = ""
     pm_task_title = ""
@@ -859,6 +867,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         if os.path.isfile(pm_task_path):
             pm_payload = parse_json_payload(read_file_safe(pm_task_path))
             if isinstance(pm_payload, dict):
+                contract_fingerprint = compute_contract_fingerprint(pm_payload)
                 pm_iteration = pm_payload.get("pm_iteration")
                 focus = str(pm_payload.get("focus") or "").strip()
                 overall_goal = str(pm_payload.get("overall_goal") or "").strip()
@@ -1759,7 +1768,13 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         "acceptance": acceptance,
         "changed_files": changed_files,
         "error": None,
-        "duration": duration
+        "duration": duration,
+        "run_id": state.current_run_id,
+        "event_seq_start": event_seq_start,
+        "event_seq_end": event_seq_end,
+        "events_size_start": events_size_start,
+        "contract_fingerprint": contract_fingerprint,
+        "pm_task_path": pm_task_path,
     }
 
 
@@ -2009,6 +2024,32 @@ def main() -> int:
                     set_event_seq(scan_last_seq(state.events_full))
                 
                 result = invoke_iteration(state, index, False)
+                try:
+                    run_reflection_cycle(
+                        state.workspace_full,
+                        getattr(state, "director_iteration", index),
+                        getattr(state, "current_run_id", f"dir-{index:05d}"),
+                        state.model,
+                        getattr(state, "events_full", "")
+                    )
+                except Exception as e:
+                    append_log(state.log_full, f"[REFLECTION] Error: {e}\n")
+
+                try:
+                    memory_path = os.path.join(state.workspace_full, ".harborpilot", "brain", "MEMORY.jsonl")
+                    run_invariant_sentinel(
+                        events_path=state.events_full,
+                        run_id=str(result.get("run_id") or getattr(state, "current_run_id", "")),
+                        step=index,
+                        pm_task_path=str(result.get("pm_task_path") or ""),
+                        contract_fingerprint=str(result.get("contract_fingerprint") or ""),
+                        events_seq_start=int(result.get("event_seq_start") or 0),
+                        events_size_start=int(result.get("events_size_start") or 0),
+                        memory_path=memory_path,
+                    )
+                except Exception as e:
+                    append_log(state.log_full, f"[SENTINEL] Error: {e}\n")
+
                 if not result["ok"]:
                     return 1
                 index += 1
@@ -2034,6 +2075,21 @@ def main() -> int:
                     )
                 except Exception as e:
                     append_log(state.log_full, f"[REFLECTION] Error: {e}\n")
+
+                try:
+                    memory_path = os.path.join(state.workspace_full, ".harborpilot", "brain", "MEMORY.jsonl")
+                    run_invariant_sentinel(
+                        events_path=state.events_full,
+                        run_id=str(result.get("run_id") or getattr(state, "current_run_id", "")),
+                        step=index,
+                        pm_task_path=str(result.get("pm_task_path") or ""),
+                        contract_fingerprint=str(result.get("contract_fingerprint") or ""),
+                        events_seq_start=int(result.get("event_seq_start") or 0),
+                        events_size_start=int(result.get("events_size_start") or 0),
+                        memory_path=memory_path,
+                    )
+                except Exception as e:
+                    append_log(state.log_full, f"[SENTINEL] Error: {e}\n")
 
                 if not result["ok"]:
                     return 1

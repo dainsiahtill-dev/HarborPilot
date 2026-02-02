@@ -1,15 +1,41 @@
 import os
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from prompt_loader import get_template, render_template
 from shared import normalize_path, unique_preserve
 from io_utils import ensure_parent_dir, read_file_safe, emit_event
-from anthropomorphic.integration import get_anthropomorphic_context
+from anthropomorphic.integration import get_anthropomorphic_context, get_anthropomorphic_context_v2
 
 
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def _use_context_engine_v2() -> bool:
+    value = str(os.environ.get("HARBORPILOT_CONTEXT_ENGINE", "")).strip().lower()
+    return value in ("v2", "context_v2", "engine_v2", "context-engine-v2")
+
+
+def _get_context_bundle(
+    role: str,
+    query: str,
+    step: int,
+    run_id: str,
+    phase: str,
+    events_path: str = "",
+) -> Dict[str, Any]:
+    if _use_context_engine_v2():
+        return get_anthropomorphic_context_v2(
+            PROJECT_ROOT,
+            role,
+            query,
+            step,
+            run_id,
+            phase,
+            events_path=events_path or "",
+        )
+    return get_anthropomorphic_context(PROJECT_ROOT, role, query, step, run_id, phase)
 
 def build_project_prompt(
     plan_text: str,
@@ -21,9 +47,14 @@ def build_project_prompt(
 ) -> str:
     template = get_template("project_prompt")
     
-    anthro = get_anthropomorphic_context(PROJECT_ROOT, "pm", plan_text, step, run_id, "pm.planning")
+    anthro = _get_context_bundle("pm", plan_text, step, run_id, "pm.planning", events_path)
     
     if events_path:
+        output = anthro["prompt_context_obj"].model_dump()
+        context_pack = anthro.get("context_pack")
+        if context_pack is not None:
+            output["context_hash"] = getattr(context_pack, "request_hash", "")
+            output["context_snapshot"] = getattr(context_pack, "snapshot_path", "")
         emit_event(
             events_path,
             kind="observation",
@@ -31,7 +62,7 @@ def build_project_prompt(
             name="prompt_context",
             refs={"run_id": run_id, "step": step},
             summary="Prompt Context Injection",
-            output=anthro["prompt_context_obj"].model_dump()
+            output=output
         )
     
     return render_template(
@@ -88,9 +119,14 @@ def build_planner_prompt(
 ) -> str:
     template = get_template("planner_prompt")
     
-    anthro = get_anthropomorphic_context(PROJECT_ROOT, "director", plan_text, step, run_id, "director.planning")
+    anthro = _get_context_bundle("director", plan_text, step, run_id, "director.planning", events_path)
 
     if events_path:
+        output = anthro["prompt_context_obj"].model_dump()
+        context_pack = anthro.get("context_pack")
+        if context_pack is not None:
+            output["context_hash"] = getattr(context_pack, "request_hash", "")
+            output["context_snapshot"] = getattr(context_pack, "snapshot_path", "")
         emit_event(
             events_path,
             kind="observation",
@@ -98,7 +134,7 @@ def build_planner_prompt(
             name="prompt_context",
             refs={"run_id": run_id, "step": step},
             summary="Prompt Context Injection",
-            output=anthro["prompt_context_obj"].model_dump()
+            output=output
         )
 
     return render_template(
@@ -155,9 +191,14 @@ def build_qa_prompt(
     
     # Context query is related to changes and plan
     query = f"Verify changes in {files_list}. Plan: {plan_text[:200]}"
-    anthro = get_anthropomorphic_context(PROJECT_ROOT, "qa", query, step, run_id, "qa.review")
+    anthro = _get_context_bundle("qa", query, step, run_id, "qa.review", events_path)
 
     if events_path:
+        output = anthro["prompt_context_obj"].model_dump()
+        context_pack = anthro.get("context_pack")
+        if context_pack is not None:
+            output["context_hash"] = getattr(context_pack, "request_hash", "")
+            output["context_snapshot"] = getattr(context_pack, "snapshot_path", "")
         emit_event(
             events_path,
             kind="observation",
@@ -165,7 +206,7 @@ def build_qa_prompt(
             name="prompt_context",
             refs={"run_id": run_id, "step": step},
             summary="Prompt Context Injection",
-            output=anthro["prompt_context_obj"].model_dump()
+            output=output
         )
 
     return render_template(

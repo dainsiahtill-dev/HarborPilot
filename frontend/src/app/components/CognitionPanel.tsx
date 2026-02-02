@@ -1,7 +1,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { Brain, Lightbulb, Sparkles, Zap, Database, ArrowRight, Activity, Trash2, Gauge } from 'lucide-react';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { apiFetch } from '@/api';
 import { toast } from 'sonner';
 
@@ -21,6 +21,7 @@ interface PromptContextObj {
 interface CognitionPanelProps {
     events: any[]; // Stream of raw events to filter
     loading?: boolean;
+    anthroState?: AnthroState | null;
 }
 
 interface AnthroState {
@@ -30,27 +31,9 @@ interface AnthroState {
     total_reflections: number;
 }
 
-export function CognitionPanel({ events, loading }: CognitionPanelProps) {
+export function CognitionPanel({ events, loading, anthroState }: CognitionPanelProps) {
     const [activeTab, setActiveTab] = useState<'stream' | 'reflections'>('stream');
-    const [anthroState, setAnthroState] = useState<AnthroState | null>(null);
-
-    // Poll for state
-    useEffect(() => {
-        const fetchState = async () => {
-            try {
-                const res = await apiFetch('/anthropomorphic/state');
-                if (res.ok) {
-                    setAnthroState(await res.json());
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        };
-
-        fetchState();
-        const interval = setInterval(fetchState, 5000);
-        return () => clearInterval(interval);
-    }, []);
+    const resolvedAnthroState = anthroState ?? null;
 
     // Filter for PromptContext events (Cognitive Recall)
     const recallEvents = useMemo(() => {
@@ -80,11 +63,11 @@ export function CognitionPanel({ events, loading }: CognitionPanelProps) {
 
     // Calculate Mood
     const mood = useMemo(() => {
-        if (!anthroState) return { text: 'Unknown', color: 'text-gray-500' };
-        if (anthroState.recent_error_count === 0) return { text: 'Confident', color: 'text-green-400' };
-        if (anthroState.recent_error_count < 3) return { text: 'Cautious', color: 'text-yellow-400' };
+        if (!resolvedAnthroState) return { text: 'Unknown', color: 'text-gray-500' };
+        if (resolvedAnthroState.recent_error_count === 0) return { text: 'Confident', color: 'text-green-400' };
+        if (resolvedAnthroState.recent_error_count < 3) return { text: 'Cautious', color: 'text-yellow-400' };
         return { text: 'Frustrated', color: 'text-red-400' };
-    }, [anthroState]);
+    }, [resolvedAnthroState]);
 
     return (
         <div className="h-full flex flex-col glass border-l border-white/5 bg-gradient-to-b from-[#1e1e1e] to-[#0f0f0f] relative overflow-hidden">
@@ -122,7 +105,7 @@ export function CognitionPanel({ events, loading }: CognitionPanelProps) {
                     </div>
                     <div className="text-right">
                         <div className="text-[10px] text-gray-500">Memories</div>
-                        <div className="text-sm font-mono text-gray-300">{anthroState?.total_memories || 0}</div>
+                        <div className="text-sm font-mono text-gray-300">{resolvedAnthroState?.total_memories || 0}</div>
                     </div>
                 </div>
 

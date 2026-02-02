@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
 const { spawn } = require("child_process");
 const { randomBytes } = require("crypto");
+const pty = require("node-pty");
 const net = require("net");
 const path = require("path");
+const fs = require("fs");
 
 // Guard against Electron being forced into Node mode by an inherited env var.
 if (process.env.ELECTRON_RUN_AS_NODE) {
@@ -20,6 +22,95 @@ let backendInfo = {
   baseUrl: null,
   pid: null,
 };
+const ptySessions = new Map();
+
+function buildPtyEnv(env) {
+  const base = { ...process.env };
+  if (env && typeof env === "object") {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined || value === null) continue;
+      base[String(key)] = String(value);
+    }
+  }
+  if (!base.TERM) {
+    base.TERM = "xterm-256color";
+  }
+  return base;
+}
+
+function secretsPath() {
+  return path.join(app.getPath("userData"), "secrets.json");
+}
+
+function loadSecrets() {
+  const target = secretsPath();
+  try {
+    if (!fs.existsSync(target)) {
+      return {};
+    }
+    const raw = fs.readFileSync(target, "utf-8");
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSecrets(payload) {
+  const target = secretsPath();
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(payload, null, 2), "utf-8");
+  } catch {
+    // ignore
+  }
+}
+
+function setSecret(key, value) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: "safeStorage unavailable" };
+  }
+  if (!key) {
+    return { ok: false, error: "key required" };
+  }
+  const data = loadSecrets();
+  const encrypted = safeStorage.encryptString(String(value));
+  data[key] = encrypted.toString("base64");
+  saveSecrets(data);
+  return { ok: true };
+}
+
+function getSecret(key) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: "safeStorage unavailable" };
+  }
+  if (!key) {
+    return { ok: false, error: "key required" };
+  }
+  const data = loadSecrets();
+  const encoded = data[key];
+  if (!encoded) {
+    return { ok: false, value: null };
+  }
+  try {
+    const decrypted = safeStorage.decryptString(Buffer.from(encoded, "base64"));
+    return { ok: true, value: decrypted };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+function deleteSecret(key) {
+  if (!key) {
+    return { ok: false, error: "key required" };
+  }
+  const data = loadSecrets();
+  if (data && Object.prototype.hasOwnProperty.call(data, key)) {
+    delete data[key];
+    saveSecrets(data);
+  }
+  return { ok: true };
+}
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -120,6 +211,111 @@ app.whenReady().then(async () => {
     }
     return { ok: true, error: null };
   });
+  ipcMain.handle("hp:secrets-available", async () => {
+    return { ok: true, available: safeStorage.isEncryptionAvailable() };
+  });
+  ipcMain.handle("hp:secrets-set", async (_event, payload) => {
+    const key = payload?.key;
+    const value = payload?.value;
+    return setSecret(key, value);
+  });
+  ipcMain.handle("hp:secrets-get", async (_event, key) => {
+    return getSecret(key);
+  });
+  ipcMain.handle("hp:secrets-delete", async (_event, key) => {
+    return deleteSecret(key);
+  });
+  ipcMain.handle("hp:pty-start", async (event, payload = {}) => {
+    const command = payload.command;
+    if (!command) {
+      return { ok: false, error: "command required" };
+    }
+    const args = Array.isArray(payload.args) ? payload.args.map((arg) => String(arg)) : [];
+    const cols = Number(payload.cols) || 120;
+    const rows = Number(payload.rows) || 32;
+    const cwd = payload.cwd || repoRoot;
+    const env = buildPtyEnv(payload.env);
+    try {
+      const term = pty.spawn(String(command), args, {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd,
+        env,
+      });
+      const id = randomBytes(8).toString("hex");
+      const sender = event.sender;
+      term.onData((data) => {
+        if (sender.isDestroyed()) return;
+        sender.send("hp:pty-data", { id, data });
+      });
+      term.onExit(({ exitCode, signal }) => {
+        if (!sender.isDestroyed()) {
+          sender.send("hp:pty-exit", { id, exitCode, signal });
+        }
+        ptySessions.delete(id);
+      });
+      ptySessions.set(id, { term, senderId: sender.id });
+      return { ok: true, id };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+  ipcMain.handle("hp:pty-write", async (_event, payload = {}) => {
+    const id = payload.id;
+    const data = payload.data;
+    if (!id) {
+      return { ok: false, error: "id required" };
+    }
+    const session = ptySessions.get(id);
+    if (!session) {
+      return { ok: false, error: "session not found" };
+    }
+    try {
+      session.term.write(String(data ?? ""));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+  ipcMain.handle("hp:pty-resize", async (_event, payload = {}) => {
+    const id = payload.id;
+    const cols = Number(payload.cols);
+    const rows = Number(payload.rows);
+    if (!id) {
+      return { ok: false, error: "id required" };
+    }
+    const session = ptySessions.get(id);
+    if (!session) {
+      return { ok: false, error: "session not found" };
+    }
+    if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
+      return { ok: false, error: "cols/rows required" };
+    }
+    try {
+      session.term.resize(cols, rows);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+  ipcMain.handle("hp:pty-close", async (_event, payload = {}) => {
+    const id = payload.id;
+    if (!id) {
+      return { ok: false, error: "id required" };
+    }
+    const session = ptySessions.get(id);
+    if (!session) {
+      return { ok: true };
+    }
+    try {
+      session.term.kill();
+    } catch {
+      // ignore
+    }
+    ptySessions.delete(id);
+    return { ok: true };
+  });
 
   // Window Control IPC
   ipcMain.handle("hp:window-minimize", (event) => {
@@ -155,6 +351,16 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (ptySessions.size > 0) {
+    for (const session of ptySessions.values()) {
+      try {
+        session.term.kill();
+      } catch {
+        // ignore
+      }
+    }
+    ptySessions.clear();
+  }
   if (backendInfo && backendInfo.baseUrl && backendInfo.token) {
     const url = `${backendInfo.baseUrl}/app/shutdown`;
     try {

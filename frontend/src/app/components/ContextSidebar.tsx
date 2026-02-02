@@ -31,6 +31,7 @@ interface ContextSidebarProps {
     showCognition: boolean;
     setShowCognition: (show: boolean) => void;
     settingsShowMemory: boolean;
+    anthroState?: any | null;
 }
 
 export function ContextSidebar({
@@ -50,7 +51,8 @@ export function ContextSidebar({
     memoryError,
     showCognition,
     setShowCognition,
-    settingsShowMemory
+    settingsShowMemory,
+    anthroState,
 }: ContextSidebarProps) {
     const [activeTab, setActiveTab] = useState<ContextTab>('dialogue');
 
@@ -159,7 +161,7 @@ export function ContextSidebar({
                             </div>
                             <div className="flex-1 min-h-0 relative overflow-hidden">
                                 {showCognition ? (
-                                    <CognitionPanel events={dialogueEvents} loading={!live} />
+                                    <CognitionPanel events={dialogueEvents} loading={!live} anthroState={anthroState} />
                                 ) : (
                                     <MemoryPanel
                                         content={memoryContent}

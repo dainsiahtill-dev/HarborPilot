@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 _JSONL_LOCK_STALE_SEC = float(os.environ.get("HARBORPILOT_JSONL_LOCK_STALE_SEC", "120") or 120)
 _RAMDISK_ENV = "HARBORPILOT_RAMDISK_ROOT"
 _STATE_TO_RAMDISK_ENV = "HARBORPILOT_STATE_TO_RAMDISK"
+_IO_FSYNC_ENV = "HARBORPILOT_IO_FSYNC_MODE"
 ARTIFACT_ROOT = ".harborpilot"
 LEGACY_ARTIFACT_ROOT = "state"
 ARTIFACT_NAMESPACE = "runtime"
@@ -384,7 +385,8 @@ def write_text_atomic(path: str, text: str) -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         handle.write(text or "")
         handle.flush()
-        os.fsync(handle.fileno())
+        if _fsync_enabled():
+            os.fsync(handle.fileno())
     os.replace(tmp_path, path)
 
 
@@ -420,6 +422,11 @@ def clear_stop_flag(workspace: str) -> None:
         paths.add(stop_flag_path(workspace))
     except Exception:
         pass
+
+
+def _fsync_enabled() -> bool:
+    value = os.environ.get(_IO_FSYNC_ENV, "strict").strip().lower()
+    return value not in ("0", "false", "no", "off", "relaxed", "skip", "disabled")
     paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag"))
     paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
     paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
@@ -534,7 +541,8 @@ def append_jsonl_atomic(path: str, obj: Dict[str, Any], lock_timeout_sec: float 
         with open(path, "a", encoding="utf-8", newline="\n") as handle:
             handle.write(line)
             handle.flush()
-            os.fsync(handle.fileno())
+            if _fsync_enabled():
+                os.fsync(handle.fileno())
     finally:
         _release_lock(fd, lock_path)
 
@@ -590,7 +598,8 @@ def _flush_jsonl_path(path: str, lines: List[str], lock_timeout_sec: float) -> b
         with open(path, "a", encoding="utf-8", newline="\n") as handle:
             handle.write("".join(lines))
             handle.flush()
-            os.fsync(handle.fileno())
+            if _fsync_enabled():
+                os.fsync(handle.fileno())
     finally:
         _release_lock(fd, lock_path)
     return True
@@ -846,9 +855,9 @@ def ensure_plan_file(path: str, auto_continue: bool = False) -> bool:
 #
 # References:
 # - MMO spec index: MMO_CORE_SPEC.md
-# - Docs index: docs/README.md
+# - Docs index: docs/agent/README.md
 # - Global requirements: docs/product/requirements.md
-# - Vision: docs/product/vision.md
+# - Vision: docs/product/product_spec.md
 # - Systems: docs/systems/
 # - UX: docs/ux/ui-ux.md
 # - Engineering notes: docs/engineering/engineering-notes.md
@@ -868,13 +877,10 @@ def ensure_plan_file(path: str, auto_continue: bool = False) -> bool:
 # and apply doc updates each iteration.
 #
 # Suggested references (adjust to your repo):
-# - docs/README.md
+# - docs/agent/README.md
 # - docs/product/requirements.md
-# - docs/product/vision.md
-# - docs/systems/
-# - docs/ux/
-# - docs/engineering/
-#
+# - docs/product/product_spec.md
+# # # #
 # Example tasks:
 # - Run tests and fix any failures.
 # - Run build and fix errors.

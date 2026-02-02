@@ -38,6 +38,8 @@ interface ControlPanelProps {
   isArtifactsOpen: boolean;
   onToggleArtifacts: () => void;
   usageStats?: UsageStats | null;
+  ioFsyncMode?: string;
+  memoryRefsMode?: string;
 }
 
 export function ControlPanel({
@@ -75,6 +77,8 @@ export function ControlPanel({
   isArtifactsOpen,
   onToggleArtifacts,
   usageStats,
+  ioFsyncMode,
+  memoryRefsMode,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;
@@ -82,6 +86,19 @@ export function ControlPanel({
   const runOnceBlocked = !!runOnceDisabled;
   const showAgents = !!agentsNeeded;
   const agentsReady = !!agentsDraftReady || !!agentsDraftFailed;
+  const normalizedIoMode = ioFsyncMode === 'relaxed' ? 'RELAXED' : ioFsyncMode ? 'STRICT' : '';
+  const normalizedMemMode =
+    memoryRefsMode === 'off' ? 'OFF' : memoryRefsMode === 'soft' ? 'SOFT' : memoryRefsMode ? 'STRICT' : '';
+  const ioTone =
+    ioFsyncMode === 'relaxed'
+      ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  const memTone =
+    memoryRefsMode === 'off'
+      ? 'border-red-500/30 bg-red-500/10 text-red-200'
+      : memoryRefsMode === 'soft'
+        ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
 
   useEffect(() => {
     setWorkspaceInput(workspace);
@@ -266,6 +283,23 @@ export function ControlPanel({
             <Activity className="size-3.5" />
             <span className="text-[10px] font-bold uppercase tracking-widest">Logs</span>
           </button>
+          {normalizedIoMode || normalizedMemMode ? (
+            <>
+              <div className="w-px h-3 bg-white/10 mx-1" />
+              <div className="flex items-center gap-1">
+                {normalizedIoMode ? (
+                  <span className={`px-2 py-0.5 rounded border text-[9px] font-mono uppercase tracking-wider ${ioTone}`}>
+                    IO:{normalizedIoMode}
+                  </span>
+                ) : null}
+                {normalizedMemMode ? (
+                  <span className={`px-2 py-0.5 rounded border text-[9px] font-mono uppercase tracking-wider ${memTone}`}>
+                    MEM:{normalizedMemMode}
+                  </span>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
 
         {showAgents ? (
