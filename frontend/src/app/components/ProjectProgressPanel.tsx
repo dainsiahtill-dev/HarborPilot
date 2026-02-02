@@ -1,27 +1,18 @@
 import { Activity, AlertTriangle, ArrowRight, CheckCircle, Clock, ListChecks, Target } from 'lucide-react';
+import type { PmTask, SuccessStats, PmState, TaskQueueItem, ProgressMode } from '../../types';
+import {
+  ProgressBar,
+  CurrentTaskCard,
+  TaskQueue,
+  GoalsList,
+  PlanPreview,
+  TaskList,
+} from './ProjectProgressPanel/index';
 
-type PmTask = {
-  id?: string;
-  title?: string;
-  goal?: string;
-  summary?: string;
-  status?: string;
-  state?: string;
-  done?: boolean;
-  completed?: boolean;
-  priority?: number;
-  acceptance?: unknown[];
-};
-
-type SuccessStats = {
-  successes?: number | null;
-  total?: number | null;
-  rate?: number | null;
-};
 
 interface ProjectProgressPanelProps {
   tasks: PmTask[];
-  pmState?: Record<string, unknown> | null;
+  pmState?: PmState | null;
   focus?: string | null;
   notes?: string | null;
   goals?: string[] | null;
@@ -32,30 +23,25 @@ interface ProjectProgressPanelProps {
   className?: string;
 }
 
-function toText(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+const toText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-function clampText(value: string, maxLen: number) {
+const clampText = (value: string, maxLen: number): string => {
   const text = value.trim();
-  if (!text) return '';
-  if (text.length <= maxLen) return text;
+  if (!text || text.length <= maxLen) return text;
   return text.slice(0, Math.max(0, maxLen - 1)).trimEnd() + '...';
-}
+};
 
-function isTaskDone(task: PmTask) {
+const isTaskDone = (task: PmTask): boolean => {
   if (task.completed || task.done) return true;
-  const status = (task.status || task.state || '').toLowerCase();
-  return ['done', 'complete', 'completed', 'success', 'passed', 'pass', 'ok'].some((key) => status.includes(key));
-}
+  const status = String(task.status || task.state || '').toLowerCase();
+  return ['done', 'complete', 'completed', 'success', 'passed', 'pass', 'ok'].some((key) =>
+    status.includes(key)
+  );
+};
 
-function taskKey(task: PmTask) {
-  return toText(task.id) || toText(task.title) || toText(task.goal);
-}
+const taskKey = (task: PmTask): string => task.id || toText(task.title) || toText(task.goal);
 
-function pickTaskSummary(task: PmTask) {
-  return task.summary || task.title || task.goal || '';
-}
+const pickTaskSummary = (task: PmTask): string => task.summary || task.title || task.goal || '';
 
 export function ProjectProgressPanel({
   tasks,
@@ -73,10 +59,11 @@ export function ProjectProgressPanel({
     ? tasks.filter((task): task is PmTask => Boolean(task && typeof task === 'object'))
     : [];
   const totalTasks = normalizedTasks.length;
-  const completedIdsRaw = Array.isArray(pmState?.completed_task_ids) ? pmState?.completed_task_ids : [];
+  const completedIdsRaw = Array.isArray(pmState?.completed_task_ids) ? pmState.completed_task_ids : [];
   const completedIds = completedIdsRaw
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
-    .filter((item) => item.length > 0);
+    .map((item: unknown) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item: string) => item.length > 0);
+
   const completedSet = new Set(completedIds);
   const completedInList = normalizedTasks.filter((task) => completedSet.has(taskKey(task))).length;
   const doneCount = normalizedTasks.filter((task) => isTaskDone(task) || completedSet.has(taskKey(task))).length;
