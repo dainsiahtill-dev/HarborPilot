@@ -32,3 +32,21 @@ npm run test:ui
 # 运行测试并生成覆盖率报告
 npm run test:coverage
 ```
+
+---
+
+# Playwright Electron 测试
+
+## 安装 Playwright 浏览器
+
+```bash
+npx playwright install
+```
+
+## 运行 Electron E2E 测试
+
+```bash
+npm run test:electron
+```
+
+> 默认优先使用 `.venv` 的 Python 启动后端。如果需要自定义解释器，请设置 `HARBORPILOT_PYTHON`。

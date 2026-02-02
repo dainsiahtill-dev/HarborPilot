@@ -19,6 +19,8 @@ from ..llm.providers import (
     ollama_list_models,
     openai_health,
     openai_list_models,
+    anthropic_health,
+    anthropic_list_models,
 )
 from ..utils import save_persisted_settings
 
@@ -89,6 +91,8 @@ def provider_health(request: Request, provider_id: str, payload: ProviderActionP
         return ollama_health(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_health(provider_cfg, api_key).to_dict()
+    if provider_type == "anthropic_compat":
+        return anthropic_health(provider_cfg, api_key).to_dict()
     raise HTTPException(status_code=400, detail="unsupported provider type")
 
 
@@ -109,6 +113,8 @@ def provider_models(request: Request, provider_id: str, payload: ProviderActionP
         return ollama_list_models(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_list_models(provider_cfg, api_key).to_dict()
+    if provider_type == "anthropic_compat":
+        return anthropic_list_models(provider_cfg, api_key).to_dict()
     raise HTTPException(status_code=400, detail="unsupported provider type")
 
 

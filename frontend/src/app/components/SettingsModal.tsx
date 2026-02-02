@@ -60,7 +60,7 @@ interface SettingsModalProps {
   }) => Promise<void>;
 }
 
-type LlmProviderType = 'cli' | 'ollama' | 'openai_compat';
+type LlmProviderType = 'cli' | 'ollama' | 'openai_compat' | 'anthropic_compat';
 
 interface LlmProviderConfig {
   type: LlmProviderType;
@@ -253,7 +253,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
     const status: Record<string, string> = {};
     for (const [providerId, cfg] of Object.entries(providers)) {
-      if (cfg.type !== 'openai_compat') continue;
+      if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat') continue;
       const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
       const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;
       try {
@@ -271,7 +271,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   const resolveApiKey = async (providerId: string, cfg: LlmProviderConfig) => {
-    if (cfg.type !== 'openai_compat') return null;
+    if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat') return null;
     if (!window.harborpilot?.secrets?.get) return null;
     const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
     const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;

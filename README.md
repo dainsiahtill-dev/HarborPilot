@@ -2,6 +2,8 @@
 
 # 🚢 HarborPilot
 
+![HarborPilot Logo](docs/assets/images/logos/HarborPilot.png)
+
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
@@ -295,7 +297,15 @@ HarborPilot 支持为不同角色选择不同模型：
 | --------------------------- | --------------------------------- | ----------------- |
 | **CLI Provider**            | Codex CLI、Gemini CLI             | FIXED             |
 | **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp | LOCAL             |
-| **Standard HTTPS Provider** | OpenAI-compatible API             | METERED（强门禁） |
+| **Standard HTTPS Provider** | OpenAI-compatible API（OpenAI / MiniMax） | METERED（强门禁） |
+
+MiniMax（OpenAI-compatible）配置示例：
+- Base URL：`https://api.minimax.io/v1`
+- API Key：在 UI 的 LLM 设置里保存到 keychain（provider id: `minimax`）
+
+MiniMax（Anthropic-compatible）配置示例：
+- Base URL：`https://api.minimax.io/anthropic`
+- API Key：在 UI 的 LLM 设置里保存到 keychain（provider id: `minimax_anthropic`）
 
 ### 接入验证（必做）
 

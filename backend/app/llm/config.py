@@ -60,6 +60,26 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
             "timeout": 60,
             "retries": 0,
         },
+        "minimax": {
+            "type": "openai_compat",
+            "name": "MiniMax",
+            "base_url": "https://api.minimax.io/v1",
+            "api_key_ref": "keychain:llm:minimax",
+            "api_path": "/v1/chat/completions",
+            "models_path": "/v1/models",
+            "timeout": 60,
+            "retries": 0,
+        },
+        "minimax_anthropic": {
+            "type": "anthropic_compat",
+            "name": "MiniMax (Anthropic)",
+            "base_url": "https://api.minimax.io/anthropic",
+            "api_key_ref": "keychain:llm:minimax_anthropic",
+            "api_path": "/v1/messages",
+            "models_path": "/v1/models",
+            "timeout": 60,
+            "retries": 0,
+        },
     }
 
     return {

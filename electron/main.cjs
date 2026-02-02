@@ -240,6 +240,7 @@ async function createWindow() {
     height: 900,
     frame: false, // Custom frame
     backgroundColor: '#000000', // Avoid white flash
+    icon: path.join(__dirname, 'assets', 'icons', 'icon.png'), // 应用图标
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),

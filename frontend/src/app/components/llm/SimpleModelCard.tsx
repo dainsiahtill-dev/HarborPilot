@@ -15,7 +15,7 @@ import {
 import { useState } from 'react';
 
 // 统一的连接方式，兼容CLI/HTTP/HTTPS
-export type ProviderKind = "cli" | "ollama" | "openai_compat" | "custom_https";
+export type ProviderKind = "cli" | "ollama" | "openai_compat" | "anthropic_compat" | "custom_https";
 export type ProviderStatus = "untested" | "testing" | "ready" | "failed";
 
 export type ProviderConn =
@@ -52,6 +52,7 @@ const PROVIDER_LABELS = {
   cli: 'CLI',
   ollama: 'Ollama', 
   openai_compat: 'OpenAI',
+  anthropic_compat: 'Anthropic-compatible',
   custom_https: 'Custom HTTPS'
 };
 
@@ -334,6 +335,7 @@ export function SimpleModelCard({
             <option value="cli">CLI</option>
             <option value="ollama">Ollama</option>
             <option value="openai_compat">OpenAI-compatible</option>
+            <option value="anthropic_compat">Anthropic-compatible</option>
             <option value="custom_https">Custom HTTPS</option>
           </select>
         </div>

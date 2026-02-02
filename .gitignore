@@ -15,3 +15,5 @@ __pycache__/
 /desktop/frontend/node_modules/
 /desktop/*.log
 node_modules
+playwright-report/
+test-results/

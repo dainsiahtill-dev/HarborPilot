@@ -111,6 +111,15 @@ const DEFAULT_PROVIDERS: SimpleProvider[] = [
     modelId: 'gpt-4',
     status: 'untested',
     costClass: 'METERED'
+  },
+  {
+    id: 'minimax_anthropic',
+    name: 'MiniMax (Anthropic)',
+    kind: 'anthropic_compat',
+    conn: { kind: 'http', baseUrl: 'https://api.minimax.io/anthropic' },
+    modelId: 'MiniMax-M2.1',
+    status: 'untested',
+    costClass: 'METERED'
   }
 ];
 
@@ -415,6 +424,7 @@ export function LLMSettingsTabSimplified({
                 <option value="cli">CLI</option>
                 <option value="ollama">Ollama</option>
                 <option value="openai_compat">OpenAI-compatible</option>
+                <option value="anthropic_compat">Anthropic-compatible</option>
                 <option value="custom_https">Custom HTTPS</option>
               </select>
               <div className="flex items-center gap-2">

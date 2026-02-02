@@ -20,6 +20,9 @@ from ..llm.providers import (
     openai_health,
     openai_list_models,
     openai_invoke,
+    anthropic_health,
+    anthropic_list_models,
+    anthropic_invoke,
 )
 from ..llm.types import InvokeResult, ModelListResult, estimate_usage
 from ..utils import _extract_json_block, build_cache_root, resolve_artifact_path, write_text_atomic, ensure_loop_modules
@@ -203,6 +206,8 @@ def _provider_health(provider_type: str, provider_cfg: Dict[str, Any], api_key: 
         return ollama_health(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_health(provider_cfg, api_key).to_dict()
+    if provider_type == "anthropic_compat":
+        return anthropic_health(provider_cfg, api_key).to_dict()
     return {"ok": False, "latency_ms": 0, "error": f"unsupported provider type: {provider_type}"}
 
 
@@ -213,6 +218,8 @@ def _provider_list_models(provider_type: str, provider_cfg: Dict[str, Any], api_
         return ollama_list_models(provider_cfg)
     if provider_type == "openai_compat":
         return openai_list_models(provider_cfg, api_key)
+    if provider_type == "anthropic_compat":
+        return anthropic_list_models(provider_cfg, api_key)
     return ModelListResult(ok=False, supported=False, models=[], error="unsupported provider type")
 
 
@@ -235,6 +242,8 @@ def _provider_invoke(
         result = ollama_invoke(prompt, model, provider_cfg)
     elif provider_type == "openai_compat":
         result = openai_invoke(prompt, model, provider_cfg, api_key)
+    elif provider_type == "anthropic_compat":
+        result = anthropic_invoke(prompt, model, provider_cfg, api_key)
     else:
         result = InvokeResult(ok=False, output="", latency_ms=0, usage=estimate_usage(prompt, ""), error="unsupported provider")
     _track_usage_event(result, model, provider_type, role, suite, events_path, run_id)

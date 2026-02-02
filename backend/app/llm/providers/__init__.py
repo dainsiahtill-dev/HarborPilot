@@ -5,6 +5,11 @@ from .openai_compat_provider import (
     list_models as openai_list_models,
     invoke as openai_invoke,
 )
+from .anthropic_compat_provider import (
+    health as anthropic_health,
+    list_models as anthropic_list_models,
+    invoke as anthropic_invoke,
+)
 
 __all__ = [
     "cli_health",
@@ -16,4 +21,7 @@ __all__ = [
     "openai_health",
     "openai_list_models",
     "openai_invoke",
+    "anthropic_health",
+    "anthropic_list_models",
+    "anthropic_invoke",
 ]
