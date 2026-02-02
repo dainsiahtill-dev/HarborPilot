@@ -2,7 +2,11 @@ import os
 import re
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
+try:
+    from .usage import UsageContext, TokenUsage, track_usage
+except ImportError:
+    from usage import UsageContext, TokenUsage, track_usage
 
 from io_utils import ensure_codex_available, ensure_parent_dir, read_file_safe
 
@@ -95,6 +99,8 @@ def invoke_codex(
     profile: str,
     timeout: int,
     extra_env: Optional[Dict[str, str]] = None,
+    usage_ctx: Optional[Union['UsageContext', Any]] = None,
+    events_path: str = ""
 ) -> str:
     codex_path = ensure_codex_available()
     if not output_file:
@@ -180,10 +186,40 @@ def invoke_codex(
             "",
         )
         run_prompt = (_encoding_guardrail() + "\n" + prompt) if use_guard else prompt
+        
+        start_time = time.time()
         output = _run_once(run_prompt)
+        duration_ms = int((time.time() - start_time) * 1000)
+
         if capture_stdout and _detect_encoding_violations(output):
             output = _run_once(_retry_prompt_for_encoding(prompt))
+            duration_ms = int((time.time() - start_time) * 1000) # Update duration
+            
+        # Track Usage (Estimated)
+        if usage_ctx and events_path:
+            p_chars = len(run_prompt)
+            c_chars = len(output)
+            # Rough estimate: 4 chars per token
+            p_tokens = p_chars // 4
+            c_tokens = c_chars // 4
+            usage_obj = TokenUsage(
+                prompt_tokens=p_tokens,
+                completion_tokens=c_tokens,
+                total_tokens=p_tokens + c_tokens,
+                estimated=True,
+                prompt_chars=p_chars,
+                completion_chars=c_chars
+            )
+            track_usage(events_path, usage_ctx, "codex-cli", "codex", usage_obj, duration_ms, ok=bool(output))
+
     except subprocess.TimeoutExpired:
+        if usage_ctx and events_path:
+             usage_obj = TokenUsage(
+                prompt_tokens=len(prompt)//4, completion_tokens=0, total_tokens=len(prompt)//4, estimated=True,
+                prompt_chars=len(prompt), completion_chars=0
+            )
+             track_usage(events_path, usage_ctx, "codex-cli", "codex", usage_obj, 0, ok=False, error="Timeout")
+
         return ""
 
     return _read_codex_output(output_file)

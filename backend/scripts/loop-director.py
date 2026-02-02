@@ -158,6 +158,7 @@ try:
         validate_files_to_edit,
         extract_required_evidence
     )
+    from usage import UsageContext
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
@@ -240,10 +241,63 @@ def append_log(log_path: str, text: str) -> None:
         handle.write(text)
 
 
+def aggregate_usage(events_path: str) -> Dict[str, Any]:
+    if not events_path or not os.path.exists(events_path):
+        return {"totals": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, "by_mode": {}, "calls": 0, "estimated_calls": 0}
+    
+    totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    by_mode = {}
+    calls = 0
+    estimated_calls = 0
+    
+    try:
+        with open(events_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    event = json.loads(line)
+                    if event.get("name") != "llm_invoke":
+                        continue
+                        
+                    calls += 1
+                    obs = event.get("observation") or {}
+                    usage = obs.get("usage") or {}
+                    if usage.get("estimated"):
+                        estimated_calls += 1
+                        
+                    refs = event.get("refs") or {}
+                    # Use phase or mode for breakdown
+                    mode = refs.get("phase") or refs.get("mode") or "unknown"
+                    
+                    if mode not in by_mode:
+                        by_mode[mode] = {"total_tokens": 0, "calls": 0}
+                        
+                    t = usage.get("total_tokens") or 0
+                    totals["total_tokens"] += t
+                    totals["prompt_tokens"] += (usage.get("prompt_tokens") or 0)
+                    totals["completion_tokens"] += (usage.get("completion_tokens") or 0)
+                    
+                    by_mode[mode]["total_tokens"] += t
+                    by_mode[mode]["calls"] += 1
+                except:
+                    pass
+    except:
+        pass
+        
+    return {
+        "totals": totals,
+        "by_mode": by_mode,
+        "calls": calls,
+        "estimated_calls": estimated_calls
+    }
+
 def write_director_result(state: State, payload: Dict[str, Any]) -> None:
     if not state.director_result_full:
         return
     try:
+        # Aggregate usage
+        usage_summary = aggregate_usage(state.events_full)
+        payload["usage_summary"] = usage_summary
+        
         write_json_atomic(state.director_result_full, payload)
     except Exception as exc:
         append_log(state.log_full, f"[WARN] Failed to write director result: {exc}\n")
@@ -465,17 +519,17 @@ def build_fallback_planner_payload(
     }
 
 
-def run_tool_planner(state: State, pm_tasks_json: str, known_files: str, last_result: str) -> tuple[str, Dict[str, Any]]:
+def run_tool_planner(state: State, pm_tasks_json: str, known_files: str, last_result: str, usage_ctx: Optional[UsageContext] = None) -> tuple[str, Dict[str, Any]]:
     prompt = build_tool_planner_prompt(pm_tasks_json, known_files, last_result)
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     append_log(state.log_full, "[TOOL_PLANNER]\n" + strip_ansi(output) + "\n")
     payload = parse_json_payload(output) or {}
     return output, payload
 
 
-def run_patch_planner(state: State, tool_output_json: str, pm_tasks_json: str) -> tuple[str, Dict[str, Any]]:
+def run_patch_planner(state: State, tool_output_json: str, pm_tasks_json: str, usage_ctx: Optional[UsageContext] = None) -> tuple[str, Dict[str, Any]]:
     prompt = build_patch_planner_prompt(tool_output_json, pm_tasks_json)
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     write_text(state.planner_full, output)
     append_log(state.log_full, "[PATCH_PLANNER]\n" + strip_ansi(output) + "\n")
     payload = parse_json_payload(output) or {}
@@ -591,7 +645,7 @@ def build_required_tool_plan(required: Dict[str, Any]) -> List[Dict[str, Any]]:
     return plan
 
 
-def run_planner(state: State, plan_text: str, memory_summary: str, target_note: str) -> str:
+def run_planner(state: State, plan_text: str, memory_summary: str, target_note: str, usage_ctx: Optional[UsageContext] = None) -> str:
     prompt = build_planner_prompt(
         plan_text,
         memory_summary,
@@ -600,7 +654,7 @@ def run_planner(state: State, plan_text: str, memory_summary: str, target_note: 
         run_id=getattr(state, "current_run_id", ""),
         events_path=getattr(state, "events_full", ""),
     )
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     write_text(state.planner_full, output)
     append_log(state.log_full, "[PLANNER]\n" + strip_ansi(output) + "\n")
     return output
@@ -883,6 +937,14 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     state.current_pm_iteration = pm_iteration
     state.current_run_id = f"pm-{pm_iteration:05d}" if isinstance(pm_iteration, int) else f"dir-{index:05d}"
 
+    usage_ctx = UsageContext(
+        run_id=state.current_run_id,
+        task_id=state.current_task_id or "",
+        phase="director",
+        mode="director",
+        actor="Director"
+    )
+
     # Re-bucket if run_id changed (and we were auto-bucketing)
     # We detect "auto-bucketing" by checking if current log_path contains the OLD run_id "dir-XXXXX"
     # but the NEW run_id is "pm-XXXXX".
@@ -980,7 +1042,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         tool_rounds += 1
 
         if forced_tool_plan is None:
-            tool_planner_output, tool_plan_payload = run_tool_planner(state, pm_tasks_json, known_files, last_result)
+            tool_planner_output, tool_plan_payload = run_tool_planner(state, pm_tasks_json, known_files, last_result, usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="tool_planner", mode="director", actor="Director"))
             tool_plan = extract_tool_plan(tool_plan_payload)
             max_rounds, max_lines = extract_tool_budget(tool_plan_payload, max_rounds, max_lines)
             if not tool_plan:
@@ -1010,6 +1072,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             state,
             json.dumps(tool_output_bundle, ensure_ascii=False),
             pm_tasks_json,
+            usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="patch_planner", mode="director", actor="Director")
         )
         if not isinstance(patch_payload, dict):
             fsm_error = "Patch planner returned no JSON"
@@ -1339,7 +1402,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
     base_snapshot: Dict[str, Optional[str]] = {}
     brief_for_run = brief
 
-    result = run_ollama_apply(state, brief_for_run, files)
+    result = run_ollama_apply(state, brief_for_run, files, usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="execution", mode="director", actor="Director"))
     ollama_output = result["output"]
     changed_files = result["changed_files"]
     base_snapshot = result.get("snapshot") or {}
@@ -1428,6 +1491,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             ollama_output_for_review,
             tool_output_summary,
             patch_risk_summary,
+            usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="review", mode="director", actor="Reviewer"),
         )
         review_payload = parse_json_payload(review_output) or {}
         review_summary = format_review_summary(review_payload)
@@ -1445,7 +1509,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                         refs=build_event_refs("rollback", list(base_snapshot.keys())),
                     )
                 review_brief = brief + "\n\nReviewer issues to address:\n" + review_summary + "\n"
-                result = run_ollama_apply(state, review_brief, files)
+                result = run_ollama_apply(state, review_brief, files, usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="review_apply", mode="director", actor="Director"))
                 brief_for_run = review_brief
                 ollama_output = result["output"]
                 changed_files = result["changed_files"]
@@ -1464,7 +1528,9 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                         planner_output_for_review,
                         ollama_output_for_review,
                         tool_output_summary,
+                        tool_output_summary,
                         patch_risk_summary,
+                        usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="review_loop", mode="director", actor="Reviewer"),
                     )
                     review_payload = parse_json_payload(review_output) or {}
                     review_summary = format_review_summary(review_payload)
@@ -1491,6 +1557,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             tool_output_summary,
             review_summary,
             patch_risk_summary,
+            usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="qa", mode="director", actor="QA"),
         )
     else:
         qa_output = '{"acceptance":"PASS","summary":"QA disabled"}'
@@ -1513,7 +1580,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                     refs=build_event_refs("rollback", list(base_snapshot.keys())),
                 )
             repair_brief = brief_for_run + "\n\nQA feedback to address:\n" + qa_output.strip() + "\n"
-            result = run_ollama_apply(state, repair_brief, files)
+            result = run_ollama_apply(state, repair_brief, files, usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="repair_apply", mode="director", actor="Director"))
             ollama_output = result["output"]
             changed_files = result["changed_files"]
             patch_risk = assess_patch_risk(changed_files, base_snapshot, state.workspace_full, policy_effective)
@@ -1535,7 +1602,9 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
                     ollama_output_for_qa,
                     tool_output_summary,
                     review_summary,
+                    review_summary,
                     patch_risk_summary,
+                    usage_ctx=UsageContext(run_id=usage_ctx.run_id, task_id=usage_ctx.task_id, phase="repair_qa", mode="director", actor="QA"),
                 )
                 acceptance = parse_acceptance(qa_output)
             else:

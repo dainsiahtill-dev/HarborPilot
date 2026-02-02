@@ -15,6 +15,7 @@ import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
 import { LivingBackground } from '@/app/components/LivingBackground';
+import { UsageHUD, type UsageStats } from '@/app/components/UsageHUD';
 
 // Lazy Loaded Components
 const ProcessMonitorSidebar = lazy(() => import('./components/ProcessMonitorSidebar').then(module => ({ default: module.ProcessMonitorSidebar })));
@@ -304,6 +305,8 @@ export default function App() {
   const [isStartingDirector, setIsStartingDirector] = useState(false);
   const [isStoppingDirector, setIsStoppingDirector] = useState(false);
   const [isStoppingOllama, setIsStoppingOllama] = useState(false);
+  const [isLanceDbDialogOpen, setIsLanceDbDialogOpen] = useState(false);
+  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [runtimeIssue, setRuntimeIssue] = useState<RuntimeIssue | null>(null);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [planIssue, setPlanIssue] = useState<{ detail: string } | null>(null);
@@ -332,7 +335,6 @@ export default function App() {
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
   const [errorDialogTitle, setErrorDialogTitle] = useState<string>('');
   const [errorDialogContent, setErrorDialogContent] = useState<string>('');
-  const [isLanceDbDialogOpen, setIsLanceDbDialogOpen] = useState(false);
   const [pmUserAction, setPmUserAction] = useState<'start' | 'stop' | 'once' | null>(null);
   const lastPmStopShownAtRef = useRef(0);
   const prevPmRunningRef = useRef<boolean | null>(null);
@@ -436,7 +438,7 @@ export default function App() {
 
   const refreshSuccessStats = async () => {
     try {
-      const res = await apiFetch('/files/read?path=.harborpilot/runtime/DIRECTOR_RESULT.json&tail_lines=200');
+      const res = await apiFetch('/files/read?path=.harborpilot/runtime/DIRECTOR_RESULT.json');
       if (!res.ok) return;
       const payload = (await res.json()) as FilePayload;
       if (!payload.content) return;
@@ -460,8 +462,13 @@ export default function App() {
         rate = successes / total;
       }
       setSuccessStats({ successes, total, rate });
+      
+      if (parsed.usage_summary) {
+        setUsageStats(parsed.usage_summary);
+      }
     } catch {
       setSuccessStats({});
+      setUsageStats(null);
     }
   };
 
@@ -1648,9 +1655,7 @@ export default function App() {
               : agentsRequired && !directorStatus?.running
                 ? agentsDraftFailed
                   ? 'AGENTS 草稿生成失败'
-                  : agentsDraftReady
-                    ? '需要先确认 AGENTS.md'
-                    : '请先运行 PM 生成 AGENTS 草稿'
+                  : '需要先确认 AGENTS.md'
                 : undefined
           }
           runOnceDisabled={lancedbBlocked || docsMissing || !!pmStatus?.running}
@@ -1698,6 +1703,7 @@ export default function App() {
           }}
           isArtifactsOpen={isMonitorOpen}
           onToggleArtifacts={() => setIsMonitorOpen(!isMonitorOpen)}
+          usageStats={usageStats}
         />
 
         {docsMissing ? (

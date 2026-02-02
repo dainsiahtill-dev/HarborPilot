@@ -18,6 +18,7 @@ from prompts import (
 )
 from shared import FILE_BLOCK_RE, normalize_path, strip_ansi
 from ollama_utils import invoke_ollama
+from usage import UsageContext
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -332,7 +333,7 @@ def format_review_summary(review_payload: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run_ollama_apply(state: Any, brief: str, files: List[str]) -> Dict[str, Any]:
+def run_ollama_apply(state: Any, brief: str, files: List[str], usage_ctx: Optional[UsageContext] = None) -> Dict[str, Any]:
     file_context = build_file_context(files, state.workspace_full)
     prompt = build_ollama_prompt(brief, file_context)
     emit_event(
@@ -345,7 +346,7 @@ def run_ollama_apply(state: Any, brief: str, files: List[str]) -> Dict[str, Any]
         input={"files": files, "brief_preview": _truncate_text(brief, 800)},
     )
     start_ts = time.time()
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     _write_text(state.ollama_full, output)
     _append_log(state.log_full, "[OLLAMA]\n" + strip_ansi(output) + "\n")
 
@@ -401,6 +402,7 @@ def run_qa(
     tool_results: str,
     reviewer_summary: str,
     patch_risk: str,
+    usage_ctx: Optional[UsageContext] = None,
 ) -> str:
     prompt = build_qa_prompt(
         plan_text,
@@ -426,7 +428,7 @@ def run_qa(
         input={"changed_files": changed_files},
     )
     start_ts = time.time()
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     _write_text(state.qa_full, output)
     _append_log(state.log_full, "[QA]\n" + strip_ansi(output) + "\n")
     emit_event(
@@ -454,6 +456,7 @@ def run_reviewer(
     ollama_output: str,
     tool_results: str,
     patch_risk: str,
+    usage_ctx: Optional[UsageContext] = None,
 ) -> str:
     prompt = build_reviewer_prompt(
         plan_text,
@@ -475,7 +478,7 @@ def run_reviewer(
         input={"changed_files": changed_files},
     )
     start_ts = time.time()
-    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout)
+    output = invoke_ollama(prompt, state.model, state.workspace_full, state.show_output, state.timeout, usage_ctx=usage_ctx, events_path=getattr(state, "events_full", ""))
     _write_text(state.reviewer_full, output)
     _append_log(state.log_full, "[REVIEWER]\n" + strip_ansi(output) + "\n")
     emit_event(

@@ -1,6 +1,7 @@
 import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { WindowControls } from './WindowControls';
+import { UsageHUD, type UsageStats } from './UsageHUD';
 
 interface ControlPanelProps {
   workspace: string;
@@ -36,6 +37,7 @@ interface ControlPanelProps {
   onOpenLogs?: () => void;
   isArtifactsOpen: boolean;
   onToggleArtifacts: () => void;
+  usageStats?: UsageStats | null;
 }
 
 export function ControlPanel({
@@ -72,6 +74,7 @@ export function ControlPanel({
   onOpenLogs,
   isArtifactsOpen,
   onToggleArtifacts,
+  usageStats,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;

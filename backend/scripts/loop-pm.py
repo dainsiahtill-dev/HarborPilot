@@ -121,6 +121,7 @@ try:
     from ollama_utils import invoke_ollama
     from shared import normalize_path, strip_ansi
     from anthropomorphic.integration import get_anthropomorphic_context
+    from usage import UsageContext
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
@@ -1400,6 +1401,15 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     show_output = bool(getattr(args, "pm_show_output", False))
     print(f"[pm] {start_timestamp} iteration={iteration} backend={backend}")
     sys.stdout.flush()
+    
+    usage_ctx = UsageContext(
+        run_id=run_id,
+        task_id="",
+        phase="planning",
+        mode="pm",
+        actor="PM"
+    )
+
     if backend == "codex":
         output = invoke_codex(
             prompt,
@@ -1411,9 +1421,19 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
             args.codex_profile,
             args.timeout,
             None,
+            usage_ctx=usage_ctx,
+            events_path=run_events,
         )
     else:
-        output = invoke_ollama(prompt, args.model, workspace_full, show_output, args.timeout)
+        output = invoke_ollama(
+            prompt, 
+            args.model, 
+            workspace_full, 
+            show_output, 
+            args.timeout,
+            usage_ctx=usage_ctx,
+            events_path=run_events
+        )
     print(f"[pm] completed iteration={iteration} output_chars={len(output or '')}")
     sys.stdout.flush()
     exit_code = 0

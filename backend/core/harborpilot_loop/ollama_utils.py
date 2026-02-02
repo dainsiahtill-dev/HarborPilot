@@ -59,30 +59,76 @@ def is_spinner_only(text: str) -> bool:
     return SPINNER_ONLY_RE.match(text.strip()) is not None
 
 
-def invoke_ollama(prompt: str, model: str, workspace: str, show_output: bool, timeout: int) -> str:
-    cmd = ["ollama", "run", model]
+try:
+    from .usage import UsageContext, TokenUsage, track_usage
+except ImportError:
+    from usage import UsageContext, TokenUsage, track_usage
+
+def invoke_ollama(
+    prompt: str, 
+    model: str, 
+    workspace: str, 
+    show_output: bool, 
+    timeout: int,
+    usage_ctx: Optional[UsageContext] = None,
+    events_path: str = ""
+) -> str:
+    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    url = f"{host}/api/generate"
+    
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "num_predict": -1  # No limit
+        }
+    }
+    
+    start_time = time.time()
     try:
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=workspace,
-            capture_output=True,
-            timeout=timeout if timeout > 0 else None,
-            env=_build_utf8_env(),
-        )
-    except subprocess.TimeoutExpired:
+        if show_output:
+            # If show_output is True, we might want streaming for UX, but for now let's stick to non-streaming for simpler token counting
+            # Or implement streaming consumption.
+            # To keep it simple and consistent with previous "subprocess" behavior which waited for completion (mostly), 
+            # we will use non-streaming but print the result. 
+            pass
+
+        response = requests.post(url, json=payload, timeout=timeout if timeout > 0 else None)
+        response.raise_for_status()
+        data = response.json()
+        
+        content = data.get("response", "")
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Track Usage
+        if usage_ctx and events_path:
+            p_tokens = data.get("prompt_eval_count", 0)
+            c_tokens = data.get("eval_count", 0)
+            usage = TokenUsage(
+                prompt_tokens=p_tokens,
+                completion_tokens=c_tokens,
+                total_tokens=p_tokens + c_tokens,
+                estimated=False,
+                prompt_chars=len(prompt),
+                completion_chars=len(content)
+            )
+            track_usage(events_path, usage_ctx, model, "ollama", usage, duration_ms, ok=True)
+            
+        if show_output:
+            print(content)
+            
+        return content
+
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        if usage_ctx and events_path:
+            usage = TokenUsage(
+                prompt_tokens=0, completion_tokens=0, total_tokens=0, estimated=True,
+                prompt_chars=len(prompt), completion_chars=0
+            )
+            track_usage(events_path, usage_ctx, model, "ollama", usage, duration_ms, ok=False, error=str(e))
         return ""
-    if show_output:
-        stdout_text = clean_terminal_output(result.stdout or "")
-        stderr_text = clean_terminal_output(result.stderr or "")
-        if stdout_text:
-            sys.stdout.write(stdout_text)
-        if stderr_text and not is_spinner_only(stderr_text):
-            sys.stdout.write(stderr_text)
-    return result.stdout or ""
 
 
 def get_embedding(text: str, model: str, timeout: int = 30) -> List[float]:
