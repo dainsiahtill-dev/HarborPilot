@@ -4,13 +4,14 @@ import { X } from 'lucide-react';
 import { apiFetch, connectWebSocket, openPath, pickWorkspace } from '@/api';
 import { ControlPanel } from '@/app/components/ControlPanel';
 import { DialoguePanel, type DialogueEvent } from '@/app/components/DialoguePanel';
-import { SnapshotPanel } from '@/app/components/SnapshotPanel';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import type { WorkspaceStatus } from '@/app/components/DocsInitDialog';
 import { ProjectProgressPanel } from '@/app/components/ProjectProgressPanel';
 import { CognitionPanel } from '@/app/components/CognitionPanel';
+import { WorkspaceHistoryPanel } from '@/app/components/WorkspaceHistoryPanel';
+import { RealTimeStatusBar } from '@/app/components/RealTimeStatusBar';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
@@ -305,6 +306,7 @@ export default function App() {
   const [isInterventionOpen, setIsInterventionOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<'progress' | 'history'>('progress');
   const [settings, setSettings] = useState<BackendSettings | null>(null);
   const [pmStatus, setPmStatus] = useState<BackendStatus | null>(null);
   const [directorStatus, setDirectorStatus] = useState<BackendStatus | null>(null);
@@ -1705,22 +1707,22 @@ export default function App() {
                   ? directorLlmSupported
                     ? 'LLM tests required'
                     : 'LLM provider unsupported'
-                  : undefined
+                  : directorLlmBlocked && directorStatus?.running
+                    ? 'LLM provider unsupported'
+                    : ''
           }
-          runOnceDisabled={lancedbBlocked || docsMissing || pmLlmBlocked || !!pmStatus?.running}
+          runOnceDisabled={pmStatus?.running || directorStatus?.running}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onWorkspaceCommit={handleWorkspaceCommit}
-          onPickWorkspace={handlePickWorkspace}
+          onWorkspaceCommit={(value) => {
+            // This would be handled by workspace picker
+          }}
+          onPickWorkspace={handleOpenWorkspace}
           onTogglePm={togglePm}
           onRunPmOnce={runPmOnce}
-          onResumePm={() => startPmLoop(true)}
+          onResumePm={runPmOnce}
           onToggleDirector={toggleDirector}
           onStopOllama={stopOllamaModels}
           onRefresh={handleRefresh}
-          onOpenLogs={() => {
-            setLogsSourceId('pm-subprocess');
-            setIsLogsOpen(true);
-          }}
           onOpenBrain={() => setIsBrainOpen(true)}
           agentsNeeded={agentsRequired}
           agentsDraftReady={agentsDraftReady}
@@ -1750,11 +1752,29 @@ export default function App() {
               setHealthStatus('unhealthy');
             }
           }}
+          onOpenLogs={() => {
+            setLogsSourceId('pm-subprocess');
+            setIsLogsOpen(true);
+          }}
           isArtifactsOpen={isMonitorOpen}
           onToggleArtifacts={() => setIsMonitorOpen(!isMonitorOpen)}
           usageStats={usageStats}
           ioFsyncMode={settings?.io_fsync_mode}
           memoryRefsMode={settings?.memory_refs_mode}
+        />
+
+        {/* 实时状态栏 - 标题栏下方 */}
+        <RealTimeStatusBar
+          pmRunning={!!pmStatus?.running}
+          directorRunning={!!directorStatus?.running}
+          pmStartedAt={pmStatus?.started_at ? new Date(pmStatus.started_at).getTime() / 1000 : null}
+          directorStartedAt={directorStatus?.started_at ? new Date(directorStatus.started_at).getTime() / 1000 : null}
+          pmIteration={typeof snapshot?.pm_state?.pm_iteration === 'number' ? snapshot?.pm_state?.pm_iteration : null}
+          currentTask={typeof snapshot?.pm_state?.last_director_task_title === 'string' ? snapshot?.pm_state?.last_director_task_title : undefined}
+          successRate={successStats?.rate}
+          queueCount={Array.isArray(snapshotTasks) ? snapshotTasks.length : undefined}
+          llmStatus={pmLlmReady && directorLlmReady ? 'ready' : (!pmLlmReady || !directorLlmReady) ? 'blocked' : 'unknown'}
+          lancedbOk={lancedbStatus?.ok}
         />
 
         {docsMissing ? (
@@ -1819,16 +1839,6 @@ export default function App() {
           </div>
         ) : null}
 
-        <SnapshotPanel
-          timestamp={snapshot?.timestamp ?? null}
-          focus={snapshot?.focus ?? null}
-          notes={snapshot?.notes ?? null}
-          tasks={snapshotTasks}
-          fileStatus={snapshot?.file_status ?? null}
-          filePaths={snapshot?.file_paths ?? null}
-          directorState={snapshot?.director_state ?? null}
-        />
-
         {/* Main Content Area: Mission Control Grid */}
         <PanelGroup direction="horizontal" autoSaveId="harborpilot-main-layout-v2" className="flex-1 flex overflow-hidden relative">
           {/* Left Sidebar: Process Monitor */}
@@ -1861,22 +1871,56 @@ export default function App() {
           <Panel order={2} className="flex flex-col min-w-0 bg-transparent relative z-0">
             {/* Gradient overlay for depth */}
             <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
-            <ProjectProgressPanel
-              tasks={snapshotTasks}
-              pmState={snapshot?.pm_state ?? null}
-              focus={snapshot?.focus ?? null}
-              notes={snapshot?.notes ?? null}
-              goals={snapshot?.goals ?? null}
-              planText={snapshot?.plan_text ?? null}
-              planMtime={snapshot?.plan_mtime ?? null}
-              successStats={successStats ? {
-                successes: successStats.successes ?? null,
-                total: successStats.total ?? null,
-                rate: successStats.rate ?? null
-              } : null}
-              pmRunning={!!pmStatus?.running}
-              className="flex-1 min-h-0"
-            />
+            
+            {/* Workspace Panel Tabs */}
+            <div className="flex border-b border-white/10 bg-bg-panel/20 backdrop-blur-sm z-10">
+              <button
+                onClick={() => setActiveWorkspacePanel('progress')}
+                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                  activeWorkspacePanel === 'progress'
+                    ? 'text-accent border-accent bg-accent/10'
+                    : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
+                }`}
+              >
+                项目进度
+              </button>
+              <button
+                onClick={() => setActiveWorkspacePanel('history')}
+                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                  activeWorkspacePanel === 'history'
+                    ? 'text-accent border-accent bg-accent/10'
+                    : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
+                }`}
+              >
+                任务历史
+              </button>
+            </div>
+
+            {/* Workspace Panel Content */}
+            <div className="flex-1 min-h-0">
+              {activeWorkspacePanel === 'progress' && (
+                <ProjectProgressPanel
+                  tasks={snapshotTasks}
+                  pmState={snapshot?.pm_state ?? null}
+                  focus={snapshot?.focus ?? null}
+                  notes={snapshot?.notes ?? null}
+                  goals={snapshot?.goals ?? null}
+                  planText={snapshot?.plan_text ?? null}
+                  planMtime={snapshot?.plan_mtime ?? null}
+                  successStats={successStats ? {
+                    successes: successStats.successes ?? null,
+                    total: successStats.total ?? null,
+                    rate: successStats.rate ?? null
+                  } : null}
+                  pmRunning={!!pmStatus?.running}
+                  className="flex-1 min-h-0"
+                />
+              )}
+              
+              {activeWorkspacePanel === 'history' && (
+                <WorkspaceHistoryPanel className="flex-1 min-h-0" />
+              )}
+            </div>
           </Panel>
 
           <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
@@ -1907,6 +1951,15 @@ export default function App() {
               setShowCognition={setShowCognition}
               settingsShowMemory={!!settings?.show_memory}
               anthroState={anthroState}
+
+              // Snapshot
+              snapshotTimestamp={snapshot?.timestamp ?? null}
+              snapshotFocus={snapshot?.focus ?? null}
+              snapshotNotes={snapshot?.notes ?? null}
+              snapshotTasks={snapshotTasks}
+              snapshotFileStatus={snapshot?.file_status ?? null}
+              snapshotFilePaths={snapshot?.file_paths ?? null}
+              snapshotDirectorState={snapshot?.director_state ?? null}
             />
           </Panel>
         </PanelGroup>

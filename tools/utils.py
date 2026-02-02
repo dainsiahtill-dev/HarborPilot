@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 Result = Dict[str, Any]
 MAX_READ_LINES = 200
@@ -107,6 +107,68 @@ def error_result(tool: str, message: str, exit_code: int = 2) -> Result:
         "command": [tool],
     }
 
+BOMS_UTF = [
+    (b'\xef\xbb\xbf', 'utf-8'),
+    (b'\xff\xfe', 'utf-16-le'),
+    (b'\xfe\xff', 'utf-16-be'),
+    (b'\xff\xfe\x00\x00', 'utf-32-le'),
+    (b'\x00\x00\xfe\xff', 'utf-32-be'),
+]
+
+
+def _guess_utf16(data: bytes) -> str | None:
+    if not data:
+        return None
+    even_nulls = sum(1 for i in range(0, len(data), 2) if data[i] == 0)
+    odd_nulls = sum(1 for i in range(1, len(data), 2) if data[i] == 0)
+    if even_nulls > odd_nulls * 2:
+        return "utf-16-be"
+    if odd_nulls > even_nulls * 2:
+        return "utf-16-le"
+    return None
+
+
+def decode_text_utf8(data: bytes) -> Tuple[str, str, bool]:
+    for bom, enc in BOMS_UTF:
+        if data.startswith(bom):
+            text = data[len(bom):].decode(enc, errors="replace")
+            return text, enc, False
+    guess = _guess_utf16(data)
+    if guess:
+        text = data.decode(guess, errors="replace")
+        return text, guess, True
+    try:
+        return data.decode("utf-8"), "utf-8", False
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="replace"), "utf-8", True
+
+
+def read_text_file_utf8(path: str) -> Tuple[str, Optional[str]]:
+    with open(path, "rb") as handle:
+        data = handle.read()
+    text, encoding, had_issues = decode_text_utf8(data)
+    warning = None
+    if encoding != "utf-8":
+        warning = f"non-utf8 encoding detected ({encoding}); converted to utf-8"
+    elif had_issues:
+        warning = "invalid utf-8 bytes detected; replaced during decode"
+    return text, warning
+
+
+def detect_utf8_warning(path: str, sample_bytes: int = 4096) -> Optional[str]:
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(sample_bytes)
+    except Exception:
+        return None
+    _, encoding, had_issues = decode_text_utf8(data)
+    if encoding != "utf-8":
+        return f"non-utf8 encoding detected ({encoding}); sample converted to utf-8"
+    if had_issues:
+        return "invalid utf-8 bytes detected in sample; replaced during decode"
+    return None
+
+
 def read_text_file(path: str) -> str:
-    with open(path, "r", encoding="utf-8", errors="ignore") as handle:
-        return handle.read()
+    text, _warning = read_text_file_utf8(path)
+    return text

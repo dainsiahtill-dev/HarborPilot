@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { MessageSquare, FileText, Brain, Database } from 'lucide-react';
+import { MessageSquare, FileText, Brain, Database, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DialoguePanel, DialogueEvent } from '@/app/components/DialoguePanel';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { CognitionPanel } from '@/app/components/CognitionPanel';
+import { SnapshotPanel } from '@/app/components/SnapshotPanel';
 
-export type ContextTab = 'dialogue' | 'memos' | 'memory';
+export type ContextTab = 'dialogue' | 'memos' | 'memory' | 'snapshot';
 
 interface ContextSidebarProps {
     // Dialogue Props
@@ -32,6 +33,15 @@ interface ContextSidebarProps {
     setShowCognition: (show: boolean) => void;
     settingsShowMemory: boolean;
     anthroState?: AnthroState | null;
+
+    // Snapshot Props
+    snapshotTimestamp?: string | null;
+    snapshotFocus?: string | null;
+    snapshotNotes?: string | null;
+    snapshotTasks?: unknown[] | null;
+    snapshotFileStatus?: string[] | null;
+    snapshotFilePaths?: string[] | null;
+    snapshotDirectorState?: Record<string, unknown> | null;
 }
 
 interface AnthroState {
@@ -60,6 +70,13 @@ export function ContextSidebar({
     setShowCognition,
     settingsShowMemory,
     anthroState,
+    snapshotTimestamp,
+    snapshotFocus,
+    snapshotNotes,
+    snapshotTasks,
+    snapshotFileStatus,
+    snapshotFilePaths,
+    snapshotDirectorState,
 }: ContextSidebarProps) {
     const [activeTab, setActiveTab] = useState<ContextTab>('dialogue');
 
@@ -87,6 +104,12 @@ export function ContextSidebar({
                         label="Memory"
                     />
                 )}
+                <TabButton
+                    active={activeTab === 'snapshot'}
+                    onClick={() => setActiveTab('snapshot')}
+                    icon={<Camera className="size-5" />}
+                    label="Snapshot"
+                />
             </div>
 
             {/* Content Area */}
@@ -177,6 +200,35 @@ export function ContextSidebar({
                                         error={memoryError}
                                     />
                                 )}
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {activeTab === 'snapshot' && (
+                        <motion.div
+                            key="snapshot"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            className="absolute inset-0 flex flex-col"
+                        >
+                            <div className="flex-none p-3 border-b border-white/5 flex items-center bg-white/5 backdrop-blur-md">
+                                <div className="flex items-center gap-2">
+                                    <Camera className="size-4 text-green-400" />
+                                    <span className="text-xs font-bold text-text-main uppercase tracking-widest">System Snapshot</span>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-h-0 relative overflow-auto">
+                                <SnapshotPanel
+                                    timestamp={snapshotTimestamp}
+                                    focus={snapshotFocus}
+                                    notes={snapshotNotes}
+                                    tasks={snapshotTasks}
+                                    fileStatus={snapshotFileStatus}
+                                    filePaths={snapshotFilePaths}
+                                    directorState={snapshotDirectorState}
+                                />
                             </div>
                         </motion.div>
                     )}

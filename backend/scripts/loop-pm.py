@@ -1232,6 +1232,86 @@ def ensure_docs_ready(workspace_full: str) -> Optional[int]:
     return None
 
 
+def archive_task_history(workspace_full: str, cache_root_full: str, run_id: str, iteration: int, 
+                        normalized: Dict[str, Any], director_result: Optional[Dict[str, Any]], 
+                        timestamp: str) -> None:
+    """归档任务历史到TASK_HISTORY.json"""
+    try:
+        # 任务历史文件路径
+        task_history_path = resolve_artifact_path(workspace_full, cache_root_full, ".harborpilot/runtime/TASK_HISTORY.json")
+        
+        # 创建历史记录
+        tasks = normalized.get("tasks", []) if isinstance(normalized, dict) else []
+        
+        # 计算执行摘要
+        total_tasks = len(tasks) if isinstance(tasks, list) else 0
+        completed_tasks = 0
+        failed_tasks = 0
+        
+        # 从Director结果中获取执行统计
+        successes = 0
+        total_executed = 0
+        if isinstance(director_result, dict):
+            successes = int(director_result.get("successes", 0))
+            total_executed = int(director_result.get("total", 0))
+        
+        # 构建历史记录
+        history_record = {
+            "round_id": run_id,
+            "timestamp": timestamp,
+            "pm_iteration": iteration,
+            "focus": normalized.get("focus", ""),
+            "overall_goal": normalized.get("overall_goal", ""),
+            "tasks": tasks,
+            "execution_summary": {
+                "total_tasks": total_tasks,
+                "completed_tasks": completed_tasks,
+                "failed_tasks": failed_tasks,
+                "success_rate": successes / total_executed if total_executed > 0 else 0.0
+            },
+            "director_results": {
+                "run_id": director_result.get("run_id", "") if isinstance(director_result, dict) else "",
+                "status": director_result.get("status", "unknown") if isinstance(director_result, dict) else "unknown",
+                "start_time": director_result.get("start_time", "") if isinstance(director_result, dict) else "",
+                "end_time": director_result.get("end_time", "") if isinstance(director_result, dict) else "",
+                "successes": successes,
+                "total": total_executed,
+            },
+            "artifacts": {
+                "pm_tasks_path": ".harborpilot/runtime/PM_TASKS.json",
+                "director_result_path": ".harborpilot/runtime/DIRECTOR_RESULT.json",
+                "events_path": ".harborpilot/runtime/events.jsonl",
+                "dialogue_path": ".harborpilot/runtime/DIALOGUE.jsonl"
+            }
+        }
+        
+        # 读取现有历史
+        existing_history = {"rounds": []}
+        if os.path.isfile(task_history_path):
+            try:
+                with open(task_history_path, "r", encoding="utf-8") as f:
+                    existing_history = json.load(f)
+                    if not isinstance(existing_history, dict) or "rounds" not in existing_history:
+                        existing_history = {"rounds": []}
+            except Exception:
+                existing_history = {"rounds": []}
+        
+        # 添加新记录
+        existing_history["rounds"].append(history_record)
+        
+        # 保持历史记录在合理范围内（最多保留100轮）
+        if len(existing_history["rounds"]) > 100:
+            existing_history["rounds"] = existing_history["rounds"][-100:]
+        
+        # 原子写入
+        write_json_atomic(task_history_path, existing_history)
+        
+        print(f"[history] Archived round {run_id} with {total_tasks} tasks")
+        
+    except Exception as e:
+        print(f"[history] Error archiving task history: {e}")
+
+
 def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     backend = str(getattr(args, "pm_backend", "ollama") or "ollama").strip().lower()
     workspace_full = resolve_workspace_path(args.workspace, require_docs=False)
@@ -2167,6 +2247,9 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
             "tasks": tasks,
         }
         append_jsonl(pm_history_full, history_record)
+
+    # 归档任务历史到TASK_HISTORY.json
+    archive_task_history(workspace_full, cache_root_full, run_id, iteration, normalized, director_result, timestamp)
 
     if args.max_same_task and same_task_count >= args.max_same_task:
         ensure_parent_dir(pm_report_full)

@@ -8,7 +8,7 @@ from collections import deque
 from .utils import (
     find_repo_root, ensure_within_root, relpath, error_result, Result,
     SKIP_DIRS, MAX_RG_RESULTS_DEFAULT, MAX_RG_RESULTS_LIMIT,
-    MAX_TREE_ENTRIES, MAX_FILE_BYTES, truncate_line
+    MAX_TREE_ENTRIES, MAX_FILE_BYTES, truncate_line, detect_utf8_warning
 )
 from .files import get_cached_lines
 
@@ -155,6 +155,7 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
 
     hits: List[Dict[str, Any]] = []
     lines_out: List[str] = []
+    encoding_warnings: List[str] = []
     truncated = False
     
     start = time.time()
@@ -164,6 +165,9 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
                 continue
         except Exception:
             continue
+        warning = detect_utf8_warning(file_path)
+        if warning:
+            encoding_warnings.append(f"{relpath(root, file_path)}: {warning}")
         try:
             cached_lines = get_cached_lines(file_path)
             if cached_lines is not None:
@@ -179,7 +183,7 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
                             truncated = True
                             break
             else:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as handle:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
                     for line_no, line in enumerate(handle, start=1):
                         match = regex.search(line)
                         if match:
@@ -209,6 +213,7 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
         "max_results": max_results,
         "hits": hits,
         "truncated": truncated,
+        "encoding_warnings": encoding_warnings,
         "error": None,
         "exit_code": 0,
         "stdout": output,
@@ -247,6 +252,7 @@ def repo_symbols_index(args: List[str], cwd: str, timeout: int) -> Result:
     root = find_repo_root(cwd)
     entries: List[Dict[str, Any]] = []
     truncated = False
+    encoding_warnings: List[str] = []
     py_re = re.compile(r"^\\s*(def|class)\\s+([A-Za-z_][A-Za-z0-9_]*)")
     js_re = re.compile(r"^\\s*export\\s+(function|class|const|let|var|interface|type)\\s+([A-Za-z_][A-Za-z0-9_]*)")
     
@@ -254,8 +260,11 @@ def repo_symbols_index(args: List[str], cwd: str, timeout: int) -> Result:
     for file_path in iter_files(root, paths, glob_pat):
         if not any(file_path.endswith(ext) for ext in (".py", ".js", ".jsx", ".ts", ".tsx")):
             continue
+        warning = detect_utf8_warning(file_path)
+        if warning:
+            encoding_warnings.append(f"{relpath(root, file_path)}: {warning}")
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as handle:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
                 for line_no, line in enumerate(handle, start=1):
                     match = py_re.match(line)
                     if match:
@@ -287,6 +296,7 @@ def repo_symbols_index(args: List[str], cwd: str, timeout: int) -> Result:
         "max_results": max_results,
         "entries": entries,
         "truncated": truncated,
+        "encoding_warnings": encoding_warnings,
         "error": None,
         "exit_code": 0,
         "stdout": json.dumps(entries, ensure_ascii=False, indent=2),

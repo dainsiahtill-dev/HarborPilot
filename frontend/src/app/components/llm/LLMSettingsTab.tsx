@@ -1,7 +1,8 @@
-import { Loader2, CheckCircle2, AlertTriangle, Plus, PlayCircle, Save } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { SimpleModelCard, SimpleProvider, ProviderKind } from './SimpleModelCard';
-import { SimpleRoleCard, SimpleRole } from './SimpleRoleCard';
+import { Loader2, CheckCircle2, AlertTriangle, Save, Plus, Settings, PlayCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { InterviewHall } from './interview/InterviewHall';
+import { InterviewSession } from './interview/InterviewSession';
+import { SimpleModelCard, type SimpleProvider } from './SimpleModelCard';
 
 interface LlmProviderConfig {
   type?: string;
@@ -28,6 +29,23 @@ interface LlmRoleConfig {
   profile?: string;
 }
 
+interface RoleRequirement {
+  requires_thinking?: boolean;
+  min_confidence?: number;
+  error_message?: string;
+}
+
+interface LlmConfig {
+  schema_version: number;
+  providers: Record<string, LlmProviderConfig>;
+  roles: Record<string, LlmRoleConfig>;
+  policies?: {
+    required_ready_roles?: string[];
+    test_required_suites?: string[];
+    role_requirements?: Record<string, RoleRequirement>;
+  };
+}
+
 interface LlmStatusRole {
   provider_id?: string;
   model?: string;
@@ -40,22 +58,31 @@ interface LlmStatusRole {
   runtime_supported?: boolean;
 }
 
-interface LlmConfig {
-  schema_version: number;
-  providers: Record<string, LlmProviderConfig>;
-  roles: Record<string, LlmRoleConfig>;
-  policies?: {
-    required_ready_roles?: string[];
-    test_required_suites?: string[];
-  };
-}
-
 interface LlmStatus {
   state: string;
   required_ready_roles: string[];
   blocked_roles: string[];
   unsupported_roles: string[];
   roles: Record<string, LlmStatusRole>;
+}
+
+type RoleId = 'pm' | 'director' | 'qa' | 'docs';
+
+interface InterviewSuiteReport {
+  status?: string;
+  final_score?: number;
+  thinking?: {
+    supports_thinking?: boolean;
+    confidence?: number;
+    format?: string;
+    thinking_text?: string;
+  };
+  cases?: Array<Record<string, unknown>>;
+  details?: {
+    recommendation?: string;
+    reason?: string;
+    threshold?: number;
+  };
 }
 
 interface LLMSettingsTabProps {
@@ -65,255 +92,224 @@ interface LLMSettingsTabProps {
   llmSaving: boolean;
   llmError: string | null;
   onSaveConfig: () => void;
-  onTestModel: (providerId: string, level: 'quick' | 'deep') => Promise<void>;
-  onTestRole: (role: string) => Promise<void>;
-  onOpenTuiBrowser: (providerId: string) => void;
-  onViewTestReport: (type: 'model' | 'role', id: string) => void;
+  onRunInterview: (role: RoleId) => Promise<Record<string, unknown> | null>;
+  onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
+  onAddProvider?: (provider: SimpleProvider) => void;
+  onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;
+  onDeleteProvider?: (id: string) => void;
+  onTestProvider?: (id: string, level: 'quick' | 'deep') => Promise<void>;
 }
 
-interface LLMSettingsTabSimplifiedProps {
-  llmConfig: LlmConfig | null;
-  llmStatus: LlmStatus | null;
-  llmLoading: boolean;
-  llmSaving: boolean;
-  llmError: string | null;
-  onSaveConfig: () => void;
-  onTestModel: (providerId: string, level: 'quick' | 'deep') => Promise<void>;
-  onTestRole: (role: string) => Promise<void>;
-  onOpenTuiBrowser: (providerId: string) => void;
-  onViewTestReport: (type: 'model' | 'role', id: string) => void;
-}
-
-const DEFAULT_PROVIDERS: SimpleProvider[] = [
-  {
-    id: 'codex-cli',
-    name: 'Codex CLI',
-    kind: 'cli',
-    conn: { kind: 'cli', command: 'codex', args: [], env: {} },
-    modelId: '',
-    status: 'untested',
-    costClass: 'LOCAL'
+const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
+  pm: {
+    label: 'PM 项目经理',
+    description: '负责项目管理、任务规划和进度跟踪',
+    badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30'
   },
-  {
-    id: 'ollama-local',
-    name: 'Ollama Local',
-    kind: 'ollama',
-    conn: { kind: 'http', baseUrl: 'http://127.0.0.1:11434' },
-    modelId: '',
-    status: 'untested',
-    costClass: 'LOCAL'
+  director: {
+    label: 'Director 导演',
+    description: '负责代码执行、技术实现和系统架构',
+    badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'
   },
-  {
-    id: 'openai-gpt4',
-    name: 'OpenAI GPT-4',
-    kind: 'openai_compat',
-    conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-    modelId: 'gpt-4',
-    status: 'untested',
-    costClass: 'METERED'
+  qa: {
+    label: 'QA 质量保证',
+    description: '负责代码审查、测试和质量控制',
+    badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30'
   },
-  {
-    id: 'minimax_anthropic',
-    name: 'MiniMax (Anthropic)',
-    kind: 'anthropic_compat',
-    conn: { kind: 'http', baseUrl: 'https://api.minimax.io/anthropic' },
-    modelId: 'MiniMax-M2.1',
-    status: 'untested',
-    costClass: 'METERED'
+  docs: {
+    label: 'Docs 文档',
+    description: '负责文档生成和维护',
+    badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30'
   }
-];
+};
 
-const DEFAULT_ROLES: SimpleRole[] = [
-  { role: 'pm', status: 'unconfigured' },
-  { role: 'director', status: 'unconfigured' },
-  { role: 'qa', status: 'unconfigured' },
-  { role: 'docs', status: 'unconfigured' }
-];
+const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
+  pm: {
+    requires_thinking: true,
+    min_confidence: 0.7,
+    error_message: 'PM 角色需要支持思考功能的LLM模型'
+  },
+  director: {
+    requires_thinking: true,
+    min_confidence: 0.7,
+    error_message: 'Director 角色需要支持思考功能的LLM模型'
+  },
+  qa: {
+    requires_thinking: false,
+    min_confidence: 0.5,
+    error_message: 'QA 角色需要可用的LLM模型'
+  },
+  docs: {
+    requires_thinking: false,
+    min_confidence: 0.5,
+    error_message: 'Docs 角色需要可用的LLM模型'
+  }
+};
 
-export function LLMSettingsTab(props: LLMSettingsTabProps) {
-  // Use the simplified implementation
-  return <LLMSettingsTabSimplified {...props} />;
+function extractThinkingMeta(suites?: Record<string, unknown> | null) {
+  if (!suites || typeof suites !== 'object') return null;
+  const suite = (suites as Record<string, unknown>).thinking as Record<string, unknown> | undefined;
+  if (!suite) return null;
+  const details = suite.details as Record<string, unknown> | undefined;
+  const thinking = (details?.thinking as Record<string, unknown>) || (suite.thinking as Record<string, unknown>);
+  if (!thinking) return null;
+  return {
+    supportsThinking: Boolean(thinking.supports_thinking),
+    confidence:
+      typeof thinking.confidence === 'number'
+        ? thinking.confidence
+        : thinking.confidence
+          ? Number(thinking.confidence)
+          : null,
+    format: typeof thinking.format === 'string' ? thinking.format : null,
+    thinkingText: typeof thinking.thinking_text === 'string' ? thinking.thinking_text : null
+  };
 }
 
-export function LLMSettingsTabSimplified({
+function buildRoleRequirements(config: LlmConfig | null): Record<RoleId, RoleRequirement> {
+  const policies = config?.policies?.role_requirements || {};
+  return {
+    pm: { ...DEFAULT_ROLE_REQUIREMENTS.pm, ...(policies.pm || {}) },
+    director: { ...DEFAULT_ROLE_REQUIREMENTS.director, ...(policies.director || {}) },
+    qa: { ...DEFAULT_ROLE_REQUIREMENTS.qa, ...(policies.qa || {}) },
+    docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
+  };
+}
+
+export function LLMSettingsTab({
   llmConfig,
   llmStatus,
   llmLoading,
   llmSaving,
   llmError,
   onSaveConfig,
-  onTestModel,
-  onTestRole,
-  onOpenTuiBrowser,
-  onViewTestReport
-}: LLMSettingsTabSimplifiedProps) {
-  const [providers, setProviders] = useState<SimpleProvider[]>(DEFAULT_PROVIDERS);
-  const [roles, setRoles] = useState<SimpleRole[]>(DEFAULT_ROLES);
-  const [isAddingProvider, setIsAddingProvider] = useState(false);
-  const [newProvider, setNewProvider] = useState<SimpleProvider>({
-    id: '',
-    name: '',
-    kind: 'openai_compat',
-    conn: { kind: 'http', baseUrl: '' },
-    modelId: '',
-    status: 'untested'
-  });
+  onRunInterview,
+  onRunReadiness,
+  onAddProvider,
+  onUpdateProvider,
+  onDeleteProvider,
+  onTestProvider
+}: LLMSettingsTabProps) {
+  const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
+  const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
+  const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
+  const [interviewError, setInterviewError] = useState<string | null>(null);
+  const [interviewRunning, setInterviewRunning] = useState(false);
+  const [readinessRunning, setReadinessRunning] = useState(false);
+  const [providers, setProviders] = useState<SimpleProvider[]>([]);
 
-  // Convert legacy config to simplified format
-  useEffect(() => {
-    if (llmConfig) {
-      const convertedProviders: SimpleProvider[] = Object.entries(llmConfig.providers || {}).map(([id, config]) => ({
-        id,
-        name: config.name || id,
-        kind: config.type as ProviderKind,
-        conn: config.type === 'cli' 
-          ? { kind: 'cli' as const, command: config.command || '', args: config.args || [], env: config.env || {} }
-          : { kind: 'http' as const, baseUrl: config.base_url || '', apiKey: config.api_key_ref },
-        modelId: '',
-        status: 'untested',
-        costClass: config.type === 'cli' ? 'LOCAL' : config.type === 'ollama' ? 'LOCAL' : 'METERED'
-      }));
+  const roleRequirements = useMemo(() => buildRoleRequirements(llmConfig), [llmConfig]);
 
-      const convertedRoles: SimpleRole[] = DEFAULT_ROLES.map(defaultRole => {
-        const roleConfig = llmConfig.roles?.[defaultRole.role];
-        return {
-          role: defaultRole.role,
-          providerId: roleConfig?.provider_id,
-          status: 'unconfigured'
-        };
-      });
-
-      setProviders(convertedProviders);
-      setRoles(convertedRoles);
-    }
-  }, [llmConfig]);
-
-  const handleAddProvider = () => {
-    if (!newProvider.id.trim() || !newProvider.name.trim()) return;
-
-    const providerToAdd: SimpleProvider = {
-      ...newProvider,
-      id: newProvider.id.trim(),
-      name: newProvider.name.trim(),
-      status: 'untested'
-    };
-
-    setProviders(prev => [...prev, providerToAdd]);
-    setNewProvider({
-      id: '',
-      name: '',
-      kind: 'openai_compat',
-      conn: { kind: 'http', baseUrl: '' },
-      modelId: '',
-      status: 'untested'
+  const roles = useMemo(() => {
+    const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
+    return roleIds.map((roleId) => {
+      const roleCfg = llmConfig?.roles?.[roleId];
+      const providerId = roleCfg?.provider_id || '';
+      const providerCfg = providerId ? llmConfig?.providers?.[providerId] : undefined;
+      const status = llmStatus?.roles?.[roleId];
+      const thinkingMeta = extractThinkingMeta(status?.suites || null);
+      const requirement = roleRequirements[roleId];
+      return {
+        id: roleId,
+        label: ROLE_META[roleId].label,
+        description: ROLE_META[roleId].description,
+        requiresThinking: Boolean(requirement?.requires_thinking),
+        minConfidence: requirement?.min_confidence ?? 0.5,
+        thinkingConfidence: thinkingMeta?.confidence ?? null,
+        thinkingSupported: thinkingMeta?.supportsThinking ?? null,
+        candidate: {
+          providerId,
+          providerName: providerCfg?.name || providerId || 'Unassigned',
+          model: roleCfg?.model || ''
+        },
+        readiness: {
+          ready: status?.ready,
+          grade: status?.grade
+        }
+      };
     });
-    setIsAddingProvider(false);
-  };
+  }, [llmConfig, llmStatus, roleRequirements]);
 
-  const handleUpdateProvider = (providerId: string, updates: Partial<SimpleProvider>) => {
-    setProviders(prev => prev.map(p => 
-      p.id === providerId ? { ...p, ...updates } : p
-    ));
-  };
+  const candidates = useMemo(() => {
+    return roles
+      .filter((role) => role.candidate?.model)
+      .map((role) => ({
+        id: `${role.id}-${role.candidate?.providerId || 'unknown'}-${role.candidate?.model || 'model'}`,
+        roleLabel: role.label,
+        providerName: role.candidate?.providerName || 'Unknown',
+        model: role.candidate?.model || 'Unassigned',
+        ready: role.readiness?.ready,
+        thinkingSupported: role.thinkingSupported ?? null,
+        thinkingConfidence: role.thinkingConfidence ?? null
+      }));
+  }, [roles]);
 
-  const handleDeleteProvider = (providerId: string) => {
-    setProviders(prev => prev.filter(p => p.id !== providerId));
-    // Remove from roles if assigned
-    setRoles(prev => prev.map(r => 
-      r.providerId === providerId ? { ...r, providerId: undefined, status: 'unconfigured' } : r
-    ));
-  };
+  useEffect(() => {
+    if (!llmConfig) return;
+    if (!roles.find((role) => role.id === selectedRole)) {
+      setSelectedRole('pm');
+    }
+  }, [llmConfig, roles, selectedRole]);
 
-  const handleUpdateRole = (roleId: string, updates: Partial<SimpleRole>) => {
-    setRoles(prev => prev.map(r => 
-      r.role === roleId ? { ...r, ...updates } : r
-    ));
-  };
+  const globalReadiness = useMemo(() => {
+    const state = llmStatus?.state || 'UNKNOWN';
+    if (state === 'READY') {
+      return { state: 'READY', color: 'text-emerald-400' };
+    }
+    if (state === 'BLOCKED') {
+      return { state: 'BLOCKED', color: 'text-amber-400' };
+    }
+    return { state: 'UNKNOWN', color: 'text-gray-400' };
+  }, [llmStatus?.state]);
 
-  const handleTestModel = async (providerId: string, level: 'quick' | 'deep') => {
-    // Update status to testing
-    handleUpdateProvider(providerId, { status: 'testing' });
-    
+  const selectedMeta = roles.find((role) => role.id === selectedRole);
+  const canRunReadiness = Boolean(
+    selectedMeta?.candidate?.providerId && selectedMeta?.candidate?.model
+  );
+  let disabledReason: string | null = null;
+  if (!selectedMeta?.candidate?.providerId || !selectedMeta?.candidate?.model) {
+    disabledReason = '请选择LLM提供商和模型';
+  } else if (selectedMeta.requiresThinking) {
+    const confidence = selectedMeta.thinkingConfidence;
+    if (confidence !== null && confidence < selectedMeta.minConfidence) {
+      disabledReason =
+        roleRequirements[selectedRole]?.error_message ||
+        'Thinking 功能置信度不足';
+    }
+  }
+
+  const handleStartInterview = async () => {
+    if (!selectedMeta) return;
+    setInterviewError(null);
+    setInterviewReport(null);
+    setInterviewRunning(true);
+    setView('session');
     try {
-      await onTestModel(providerId, level);
-      handleUpdateProvider(providerId, { 
-        status: 'ready',
-        lastTest: {
-          at: new Date().toISOString(),
-          note: `${level} test completed successfully`
-        }
-      });
+      const report = await onRunInterview(selectedMeta.id);
+      const suiteReport = (report?.suites as Record<string, unknown> | undefined)?.interview;
+      if (suiteReport && typeof suiteReport === 'object') {
+        setInterviewReport(suiteReport as InterviewSuiteReport);
+      } else if (report && typeof report === 'object') {
+        setInterviewReport(report as InterviewSuiteReport);
+      } else {
+        setInterviewReport(null);
+      }
     } catch (error) {
-      handleUpdateProvider(providerId, { 
-        status: 'failed',
-        lastError: error instanceof Error ? error.message : 'Test failed',
-        lastTest: {
-          at: new Date().toISOString(),
-          note: `${level} test failed`
-        }
-      });
+      setInterviewError(error instanceof Error ? error.message : 'Interview failed');
+    } finally {
+      setInterviewRunning(false);
     }
   };
 
-  const handleTestRole = async (roleId: string) => {
-    const role = roles.find(r => r.role === roleId);
-    if (!role?.providerId) return;
-
-    // Update status to testing
-    handleUpdateRole(roleId, { status: 'failed' }); // Temporary status during test
-    
+  const handleRunReadiness = async () => {
+    if (!selectedMeta) return;
+    setReadinessRunning(true);
     try {
-      await onTestRole(roleId);
-      handleUpdateRole(roleId, { 
-        status: 'ready',
-        lastTest: {
-          at: new Date().toISOString(),
-          result: 'pass'
-        }
-      });
-    } catch (error) {
-      handleUpdateRole(roleId, { 
-        status: 'failed',
-        lastTest: {
-          at: new Date().toISOString(),
-          result: 'fail',
-          reason: error instanceof Error ? error.message : 'Role test failed'
-        }
-      });
+      await onRunReadiness(selectedMeta.id);
+    } finally {
+      setReadinessRunning(false);
     }
   };
-
-  const handleTestAllModels = async () => {
-    for (const provider of providers) {
-      if (provider.status !== 'ready') {
-        await handleTestModel(provider.id, 'quick');
-      }
-    }
-  };
-
-  const handleTestAllRoles = async () => {
-    for (const role of roles) {
-      if (role.providerId && role.status !== 'ready') {
-        await handleTestRole(role.role);
-      }
-    }
-  };
-
-  const getGlobalReadiness = () => {
-    const readyProviders = providers.filter(p => p.status === 'ready').length;
-    const readyRoles = roles.filter(r => r.status === 'ready').length;
-    const requiredRoles = llmConfig?.policies?.required_ready_roles || ['pm', 'director', 'qa', 'docs'];
-    
-    if (readyRoles >= requiredRoles.length && readyProviders > 0) {
-      return { state: 'READY', color: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30' };
-    } else if (readyProviders > 0) {
-      return { state: 'PARTIAL', color: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30' };
-    } else {
-      return { state: 'NOT_READY', color: 'text-red-400', badge: 'bg-red-500/20 text-red-200 border-red-500/30' };
-    }
-  };
-
-  const globalReadiness = getGlobalReadiness();
 
   if (llmLoading) {
     return (
@@ -328,32 +324,46 @@ export function LLMSettingsTabSimplified({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* 步骤导航 */}
       <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-text-main mb-1">LLM Configuration</h3>
-            <p className="text-[10px] text-text-dim">
-              Step 1: Configure models • Step 2: Assign roles
-            </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setView('config')}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                view === 'config' 
+                  ? 'bg-accent/20 text-accent border border-accent/30' 
+                  : 'text-text-dim hover:text-text-main hover:bg-white/5'
+              }`}
+            >
+              <Settings className="size-4" />
+              1. 配置LLM
+            </button>
+            <button
+              onClick={() => setView('hall')}
+              disabled={providers.length === 0}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                view === 'hall' 
+                  ? 'bg-accent/20 text-accent border border-accent/30' 
+                  : providers.length === 0
+                    ? 'text-gray-500 cursor-not-allowed'
+                    : 'text-text-dim hover:text-text-main hover:bg-white/5'
+              }`}
+            >
+              <PlayCircle className="size-4" />
+              2. 测试模型
+            </button>
           </div>
           
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className={`size-4 ${globalReadiness.color}`} />
-              <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/30 ${globalReadiness.color}`}>
-                {globalReadiness.state}
-              </span>
-            </div>
-            
-            <button
-              onClick={onSaveConfig}
-              disabled={llmSaving}
-              className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors disabled:opacity-60 flex items-center gap-1"
-            >
-              {llmSaving ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
-              Save Config
-            </button>
+          <div className="flex items-center gap-2">
+            {globalReadiness.state === 'READY' ? (
+              <CheckCircle2 className="size-4 text-emerald-400" />
+            ) : (
+              <AlertTriangle className="size-4 text-yellow-400" />
+            )}
+            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/30">
+              {globalReadiness.state}
+            </span>
           </div>
         </div>
 
@@ -364,135 +374,125 @@ export function LLMSettingsTabSimplified({
         ) : null}
       </div>
 
-      {/* Step 1: Model Configuration */}
-      <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-text-main">Step 1: Model Configuration</h3>
-            <p className="text-[10px] text-text-dim">Add and test your LLM models</p>
-          </div>
-          
-          <div className="flex items-center gap-2">
+      {/* 配置视图 */}
+      {view === 'config' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
+              <p className="text-[10px] text-text-dim">
+                添加和配置LLM提供商（OpenAI、Ollama、Claude等）
+              </p>
+            </div>
             <button
-              onClick={handleTestAllModels}
-              className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-cyan-400/40 flex items-center gap-1"
-            >
-              <PlayCircle className="size-3" />
-              Test All Models
-            </button>
-            
-            <button
-              onClick={() => setIsAddingProvider(true)}
-              className="px-3 py-1.5 text-[10px] font-semibold bg-cyan-500/80 hover:bg-cyan-500 text-white rounded transition-colors flex items-center gap-1"
+              onClick={() => {
+                const newProvider: SimpleProvider = {
+                  id: `provider-${Date.now()}`,
+                  name: '新提供商',
+                  kind: 'openai_compat',
+                  conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
+                  modelId: 'gpt-3.5-turbo',
+                  status: 'untested',
+                  costClass: 'METERED'
+                };
+                setProviders([...providers, newProvider]);
+                onAddProvider?.(newProvider);
+              }}
+              className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1"
             >
               <Plus className="size-3" />
-              Add Model
+              添加提供商
             </button>
           </div>
-        </div>
 
-        {/* Add New Provider Form */}
-        {isAddingProvider && (
-          <div className="bg-black/20 rounded-lg p-4 mb-4 border border-white/10">
-            <h4 className="text-xs font-semibold text-text-main mb-3">Add New Model</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input
-                type="text"
-                placeholder="Model ID (e.g., claude-3-5-sonnet)"
-                value={newProvider.id}
-                onChange={(e) => setNewProvider(prev => ({ ...prev, id: e.target.value }))}
-                className="bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-              />
-              <input
-                type="text"
-                placeholder="Display Name (e.g., Claude 3.5)"
-                value={newProvider.name}
-                onChange={(e) => setNewProvider(prev => ({ ...prev, name: e.target.value }))}
-                className="bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-              />
-              <select
-                value={newProvider.kind}
-                onChange={(e) => setNewProvider(prev => ({ 
-                  ...prev, 
-                  kind: e.target.value as ProviderKind,
-                  conn: e.target.value === 'cli' ? 
-                    { kind: 'cli' as const, command: '', args: [], env: {} } :
-                    { kind: 'http' as const, baseUrl: '' }
-                }))}
-                className="bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+          {providers.length === 0 ? (
+            <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
+              <Settings className="size-8 text-text-dim mx-auto mb-3" />
+              <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
+              <p className="text-xs text-text-dim mb-4">
+                请先添加至少一个LLM提供商，然后进行模型测试
+              </p>
+              <button
+                onClick={() => {
+                  const newProvider: SimpleProvider = {
+                    id: `provider-${Date.now()}`,
+                    name: 'OpenAI',
+                    kind: 'openai_compat',
+                    conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
+                    modelId: 'gpt-3.5-turbo',
+                    status: 'untested',
+                    costClass: 'METERED'
+                  };
+                  setProviders([...providers, newProvider]);
+                  onAddProvider?.(newProvider);
+                }}
+                className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
               >
-                <option value="cli">CLI</option>
-                <option value="ollama">Ollama</option>
-                <option value="openai_compat">OpenAI-compatible</option>
-                <option value="anthropic_compat">Anthropic-compatible</option>
-                <option value="custom_https">Custom HTTPS</option>
-              </select>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAddProvider}
-                  disabled={!newProvider.id.trim() || !newProvider.name.trim()}
-                  className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors disabled:opacity-60"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => setIsAddingProvider(false)}
-                  className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-accent/40"
-                >
-                  Cancel
-                </button>
-              </div>
+                添加OpenAI提供商
+              </button>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="space-y-3">
+              {providers.map((provider) => (
+                <SimpleModelCard
+                  key={provider.id}
+                  provider={provider}
+                  onUpdate={(updates) => {
+                    const updated = { ...provider, ...updates };
+                    setProviders(providers.map(p => p.id === provider.id ? updated : p));
+                    onUpdateProvider?.(provider.id, updates);
+                  }}
+                  onDelete={() => {
+                    setProviders(providers.filter(p => p.id !== provider.id));
+                    onDeleteProvider?.(provider.id);
+                  }}
+                  onTest={async (level) => {
+                    await onTestProvider?.(provider.id, level);
+                  }}
+                />
+              ))}
+            </div>
+          )}
 
-        {/* Model Cards */}
-        <div className="space-y-4">
-          {providers.map(provider => (
-            <SimpleModelCard
-              key={provider.id}
-              provider={provider}
-              onUpdate={(updates) => handleUpdateProvider(provider.id, updates)}
-              onDelete={() => handleDeleteProvider(provider.id)}
-              onTest={(level) => handleTestModel(provider.id, level)}
-              onOpenTuiBrowser={() => onOpenTuiBrowser(provider.id)}
-              onViewTestReport={() => onViewTestReport('model', provider.id)}
-            />
-          ))}
+          {providers.length > 0 && (
+            <div className="flex justify-center">
+              <button
+                onClick={() => setView('hall')}
+                className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
+              >
+                下一步：测试模型
+                <PlayCircle className="size-3" />
+              </button>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Step 2: Role Assignment */}
-      <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-text-main">Step 2: Role Assignment</h3>
-            <p className="text-[10px] text-text-dim">Assign tested models to roles</p>
-          </div>
-          
-          <button
-            onClick={handleTestAllRoles}
-            className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-purple-400/40 flex items-center gap-1"
-          >
-            <PlayCircle className="size-3" />
-            Test All Roles
-          </button>
-        </div>
+      {/* 测试视图 */}
+      {view === 'hall' && (
+        <InterviewHall
+          roles={roles}
+          candidates={candidates}
+          selectedRole={selectedRole}
+          onSelectRole={setSelectedRole}
+          onStartInterview={handleStartInterview}
+          onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
+          disabledReason={disabledReason}
+          running={interviewRunning}
+        />
+      )}
 
-        {/* Role Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {roles.map(role => (
-            <SimpleRoleCard
-              key={role.role}
-              role={role}
-              availableProviders={providers}
-              onUpdate={(updates) => handleUpdateRole(role.role, updates)}
-              onTestRole={() => handleTestRole(role.role)}
-              onViewTestReport={() => onViewTestReport('role', role.role)}
-            />
-          ))}
-        </div>
-      </div>
+      {/* 面试会话视图 */}
+      {view === 'session' && (
+        <InterviewSession
+          roleLabel={selectedMeta?.label || selectedRole}
+          roleId={selectedRole}
+          report={interviewReport}
+          running={interviewRunning}
+          error={interviewError}
+          onBack={() => setView('hall')}
+        />
+      )}
     </div>
   );
 }

@@ -4,12 +4,11 @@ import json
 import re
 from typing import List, Dict, Any, Generator
 from .utils import (
-    find_repo_root, ensure_within_root, error_result, Result
+    find_repo_root, ensure_within_root, error_result, Result, read_text_file
 )
 
 def _read_text_file(path: str) -> str:
-    with open(path, "r", encoding="utf-8", errors="ignore") as handle:
-        return handle.read()
+    return read_text_file(path)
 
 def _get_ts_parser(language: str):
     try:
@@ -24,7 +23,7 @@ def _get_ts_parser(language: str):
     return get_parser(language)
 
 def _ts_node_text(content: bytes, node) -> str:
-    return content[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
+    return content[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 def _ts_name_node(node):
     name = node.child_by_field_name("name")

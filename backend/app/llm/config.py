@@ -8,9 +8,33 @@ from ..config import Settings
 from ..utils import resolve_artifact_path, build_cache_root
 
 
+DEFAULT_ROLE_REQUIREMENTS = {
+    "pm": {
+        "requires_thinking": True,
+        "min_confidence": 0.7,
+        "error_message": "PM 岗位需要具备深度思考能力的模型",
+    },
+    "director": {
+        "requires_thinking": True,
+        "min_confidence": 0.7,
+        "error_message": "Director 岗位需要具备推理能力的模型",
+    },
+    "qa": {
+        "requires_thinking": False,
+        "min_confidence": 0.5,
+        "error_message": "QA 岗位建议使用具备思考能力的模型",
+    },
+    "docs": {
+        "requires_thinking": False,
+        "min_confidence": 0.5,
+        "error_message": "Docs 岗位建议使用具备思考能力的模型",
+    },
+}
+
 DEFAULT_POLICIES = {
     "required_ready_roles": ["pm", "director", "qa", "docs"],
     "test_required_suites": ["connectivity", "response", "qualification"],
+    "role_requirements": DEFAULT_ROLE_REQUIREMENTS,
 }
 
 
@@ -138,6 +162,16 @@ def normalize_llm_config(payload: Dict[str, Any], settings: Optional[Settings] =
         roles = base.get("roles", {})
     if not isinstance(policies, dict):
         policies = base.get("policies", {})
+    else:
+        base_policies = base.get("policies", {})
+        role_requirements = policies.get("role_requirements")
+        if isinstance(role_requirements, dict):
+            base_role_requirements = base_policies.get("role_requirements", {})
+            if isinstance(base_role_requirements, dict):
+                policies = {
+                    **policies,
+                    "role_requirements": {**base_role_requirements, **role_requirements},
+                }
     merged = {
         "schema_version": int(schema_version or 1),
         "providers": {**base.get("providers", {}), **providers},

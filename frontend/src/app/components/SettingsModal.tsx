@@ -93,6 +93,7 @@ interface LlmConfig {
   policies?: {
     required_ready_roles?: string[];
     test_required_suites?: string[];
+    role_requirements?: Record<string, { requires_thinking?: boolean; min_confidence?: number; error_message?: string }>;
   };
 }
 
@@ -393,7 +394,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     showReport: boolean = true,
     overrides?: { providerId?: string; model?: string },
   ) => {
-    if (!llmConfig) return;
+    if (!llmConfig) return null;
     const roleCfg = llmConfig.roles?.[role];
     const providerId = overrides?.providerId || roleCfg?.provider_id;
     const model = overrides?.model || roleCfg?.model;
@@ -422,11 +423,21 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         setReportDrawer({ open: true, data: report });
       }
       await loadLlmStatus();
+      return report as Record<string, unknown>;
     } catch (err) {
       setLlmError(err instanceof Error ? err.message : 'LLM test failed');
+      return null;
     } finally {
       setLlmTesting((prev) => ({ ...prev, [role]: false }));
     }
+  };
+
+  const runInterview = async (role: string) => {
+    return await runLlmTest(role, 'full', ['thinking', 'interview'], false);
+  };
+
+  const runReadiness = async (role: string) => {
+    return await runLlmTest(role, 'quick', undefined, false);
   };
 
   const runAllTests = async () => {
@@ -972,10 +983,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 llmSaving={llmSaving}
                 llmError={llmError}
                 onSaveConfig={saveLlmConfig}
-                onTestModel={runLlmTest}
-                onTestRole={runLlmTest}
-                onOpenTuiBrowser={openTuiBrowser}
-                onViewTestReport={openReport}
+                onRunInterview={runInterview}
+                onRunReadiness={runReadiness}
               />
             </TabsContent>
 

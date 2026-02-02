@@ -4,7 +4,8 @@ from collections import deque
 from .utils import (
     MAX_FILE_BYTES, MAX_READ_LINES, MAX_READ_BYTES,
     truncate_line, format_slice, error_result,
-    find_repo_root, ensure_within_root, relpath
+    find_repo_root, ensure_within_root, relpath,
+    read_text_file_utf8, detect_utf8_warning
 )
 
 _FILE_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -21,22 +22,36 @@ def get_cached_lines(full_path: str) -> Optional[List[str]]:
         if cached.get("mtime") == stat.st_mtime and cached.get("size") == stat.st_size:
             return cached.get("lines")
     try:
-        with open(full_path, "r", encoding="utf-8", errors="ignore") as handle:
-            lines = handle.read().splitlines()
+        text, warning = read_text_file_utf8(full_path)
+        lines = text.splitlines()
     except Exception:
         return None
-    _FILE_CACHE[full_path] = {"mtime": stat.st_mtime, "size": stat.st_size, "lines": lines}
+    _FILE_CACHE[full_path] = {
+        "mtime": stat.st_mtime,
+        "size": stat.st_size,
+        "lines": lines,
+        "encoding_warning": warning,
+    }
     return lines
+
+
+def get_cached_warning(full_path: str) -> Optional[str]:
+    cached = _FILE_CACHE.get(full_path)
+    if cached:
+        return cached.get("encoding_warning")
+    return None
+
 
 def lines_to_content(lines: List[Tuple[int, str]]) -> List[Dict[str, Any]]:
     return [{"n": line_no, "t": text} for line_no, text in lines]
 
-def read_lines_range(full_path: str, start: int, end: int) -> Tuple[List[Tuple[int, str]], bool]:
+def read_lines_range(full_path: str, start: int, end: int) -> Tuple[List[Tuple[int, str]], bool, Optional[str]]:
     lines: List[Tuple[int, str]] = []
     truncated = False
     byte_budget = MAX_READ_BYTES
+    warning = detect_utf8_warning(full_path)
     try:
-        with open(full_path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
             for line_no, line in enumerate(handle, start=1):
                 if line_no < start:
                     continue
@@ -53,12 +68,15 @@ def read_lines_range(full_path: str, start: int, end: int) -> Tuple[List[Tuple[i
                 lines.append((line_no, text))
     except Exception:
         raise
-    return lines, truncated
+    return lines, truncated, warning
 
-def read_lines_range_cached(full_path: str, start: int, end: int) -> Tuple[List[Tuple[int, str]], bool]:
+
+def read_lines_range_cached(full_path: str, start: int, end: int) -> Tuple[List[Tuple[int, str]], bool, Optional[str]]:
     cached_lines = get_cached_lines(full_path)
+    warning = get_cached_warning(full_path)
     if cached_lines is None:
         return read_lines_range(full_path, start, end)
+    warning = get_cached_warning(full_path)
     lines: List[Tuple[int, str]] = []
     truncated = False
     byte_budget = MAX_READ_BYTES
@@ -76,9 +94,8 @@ def read_lines_range_cached(full_path: str, start: int, end: int) -> Tuple[List[
         lines.append((idx + 1, text))
     if end > last:
         truncated = truncated
-    return lines, truncated
+    return lines, truncated, warning
 
-# Tool Wrappers
 
 def repo_read_slice(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
     _ = timeout
@@ -133,7 +150,7 @@ def repo_read_slice(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         return error_result("repo_read_slice", f"Not a file: {file_arg}")
 
     try:
-        lines, truncated = read_lines_range_cached(full_path, start, end)
+        lines, truncated, warning = read_lines_range_cached(full_path, start, end)
     except Exception as exc:
         return error_result("repo_read_slice", str(exc), exit_code=1)
 
@@ -149,6 +166,8 @@ def repo_read_slice(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         "max_lines": MAX_READ_LINES,
         "truncated": truncated,
         "content": lines_to_content(lines),
+        "encoding_warning": warning,
+        "warnings": [warning] if warning else [],
         "error": None,
         "exit_code": 0,
         "stdout": output,
@@ -292,6 +311,7 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         truncated = True
 
     cached_lines = get_cached_lines(full_path)
+    warning = get_cached_warning(full_path)
     total = 0
     if cached_lines is not None:
         total = len(cached_lines)
@@ -300,9 +320,10 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
             for idx in range(max(0, total - requested), total)
         ]
     else:
+        warning = detect_utf8_warning(full_path)
         q: Deque[Tuple[int, str]] = deque(maxlen=requested)
         try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as handle:
+            with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
                 for total, line in enumerate(handle, start=1):
                     q.append((total, truncate_line(line.rstrip("\n\r"))))
         except Exception as exc:
@@ -321,6 +342,8 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
             "tail_lines": requested,
             "truncated": truncated,
             "content": [],
+            "encoding_warning": warning,
+            "warnings": [warning] if warning else [],
             "error": None,
             "exit_code": 0,
             "stdout": "(empty)",
@@ -355,6 +378,8 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         "tail_lines": requested,
         "truncated": truncated,
         "content": lines_to_content(kept),
+        "encoding_warning": warning,
+        "warnings": [warning] if warning else [],
         "error": None,
         "exit_code": 0,
         "stdout": output,
