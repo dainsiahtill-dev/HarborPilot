@@ -25,4 +25,4 @@ export const GoalsList = memo(function GoalsList({ goals }: GoalsListProps) {
             </div>
         </div>
     );
-}
+});

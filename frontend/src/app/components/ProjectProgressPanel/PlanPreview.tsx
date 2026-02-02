@@ -21,4 +21,4 @@ export const PlanPreview = memo(function PlanPreview({ planText, planUpdated }: 
             </div>
         </div>
     );
-}
+});

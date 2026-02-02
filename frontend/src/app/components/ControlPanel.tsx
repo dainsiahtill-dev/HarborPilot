@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity as ActivityIcon } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { WindowControls } from './WindowControls';
 
@@ -34,6 +34,8 @@ interface ControlPanelProps {
   healthStatus?: string | null;
   onPingHealth?: () => void;
   onOpenLogs?: () => void;
+  isArtifactsOpen: boolean;
+  onToggleArtifacts: () => void;
 }
 
 export function ControlPanel({
@@ -68,6 +70,8 @@ export function ControlPanel({
   healthStatus,
   onPingHealth,
   onOpenLogs,
+  isArtifactsOpen,
+  onToggleArtifacts,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;
@@ -95,6 +99,20 @@ export function ControlPanel({
         <div className="w-px h-4 bg-white/10" />
         <div className="flex items-center gap-2 group">
           <div className="relative">
+            <button
+              onClick={onToggleArtifacts}
+              className={`p-2 rounded-lg transition-colors ${
+                isArtifactsOpen
+                  ? 'text-accent bg-accent/10 hover:bg-accent/20'
+                  : 'text-text-muted hover:text-text-main hover:bg-white/5'
+              }`}
+              title={isArtifactsOpen ? '收起监控面板' : '展开监控面板'}
+            >
+              <Activity className="size-5" />
+            </button>
+          </div>
+
+          <div className="relative group/ws">
 
             <Anchor className="size-6 text-accent relative z-10" />
           </div>
@@ -242,7 +260,7 @@ export function ControlPanel({
             className="flex items-center gap-1.5 text-text-dim hover:text-accent transition-colors"
             title="查看子进程日志"
           >
-            <ActivityIcon className="size-3.5" />
+            <Activity className="size-3.5" />
             <span className="text-[10px] font-bold uppercase tracking-widest">Logs</span>
           </button>
         </div>

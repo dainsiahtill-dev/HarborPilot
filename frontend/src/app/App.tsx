@@ -1,22 +1,26 @@
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle, ImperativePanelHandle } from 'react-resizable-panels';
 import { X } from 'lucide-react';
 import { apiFetch, connectWebSocket, openPath, pickWorkspace } from '@/api';
 import { ControlPanel } from '@/app/components/ControlPanel';
-import { ArtifactsSidebar } from '@/app/components/ArtifactsSidebar';
 import { DialoguePanel, type DialogueEvent } from '@/app/components/DialoguePanel';
 import { SnapshotPanel } from '@/app/components/SnapshotPanel';
-import { SettingsModal } from '@/app/components/SettingsModal';
 import { MemoryPanel } from '@/app/components/MemoryPanel';
 import { LogsModal } from '@/app/components/LogsModal';
 import { MemoPanel, MemoItem } from '@/app/components/MemoPanel';
-import { DocsInitDialog, type WorkspaceStatus } from '@/app/components/DocsInitDialog';
+import type { WorkspaceStatus } from '@/app/components/DocsInitDialog';
 import { ProjectProgressPanel } from '@/app/components/ProjectProgressPanel';
 import { CognitionPanel } from '@/app/components/CognitionPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
 import { LivingBackground } from '@/app/components/LivingBackground';
+
+// Lazy Loaded Components
+const ProcessMonitorSidebar = lazy(() => import('./components/ProcessMonitorSidebar').then(module => ({ default: module.ProcessMonitorSidebar })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsModal })));
+const DocsInitDialog = lazy(() => import('./components/DocsInitDialog').then(module => ({ default: module.DocsInitDialog })));
+
 import { ContextSidebar } from '@/app/components/ContextSidebar';
 import { RunHistoryModal } from '@/app/components/RunHistoryModal';
 import { ErrorBoundaryClass } from '@/app/components/ErrorBoundary';
@@ -276,6 +280,8 @@ export default function App() {
   const [memoryData, setMemoryData] = useState<FilePayload>({ content: '', mtime: '' });
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [isMonitorOpen, setIsMonitorOpen] = useState(true);
+  const [messages, setMessages] = useState<string[]>([]);
   const [memoItems, setMemoItems] = useState<MemoItem[]>([]);
   const [memoSelected, setMemoSelected] = useState<MemoItem | null>(null);
   const [memoData, setMemoData] = useState<FilePayload>({ content: '', mtime: '' });
@@ -1657,6 +1663,10 @@ export default function App() {
           onToggleDirector={toggleDirector}
           onStopOllama={stopOllamaModels}
           onRefresh={handleRefresh}
+          onOpenLogs={() => {
+            setLogsSourceId('pm-subprocess');
+            setIsLogsOpen(true);
+          }}
           onOpenBrain={() => setIsBrainOpen(true)}
           agentsNeeded={agentsRequired}
           agentsDraftReady={agentsDraftReady}
@@ -1686,10 +1696,8 @@ export default function App() {
               setHealthStatus('unhealthy');
             }
           }}
-          onOpenLogs={() => {
-            setLogsSourceId('pm-subprocess');
-            setIsLogsOpen(true);
-          }}
+          isArtifactsOpen={isMonitorOpen}
+          onToggleArtifacts={() => setIsMonitorOpen(!isMonitorOpen)}
         />
 
         {docsMissing ? (
@@ -1766,26 +1774,31 @@ export default function App() {
 
         {/* Main Content Area: Mission Control Grid */}
         <PanelGroup direction="horizontal" autoSaveId="harborpilot-main-layout-v2" className="flex-1 flex overflow-hidden relative">
-          {/* Left Sidebar: Artifacts */}
-          <Panel defaultSize={20} minSize={15} maxSize={30} order={1} className="flex flex-col z-0">
-            <div className="size-full border-r border-white/10 bg-bg-panel/30 backdrop-blur-md flex flex-col z-0">
-              <ArtifactsSidebar
-                onFileSelect={(file) =>
-                  setSelectedFile({
-                    id: file.id,
-                    name: file.name,
-                    path: file.path,
-                  })
-                }
-                selectedFileId={selectedFile?.id || null}
-                onOpenWorkspace={handleOpenWorkspace}
-                onOpenHistory={() => setIsHistoryOpen(true)}
-                fileStatusLines={snapshot?.file_status ?? null}
-              />
-            </div>
-          </Panel>
-
-          <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+          {/* Left Sidebar: Process Monitor */}
+          {isMonitorOpen && (
+            <>
+              <Panel defaultSize={20} minSize={15} maxSize={30} order={1} className="flex flex-col z-0">
+                <div className="size-full border-r border-white/10 bg-bg-panel/30 backdrop-blur-md flex flex-col z-0">
+                  <Suspense fallback={<div className="flex items-center justify-center h-full text-text-dim">Loading Monitor...</div>}>
+                    <ProcessMonitorSidebar
+                      onFileSelect={(file) =>
+                        setSelectedFile({
+                          id: file.id,
+                          name: file.name,
+                          path: file.path,
+                        })
+                      }
+                      selectedFileId={selectedFile?.id || null}
+                      onOpenWorkspace={handleOpenWorkspace}
+                      onOpenHistory={() => setIsHistoryOpen(true)}
+                      fileStatusLines={snapshot?.file_status ?? null}
+                    />
+                  </Suspense>
+                </div>
+              </Panel>
+              <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+            </>
+          )}
 
           {/* Center: Workspace / Progress */}
           <Panel order={2} className="flex flex-col min-w-0 bg-transparent relative z-0">
@@ -1799,7 +1812,11 @@ export default function App() {
               goals={snapshot?.goals ?? null}
               planText={snapshot?.plan_text ?? null}
               planMtime={snapshot?.plan_mtime ?? null}
-              successStats={successStats}
+              successStats={successStats ? {
+                successes: successStats.successes ?? null,
+                total: successStats.total ?? null,
+                rate: successStats.rate ?? null
+              } : null}
               pmRunning={!!pmStatus?.running}
               className="flex-1 min-h-0"
             />
@@ -1840,24 +1857,40 @@ export default function App() {
 
 
         {/* 设置弹窗 */}
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          settings={settings}
-          onSave={saveSettings}
-        />
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            settings={settings}
+            onSave={saveSettings}
+          />
+        </Suspense>
 
-        <DocsInitDialog
-          open={isDocsInitOpen}
-          onOpenChange={setIsDocsInitOpen}
-          workspace={settings?.workspace}
-          workspaceStatus={workspaceStatus}
-          docsPresent={snapshot?.docs_present}
-          onApplied={() => {
-            refreshSnapshot().catch(() => undefined);
-            refreshSettings().catch(() => undefined);
-          }}
-        />
+        <Suspense fallback={null}>
+          <DocsInitDialog
+            open={isDocsInitOpen}
+            onOpenChange={setIsDocsInitOpen}
+            workspace={settings?.workspace}
+            workspaceStatus={workspaceStatus}
+            docsPresent={snapshot?.docs_present}
+            onApplied={() => {
+              setIsDocsInitOpen(false);
+              handleRefresh();
+            }}
+          />
+        </Suspense>
+
+        {/* AgentsReviewDialog component missing
+        <Suspense fallback={null}>
+          <AgentsReviewDialog
+            isOpen={isAgentsDialogOpen}
+            onClose={() => setIsAgentsDialogOpen(false)}
+            content={agentsDraftContent}
+            onReview={handleReviewAgents}
+            isReviewing={false}
+          />
+        </Suspense>
+        */}
 
         <LogsModal
           isOpen={isLogsOpen}

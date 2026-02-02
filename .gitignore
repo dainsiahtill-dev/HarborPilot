@@ -7,11 +7,6 @@ __pycache__/
 .agent
 # State outputs
 .harborpilot/
-.harborpilot/runtime/*.md
-.harborpilot/runtime/*.json
-.harborpilot/runtime/*.jsonl
-.harborpilot/runtime/memory/
-.harborpilot/runtime/runs/
 
 # Desktop app
 /desktop/node_modules/
