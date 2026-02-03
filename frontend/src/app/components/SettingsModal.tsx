@@ -1558,6 +1558,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onSaveConfig={saveLlmConfig}
                 onRunInterview={runInterview}
                 onRunReadiness={runReadiness}
+                onTestProvider={runProviderTest}
+                onCancelTestProvider={cancelProviderTest}
                 onAddProvider={async (providerId, provider) => {
                   const payload: LlmProviderConfig = {
                     type: provider.type as LlmProviderType,

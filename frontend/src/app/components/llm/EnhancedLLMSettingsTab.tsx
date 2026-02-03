@@ -1,9 +1,13 @@
 import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { InterviewHall } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
+import { TestPanel } from './test/TestPanel';
+import { useTestEvents } from './test/hooks/useTestEvents';
 import { useProviderRegistry } from './ProviderRegistry';
-import { type ProviderConfig } from './types';
+import { PROVIDER_KINDS, isCLIProviderType, type ProviderConfig, type ProviderKind, type SimpleProvider } from './types';
+import type { TestEvent, TestResult } from './test/types';
 
 // Reuse existing interfaces
 interface LlmRoleConfig {
@@ -81,6 +85,8 @@ interface EnhancedLLMSettingsTabProps {
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
   onDeleteProvider?: (providerId: string) => void | Promise<void>;
+  onTestProvider?: (provider: SimpleProvider, onEvent?: (event: TestEvent) => void) => Promise<TestResult | null>;
+  onCancelTestProvider?: () => void;
 }
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
@@ -141,7 +147,9 @@ export function EnhancedLLMSettingsTab({
   onRunReadiness,
   onAddProvider,
   onUpdateProvider,
-  onDeleteProvider
+  onDeleteProvider,
+  onTestProvider,
+  onCancelTestProvider
 }: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
@@ -151,6 +159,11 @@ export function EnhancedLLMSettingsTab({
   const [readinessRunning, setReadinessRunning] = useState(false);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [selectedProviderType, setSelectedProviderType] = useState<string>('');
+  const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
+  const [testCancelled, setTestCancelled] = useState(false);
+  const { events, addEvent, resetEvents } = useTestEvents();
+  const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
 
   const {
     loading: providersLoading,
@@ -173,6 +186,58 @@ export function EnhancedLLMSettingsTab({
       docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
     };
   }, [llmConfig]);
+
+  const resolveProviderModel = (
+    providerId: string,
+    provider: ProviderConfig,
+    roles?: Record<string, LlmRoleConfig>
+  ): string => {
+    const direct = typeof provider.model === 'string' ? provider.model.trim() : '';
+    if (direct) return direct;
+    const legacy = typeof provider.model_id === 'string' ? provider.model_id.trim() : '';
+    if (legacy) return legacy;
+    const fallback = typeof provider.default_model === 'string' ? provider.default_model.trim() : '';
+    if (fallback) return fallback;
+    if (!roles) return '';
+    for (const roleCfg of Object.values(roles)) {
+      if (!roleCfg || typeof roleCfg !== 'object') continue;
+      if (roleCfg.provider_id === providerId && roleCfg.model) {
+        return roleCfg.model;
+      }
+    }
+    return '';
+  };
+
+  const buildSimpleProvider = (
+    providerId: string,
+    provider: ProviderConfig,
+    roles?: Record<string, LlmRoleConfig>
+  ): SimpleProvider => {
+    const kind = (provider.type || PROVIDER_KINDS.OPENAI_COMPAT) as ProviderKind;
+    const isCli = isCLIProviderType(provider.type) || Boolean(provider.command);
+    const conn = isCli
+      ? {
+          kind: kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli',
+          command: provider.command || (kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
+          args: provider.args || [],
+          env: provider.env || {}
+        }
+      : {
+          kind: 'http',
+          baseUrl: provider.base_url || '',
+          apiKey: provider.api_key
+        };
+    const modelId = resolveProviderModel(providerId, provider, roles);
+    return {
+      id: providerId,
+      name: provider.name || providerId,
+      kind,
+      conn,
+      cliMode: provider.cli_mode,
+      modelId,
+      status: 'untested'
+    };
+  };
 
   const roles = useMemo(() => {
     const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
@@ -220,6 +285,110 @@ export function EnhancedLLMSettingsTab({
       setSelectedRole('pm');
     }
   }, [llmConfig, roles, selectedRole]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    setPanelHost(document.getElementById('llm-test-panel-slot'));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTestProviderId) return;
+    if (!llmConfig?.providers?.[selectedTestProviderId]) {
+      closeTestPanel();
+    }
+  }, [llmConfig, selectedTestProviderId]);
+
+  useEffect(() => {
+    if (view !== 'config' && selectedTestProviderId) {
+      closeTestPanel();
+    }
+  }, [view, selectedTestProviderId]);
+
+  const selectedTestProvider = useMemo(() => {
+    if (!selectedTestProviderId || !llmConfig) return null;
+    const cfg = llmConfig.providers?.[selectedTestProviderId];
+    if (!cfg) return null;
+    return buildSimpleProvider(selectedTestProviderId, cfg, llmConfig.roles);
+  }, [llmConfig, selectedTestProviderId]);
+
+  const openTestPanel = (providerId: string) => {
+    setSelectedTestProviderId(providerId);
+    setTestStatus('idle');
+    setTestCancelled(false);
+    resetEvents();
+  };
+
+  const closeTestPanel = () => {
+    setSelectedTestProviderId(null);
+    setTestStatus('idle');
+    setTestCancelled(false);
+    resetEvents();
+  };
+
+  const cancelTestRun = () => {
+    if (onCancelTestProvider) {
+      onCancelTestProvider();
+    }
+    setTestCancelled(true);
+    addEvent({
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      content: 'Test cancelled by user'
+    });
+    setTestStatus('failed');
+  };
+
+  const shouldSkipErrorEvent = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    return 'skipUiEvent' in err && Boolean((err as { skipUiEvent?: boolean }).skipUiEvent);
+  };
+
+  const runSelectedTest = async () => {
+    if (!selectedTestProvider || !onTestProvider) return;
+    setTestStatus('running');
+    setTestCancelled(false);
+    resetEvents();
+    addEvent({
+      type: 'command',
+      timestamp: new Date().toISOString(),
+      content: `Preparing test for ${selectedTestProvider.name}`
+    });
+    try {
+      const result = await onTestProvider(selectedTestProvider, (event) => {
+        addEvent(event);
+      });
+      if (!result) {
+        setTestStatus('failed');
+        const hasErrorEvent = events.some((event) => event.type === 'error');
+        const fallbackMessage = testCancelled ? '测试已取消' : '测试未返回结果';
+        if (!hasErrorEvent) {
+          addEvent({
+            type: 'error',
+            timestamp: new Date().toISOString(),
+            content: fallbackMessage
+          });
+        }
+        return;
+      }
+      const ready = result.ready ?? result.grade === 'PASS';
+      setTestStatus(ready ? 'success' : 'failed');
+      addEvent({
+        type: ready ? 'result' : 'error',
+        timestamp: new Date().toISOString(),
+        content: ready ? '测试完成' : '测试未通过'
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '测试失败';
+      setTestStatus('failed');
+      if (!shouldSkipErrorEvent(err)) {
+        addEvent({
+          type: 'error',
+          timestamp: new Date().toISOString(),
+          content: message
+        });
+      }
+    }
+  };
 
   const globalReadiness = useMemo(() => {
     const state = llmStatus?.state || 'UNKNOWN';
@@ -318,6 +487,7 @@ export function EnhancedLLMSettingsTab({
     const isEditing = editingProvider === providerId;
     const isDeleting = Boolean(deletingProviders?.[providerId]);
     const actionsDisabled = llmSaving || isDeleting;
+    const testDisabled = actionsDisabled || !onTestProvider;
 
     return (
       <div key={providerId} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all">
@@ -339,6 +509,13 @@ export function EnhancedLLMSettingsTab({
           </div>
           
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => openTestPanel(providerId)}
+              disabled={testDisabled}
+              className="p-1.5 rounded border border-cyan-500/30 hover:border-cyan-500/60 text-cyan-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <PlayCircle className="size-3" />
+            </button>
             <button
               onClick={() => setEditingProvider(isEditing ? null : providerId)}
               disabled={actionsDisabled}
@@ -587,6 +764,20 @@ export function EnhancedLLMSettingsTab({
           onBack={() => setView('hall')}
         />
       )}
+
+      {panelHost && selectedTestProvider && view === 'config'
+        ? createPortal(
+            <TestPanel
+              provider={selectedTestProvider}
+              events={events}
+              status={testStatus}
+              onClose={closeTestPanel}
+              onRunTest={runSelectedTest}
+              onCancel={cancelTestRun}
+            />,
+            panelHost
+          )
+        : null}
     </div>
   );
 }
