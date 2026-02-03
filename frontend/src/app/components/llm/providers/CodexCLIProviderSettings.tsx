@@ -1,14 +1,17 @@
 import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
+import { CodexModelBrowser } from '../model-browser/CodexModelBrowser';
 import { CLI_MODES, type CLIMode, type ProviderConfig } from '../types';
 
 interface CodexCLIProviderSettingsProps {
+  providerId?: string;
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
   onValidate: () => any;
 }
 
 export function CodexCLIProviderSettings({
+  providerId,
   provider,
   onUpdate,
   onValidate
@@ -18,6 +21,7 @@ export function CodexCLIProviderSettings({
   };
 
   const codexExec = provider.codex_exec || {};
+  const modelId = typeof provider.model === 'string' ? provider.model : '';
   const cliMode: CLIMode =
     provider.cli_mode === CLI_MODES.TUI || provider.cli_mode === CLI_MODES.HEADLESS
       ? provider.cli_mode
@@ -122,6 +126,41 @@ export function CodexCLIProviderSettings({
       <div className="space-y-3">
         <h5 className="text-xs font-semibold text-text-main">Codex CLI Configuration</h5>
 
+        {/* Model ID */}
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Model ID</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={modelId}
+              onChange={(e) => handleFieldChange('model', e.target.value)}
+              className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              placeholder="gpt-5.2-codex, o3-mini, etc."
+            />
+            {providerId ? (
+              <CodexModelBrowser
+                providerId={providerId}
+                command={provider.command}
+                tuiArgs={provider.tui_args}
+                env={provider.env}
+                modelId={modelId}
+                onSelect={(value) => handleFieldChange('model', value)}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="px-3 py-2 text-[10px] font-semibold border border-white/10 text-text-dim rounded"
+              >
+                模型列表
+              </button>
+            )}
+          </div>
+          <p className="text-[9px] text-text-dim mt-1">
+            使用 TUI 查看 /model 列表后选择模型 ID。
+          </p>
+        </div>
+
         {/* CLI Mode */}
         <div>
           <label className="block text-xs text-text-muted mb-1">CLI Mode</label>
@@ -135,21 +174,6 @@ export function CodexCLIProviderSettings({
           </select>
           <p className="text-[9px] text-text-dim mt-1">
             Headless mode is recommended for automation. TUI mode is best for manual discovery.
-          </p>
-        </div>
-        
-        {/* Working Directory */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Working Directory</label>
-          <input
-            type="text"
-            value={codexExec.cd || ''}
-            onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, cd: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-            placeholder="/path/to/working/directory"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            Directory where Codex CLI will execute commands
           </p>
         </div>
 
@@ -386,23 +410,6 @@ export function CodexCLIProviderSettings({
           />
           <p className="text-[9px] text-text-dim mt-1">
             Grant write access to additional directories outside workspace
-          </p>
-        </div>
-
-        {/* Images */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Images</label>
-          <textarea
-            value={(codexExec.images || []).join('\n')}
-            onChange={(e) => handleFieldChange('codex_exec', { 
-              ...codexExec, 
-              images: e.target.value.split('\n').filter(image => image.trim()) 
-            })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono h-16"
-            placeholder="/path/to/image1.png&#10;/path/to/image2.jpg"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            Attach images to the first message (one per line)
           </p>
         </div>
 

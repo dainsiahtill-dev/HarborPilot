@@ -206,6 +206,7 @@ export interface LLMStatusSuite {
 
 // Provider Settings Props
 export interface ProviderSettingsProps {
+  providerId?: string;
   provider: {
     type: string;
     name: string;

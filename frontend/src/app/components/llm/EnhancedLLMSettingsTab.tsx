@@ -360,6 +360,7 @@ export function EnhancedLLMSettingsTab({
         {isEditing && ProviderComponent ? (
           <div className="space-y-4 pt-4 border-t border-white/10">
             <ProviderComponent
+              providerId={providerId}
               provider={provider}
               onUpdate={(updates) => handleUpdateProvider(providerId, updates)}
               onValidate={() => {
