@@ -129,7 +129,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
         </div>
       ) : null}
 
-      <div className="h-[520px] rounded-xl border border-white/10 overflow-hidden">
+      <div className="h-[60vh] min-h-[520px] rounded-xl border border-white/10 overflow-hidden">
         <ReactFlow
           nodes={nodes}
           edges={edges}

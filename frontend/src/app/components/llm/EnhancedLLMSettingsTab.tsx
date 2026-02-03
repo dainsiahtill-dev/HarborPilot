@@ -5,9 +5,11 @@ import { InterviewHall } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
 import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
+import { LLMVisualEditor } from './visual/LLMVisualEditor';
 import { useProviderRegistry } from './ProviderRegistry';
 import { PROVIDER_KINDS, isCLIProviderType, type ProviderConfig, type ProviderKind, type SimpleProvider } from './types';
 import type { TestEvent, TestResult } from './test/types';
+import type { VisualGraphConfig, VisualGraphStatus } from './visual/types/visual';
 
 // Reuse existing interfaces
 interface LlmRoleConfig {
@@ -85,8 +87,10 @@ interface EnhancedLLMSettingsTabProps {
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
   onDeleteProvider?: (providerId: string) => void | Promise<void>;
+  onUpdateConfig?: (config: LlmConfig) => void;
   onTestProvider?: (provider: SimpleProvider, onEvent?: (event: TestEvent) => void) => Promise<TestResult | null>;
   onCancelTestProvider?: () => void;
+  onVisualModeChange?: (active: boolean) => void;
 }
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
@@ -148,11 +152,15 @@ export function EnhancedLLMSettingsTab({
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
+  onUpdateConfig,
   onTestProvider,
-  onCancelTestProvider
+  onCancelTestProvider,
+  onVisualModeChange
 }: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
-  const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'deepTest'>('config');
+  const [configView, setConfigView] = useState<'list' | 'visual'>('list');
+  const [deepView, setDeepView] = useState<'hall' | 'session'>('hall');
   const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [interviewRunning, setInterviewRunning] = useState(false);
@@ -173,8 +181,7 @@ export function EnhancedLLMSettingsTab({
     getProviderDefaultConfig,
     getProviderComponent,
     requiresApiKey,
-    getCostClass,
-    validateProviderConfig
+    getCostClass
   } = useProviderRegistry();
 
   const roleRequirements = useMemo(() => {
@@ -287,6 +294,12 @@ export function EnhancedLLMSettingsTab({
   }, [llmConfig, roles, selectedRole]);
 
   useEffect(() => {
+    if (onVisualModeChange) {
+      onVisualModeChange(activeTab === 'config' && configView === 'visual');
+    }
+  }, [activeTab, configView, onVisualModeChange]);
+
+  useEffect(() => {
     if (typeof document === 'undefined') return;
     setPanelHost(document.getElementById('llm-test-panel-slot'));
   }, []);
@@ -299,10 +312,10 @@ export function EnhancedLLMSettingsTab({
   }, [llmConfig, selectedTestProviderId]);
 
   useEffect(() => {
-    if (view !== 'config' && selectedTestProviderId) {
+    if (activeTab !== 'config' && selectedTestProviderId) {
       closeTestPanel();
     }
-  }, [view, selectedTestProviderId]);
+  }, [activeTab, selectedTestProviderId]);
 
   const selectedTestProvider = useMemo(() => {
     if (!selectedTestProviderId || !llmConfig) return null;
@@ -401,6 +414,25 @@ export function EnhancedLLMSettingsTab({
     return { state: 'UNKNOWN', color: 'text-gray-400' };
   }, [llmStatus]);
 
+  const visualConfig = useMemo(
+    () => (llmConfig ? (llmConfig as unknown as VisualGraphConfig) : null),
+    [llmConfig]
+  );
+
+  const visualStatus = useMemo(() => {
+    if (!llmStatus) return null;
+    const rolesStatus: Record<string, { ready?: boolean; grade?: string }> = {};
+    Object.entries(llmStatus.roles || {}).forEach(([roleId, role]) => {
+      rolesStatus[roleId] = { ready: role.ready, grade: role.grade };
+    });
+    return { roles: rolesStatus } as VisualGraphStatus;
+  }, [llmStatus]);
+
+  const handleVisualConfigChange = (nextConfig: VisualGraphConfig) => {
+    if (!onUpdateConfig) return;
+    onUpdateConfig(nextConfig as LlmConfig);
+  };
+
   const selectedMeta = roles.find((role) => role.id === selectedRole);
   const canRunReadiness = Boolean(
     selectedMeta?.candidate?.providerId && selectedMeta?.candidate?.model
@@ -450,7 +482,8 @@ export function EnhancedLLMSettingsTab({
     setInterviewError(null);
     setInterviewReport(null);
     setInterviewRunning(true);
-    setView('session');
+    setActiveTab('deepTest');
+    setDeepView('session');
     try {
       const report = await onRunInterview(selectedMeta.id);
       const suiteReport = (report?.suites as Record<string, unknown> | undefined)?.interview;
@@ -609,43 +642,41 @@ export function EnhancedLLMSettingsTab({
   return (
     <div className="space-y-6">
       {/* Navigation */}
-      <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setView('config')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                view === 'config' 
-                  ? 'bg-accent/20 text-accent border border-accent/30' 
-                  : 'text-text-dim hover:text-text-main hover:bg-white/5'
+              onClick={() => setActiveTab('config')}
+              className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wider rounded-lg border transition-all ${
+                activeTab === 'config'
+                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.25)]'
+                  : 'text-text-dim border-white/10 hover:border-cyan-400/40 hover:text-cyan-100'
               }`}
             >
-              <Settings className="size-4" />
-              1. 配置LLM
+              CONFIG
             </button>
             <button
-              onClick={() => setView('hall')}
-              disabled={Object.keys(llmConfig?.providers || {}).length === 0}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                view === 'hall' 
-                  ? 'bg-accent/20 text-accent border border-accent/30' 
-                  : Object.keys(llmConfig?.providers || {}).length === 0
-                    ? 'text-gray-500 cursor-not-allowed'
-                    : 'text-text-dim hover:text-text-main hover:bg-white/5'
+              onClick={() => {
+                setActiveTab('deepTest');
+                setDeepView('hall');
+              }}
+              className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wider rounded-lg border transition-all ${
+                activeTab === 'deepTest'
+                  ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 shadow-[0_0_16px_rgba(16,185,129,0.25)]'
+                  : 'text-text-dim border-white/10 hover:border-emerald-400/40 hover:text-emerald-100'
               }`}
             >
-              <PlayCircle className="size-4" />
-              2. 测试模型
+              DEEP TEST
             </button>
           </div>
-          
+
           <div className="flex items-center gap-2">
             {globalReadiness.state === 'READY' ? (
               <CheckCircle2 className="size-4 text-emerald-400" />
             ) : (
               <AlertTriangle className="size-4 text-yellow-400" />
             )}
-            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/30">
+            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/40">
               {globalReadiness.state}
             </span>
           </div>
@@ -664,42 +695,75 @@ export function EnhancedLLMSettingsTab({
         )}
       </div>
 
-      {/* Configuration View */}
-      {view === 'config' && (
+      {/* CONFIG Tab */}
+      {activeTab === 'config' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
               <p className="text-[10px] text-text-dim">
-                添加和配置LLM提供商，支持多种类型和执行模式
+                列表视图用于日常配置，视觉视图用于角色-模型连线。
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              {/* Add Provider Dropdown */}
-              <select
-                value={selectedProviderType}
-                onChange={(e) => setSelectedProviderType(e.target.value)}
-                className="bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-              >
-                <option value="">选择提供商类型</option>
-                {providers.map((provider) => (
-                  <option key={provider.info.type} value={provider.info.type}>
-                    {provider.info.name} ({provider.info.cost_class})
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => selectedProviderType && handleAddProvider(selectedProviderType)}
-                disabled={!selectedProviderType || llmSaving}
-                className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1 disabled:opacity-60"
-              >
-                <Plus className="size-3" />
-                添加提供商
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-cyan-500/20 bg-black/40 p-1">
+                <button
+                  onClick={() => setConfigView('list')}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    configView === 'list'
+                      ? 'bg-cyan-500/20 text-cyan-200'
+                      : 'text-text-dim hover:text-cyan-100'
+                  }`}
+                >
+                  列表视图
+                </button>
+                <button
+                  onClick={() => setConfigView('visual')}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    configView === 'visual'
+                      ? 'bg-fuchsia-500/20 text-fuchsia-200'
+                      : 'text-text-dim hover:text-fuchsia-100'
+                  }`}
+                >
+                  视觉视图
+                </button>
+              </div>
+
+              {configView === 'list' ? (
+                <>
+                  <select
+                    value={selectedProviderType}
+                    onChange={(e) => setSelectedProviderType(e.target.value)}
+                    className="bg-black/40 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+                  >
+                    <option value="">选择提供商类型</option>
+                    {providers.map((provider) => (
+                      <option key={provider.info.type} value={provider.info.type}>
+                        {provider.info.name} ({provider.info.cost_class})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => selectedProviderType && handleAddProvider(selectedProviderType)}
+                    disabled={!selectedProviderType || llmSaving}
+                    className="px-3 py-1.5 text-[10px] font-semibold bg-cyan-500/80 hover:bg-cyan-500 text-white rounded transition-colors flex items-center gap-1 disabled:opacity-60"
+                  >
+                    <Plus className="size-3" />
+                    添加提供商
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
 
-          {Object.keys(llmConfig?.providers || {}).length === 0 ? (
+          {configView === 'visual' ? (
+            <LLMVisualEditor
+              config={visualConfig}
+              status={visualStatus}
+              onConfigChange={handleVisualConfigChange}
+              onSave={onSaveConfig}
+            />
+          ) : Object.keys(llmConfig?.providers || {}).length === 0 ? (
             <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
               <Settings className="size-8 text-text-dim mx-auto mb-3" />
               <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
@@ -722,50 +786,58 @@ export function EnhancedLLMSettingsTab({
               {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
                 renderProviderCard(providerId, provider)
               )}
-            </div>
-          )}
-
-          {Object.keys(llmConfig?.providers || {}).length > 0 && (
-            <div className="flex justify-center">
-              <button
-                onClick={() => setView('hall')}
-                className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
-              >
-                下一步：测试模型
-                <PlayCircle className="size-3" />
-              </button>
+              <div className="flex justify-center">
+                <button
+                  onClick={() => {
+                    setActiveTab('deepTest');
+                    setDeepView('hall');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2"
+                >
+                  进入深度测试
+                  <PlayCircle className="size-3" />
+                </button>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Testing View */}
-      {view === 'hall' && (
-        <InterviewHall
-          roles={roles}
-          candidates={candidates}
-          selectedRole={selectedRole}
-          onSelectRole={setSelectedRole}
-          onStartInterview={handleStartInterview}
-          onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
-          disabledReason={readinessRunning || !canRunReadiness ? "请先选择LLM提供商和模型" : undefined}
-          running={interviewRunning}
-        />
+      {/* DEEP TEST Tab */}
+      {activeTab === 'deepTest' && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(16,185,129,0.18)]">
+            <div className="text-xs uppercase tracking-widest text-emerald-200">Deep Test Chamber</div>
+            <div className="text-[10px] text-text-dim mt-1">
+              深度测试用于验证角色与模型适配度，输出详细能力报告。
+            </div>
+          </div>
+
+          {deepView === 'hall' ? (
+            <InterviewHall
+              roles={roles}
+              candidates={candidates}
+              selectedRole={selectedRole}
+              onSelectRole={setSelectedRole}
+              onStartInterview={handleStartInterview}
+              onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
+              disabledReason={!canRunReadiness ? '请先选择LLM提供商和模型' : undefined}
+              running={interviewRunning}
+            />
+          ) : (
+            <InterviewSession
+              roleLabel={selectedMeta?.label || selectedRole}
+              roleId={selectedRole}
+              report={interviewReport}
+              running={interviewRunning}
+              error={interviewError}
+              onBack={() => setDeepView('hall')}
+            />
+          )}
+        </div>
       )}
 
-      {/* Interview Session View */}
-      {view === 'session' && (
-        <InterviewSession
-          roleLabel={selectedMeta?.label || selectedRole}
-          roleId={selectedRole}
-          report={interviewReport}
-          running={interviewRunning}
-          error={interviewError}
-          onBack={() => setView('hall')}
-        />
-      )}
-
-      {panelHost && selectedTestProvider && view === 'config'
+      {panelHost && selectedTestProvider && activeTab === 'config'
         ? createPortal(
             <TestPanel
               provider={selectedTestProvider}

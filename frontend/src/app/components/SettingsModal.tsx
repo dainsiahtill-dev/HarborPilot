@@ -193,6 +193,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     role: '',
     providerId: '',
   });
+  const [llmVisualMode, setLlmVisualMode] = useState(false);
   const [tuiModelDraft, setTuiModelDraft] = useState('');
   const [tuiError, setTuiError] = useState<string | null>(null);
   const testAbortRef = useRef<AbortController | null>(null);
@@ -368,6 +369,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       llmConfigRef.current = next;
       return next;
     });
+  };
+
+  const updateLlmConfigDraft = (nextConfig: LlmConfig) => {
+    setLlmConfig(nextConfig);
+    llmConfigRef.current = nextConfig;
   };
 
   const parseListInput = (value: string) => {
@@ -1158,7 +1164,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       <div className="relative">
         <div
           data-settings-modal
-          className="bg-bg-panel/95 border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl"
+          className={`bg-bg-panel/95 border border-white/10 rounded-xl w-full flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl ${
+            llmVisualMode
+              ? 'max-w-none w-[98vw] min-w-[1800px] h-[94vh] max-h-none'
+              : 'max-w-3xl max-h-[85vh]'
+          }`}
         >
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -1558,8 +1568,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onSaveConfig={saveLlmConfig}
                 onRunInterview={runInterview}
                 onRunReadiness={runReadiness}
+                onUpdateConfig={updateLlmConfigDraft}
                 onTestProvider={runProviderTest}
                 onCancelTestProvider={cancelProviderTest}
+                onVisualModeChange={setLlmVisualMode}
                 onAddProvider={async (providerId, provider) => {
                   const payload: LlmProviderConfig = {
                     type: provider.type as LlmProviderType,
