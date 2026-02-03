@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .base_provider import (
@@ -12,6 +13,7 @@ from .base_provider import (
     InvokeResult, ValidationResult, ThinkingInfo, WorkingDirConfig
 )
 from ..types import estimate_usage
+from ...utils import build_utf8_env
 
 
 def _normalize_command(command: str) -> List[str]:

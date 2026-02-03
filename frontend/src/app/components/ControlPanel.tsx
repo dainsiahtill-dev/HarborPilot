@@ -1,4 +1,4 @@
-import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity } from 'lucide-react';
+import { Anchor, Play, Square, Settings, FolderOpen, RefreshCw, Zap, Loader2, FastForward, FileText, Brain, Activity, TerminalSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { WindowControls } from './WindowControls';
 import { UsageHUD, type UsageStats } from './UsageHUD';
@@ -40,6 +40,8 @@ interface ControlPanelProps {
   usageStats?: UsageStats | null;
   ioFsyncMode?: string;
   memoryRefsMode?: string;
+  onToggleTerminal?: () => void;
+  isTerminalOpen?: boolean;
 }
 
 export function ControlPanel({
@@ -79,6 +81,8 @@ export function ControlPanel({
   usageStats,
   ioFsyncMode,
   memoryRefsMode,
+  onToggleTerminal,
+  isTerminalOpen,
 }: ControlPanelProps) {
   const [workspaceInput, setWorkspaceInput] = useState(workspace);
   const pmDisabled = !!pmToggleDisabled;
@@ -373,6 +377,16 @@ export function ControlPanel({
             <Brain className="size-4 text-purple-400 relative z-10" />
           </button>
         ) : null}
+
+        <div className="w-px h-6 bg-white/10 mx-1" />
+
+        <button
+          onClick={onToggleTerminal}
+          className={`btn-icon group relative ${isTerminalOpen ? 'text-emerald-400 bg-emerald-400/10' : ''}`}
+          title="Terminal (Ctrl + `)"
+        >
+          <TerminalSquare className="size-4" />
+        </button>
 
         <div className="w-px h-6 bg-white/10 mx-1" />
       </div>

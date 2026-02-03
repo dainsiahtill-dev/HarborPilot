@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { InterventionCenter } from '@/app/components/InterventionCenter';
 import { LivingBackground } from '@/app/components/LivingBackground';
 import { UsageHUD, type UsageStats } from '@/app/components/UsageHUD';
+import { TerminalPanel } from '@/app/components/TerminalPanel';
 import type { PmTask } from '@/types/task';
 
 // Lazy Loaded Components
@@ -285,6 +286,7 @@ function extractPmStopSummary(reportText: string) {
 
 export default function App() {
   const [showCognition, setShowCognition] = useState(true);
+  const [showTerminal, setShowTerminal] = useState(true);
   const [isBrainOpen, setIsBrainOpen] = useState(false);
   const [notifications, setNotifications] = useState<Array<{
     id: string;
@@ -296,6 +298,12 @@ export default function App() {
     progress?: boolean;
     persist?: boolean;
   }>>([]);
+
+  const toggleTerminal = () => {
+    setShowTerminal(prev => !prev);
+    // Debug toast
+    // toast.info('Toggled Terminal'); // Commented out to avoid spam, enabled if needed
+  };
   const [selectedFile, setSelectedFile] = useState<{
     id: string;
     name: string;
@@ -364,6 +372,27 @@ export default function App() {
   const memoPanelRef = useRef<ImperativePanelHandle>(null);
   const memoryPanelRef = useRef<ImperativePanelHandle>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const workspacePanelRef = useRef<ImperativePanelHandle>(null);
+  const terminalPanelRef = useRef<ImperativePanelHandle>(null);
+  const [isTerminalMaximized, setIsTerminalMaximized] = useState(false);
+
+  const toggleTerminalMaximize = () => {
+    const terminal = terminalPanelRef.current;
+    const workspace = workspacePanelRef.current;
+    
+    if (!terminal || !workspace) return;
+
+    if (isTerminalMaximized) {
+      // Restore
+      workspace.resize(70);
+      terminal.resize(30);
+      setIsTerminalMaximized(false);
+    } else {
+      // Maximize (collapse workspace)
+      workspace.collapse();
+      setIsTerminalMaximized(true);
+    }
+  };
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [logsSourceId, setLogsSourceId] = useState<string | null>(null);
   const [logsBanner, setLogsBanner] = useState<string | null>(null);
@@ -627,6 +656,17 @@ export default function App() {
       console.error('Failed to refresh all data:', err);
       toast.error('Failed to load initial data');
     });
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault();
+        toggleTerminal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -1761,6 +1801,8 @@ export default function App() {
           usageStats={usageStats}
           ioFsyncMode={settings?.io_fsync_mode}
           memoryRefsMode={settings?.memory_refs_mode}
+          onToggleTerminal={toggleTerminal}
+          isTerminalOpen={showTerminal}
         />
 
         {/* 实时状态栏 - 标题栏下方 */}
@@ -1869,58 +1911,79 @@ export default function App() {
 
           {/* Center: Workspace / Progress */}
           <Panel order={2} className="flex flex-col min-w-0 bg-transparent relative z-0">
-            {/* Gradient overlay for depth */}
-            <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
-            
-            {/* Workspace Panel Tabs */}
-            <div className="flex border-b border-white/10 bg-bg-panel/20 backdrop-blur-sm z-10">
-              <button
-                onClick={() => setActiveWorkspacePanel('progress')}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-                  activeWorkspacePanel === 'progress'
-                    ? 'text-accent border-accent bg-accent/10'
-                    : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
-                }`}
-              >
-                项目进度
-              </button>
-              <button
-                onClick={() => setActiveWorkspacePanel('history')}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-                  activeWorkspacePanel === 'history'
-                    ? 'text-accent border-accent bg-accent/10'
-                    : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
-                }`}
-              >
-                任务历史
-              </button>
-            </div>
+            <PanelGroup direction="vertical">
+              <Panel ref={workspacePanelRef} minSize={30} collapsible onCollapse={() => setIsTerminalMaximized(true)} onExpand={() => setIsTerminalMaximized(false)}>
+                <div className="flex flex-col h-full bg-transparent relative z-0">
+                  {/* ... contents ... */}
+                  {/* Gradient overlay for depth */}
+                  <div className="absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-bg-panel/30 to-transparent pointer-events-none z-10"></div>
+                  
+                  {/* Workspace Panel Tabs */}
+                  <div className="flex border-b border-white/10 bg-bg-panel/20 backdrop-blur-sm z-10">
+                    <button
+                      onClick={() => setActiveWorkspacePanel('progress')}
+                      className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                        activeWorkspacePanel === 'progress'
+                          ? 'text-accent border-accent bg-accent/10'
+                          : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
+                      }`}
+                    >
+                      项目进度
+                    </button>
+                    <button
+                      onClick={() => setActiveWorkspacePanel('history')}
+                      className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                        activeWorkspacePanel === 'history'
+                          ? 'text-accent border-accent bg-accent/10'
+                          : 'text-text-dim border-transparent hover:text-text-main hover:bg-white/5'
+                      }`}
+                    >
+                      任务历史
+                    </button>
+                  </div>
 
-            {/* Workspace Panel Content */}
-            <div className="flex-1 min-h-0">
-              {activeWorkspacePanel === 'progress' && (
-                <ProjectProgressPanel
-                  tasks={snapshotTasks}
-                  pmState={snapshot?.pm_state ?? null}
-                  focus={snapshot?.focus ?? null}
-                  notes={snapshot?.notes ?? null}
-                  goals={snapshot?.goals ?? null}
-                  planText={snapshot?.plan_text ?? null}
-                  planMtime={snapshot?.plan_mtime ?? null}
-                  successStats={successStats ? {
-                    successes: successStats.successes ?? null,
-                    total: successStats.total ?? null,
-                    rate: successStats.rate ?? null
-                  } : null}
-                  pmRunning={!!pmStatus?.running}
-                  className="flex-1 min-h-0"
-                />
+                  {/* Workspace Panel Content */}
+                  <div className="flex-1 min-h-0">
+                    {activeWorkspacePanel === 'progress' && (
+                      <ProjectProgressPanel
+                        tasks={snapshotTasks}
+                        pmState={snapshot?.pm_state ?? null}
+                        focus={snapshot?.focus ?? null}
+                        notes={snapshot?.notes ?? null}
+                        goals={snapshot?.goals ?? null}
+                        planText={snapshot?.plan_text ?? null}
+                        planMtime={snapshot?.plan_mtime ?? null}
+                        successStats={successStats ? {
+                          successes: successStats.successes ?? null,
+                          total: successStats.total ?? null,
+                          rate: successStats.rate ?? null
+                        } : null}
+                        pmRunning={!!pmStatus?.running}
+                        className="flex-1 min-h-0"
+                      />
+                    )}
+                    
+                    {activeWorkspacePanel === 'history' && (
+                      <WorkspaceHistoryPanel className="flex-1 min-h-0" />
+                    )}
+                  </div>
+                </div>
+              </Panel>
+              {showTerminal && (
+                <>
+                  <PanelResizeHandle className="h-1 bg-white/5 hover:bg-accent transition-colors z-10" />
+                  <Panel ref={terminalPanelRef} defaultSize={30} minSize={10} maxSize={80} collapsible onCollapse={() => setShowTerminal(false)}>
+                    <TerminalPanel 
+                      isVisible={showTerminal} 
+                      onClose={() => setShowTerminal(false)} 
+                      workspacePath={settings?.workspace}
+                      isMaximized={isTerminalMaximized}
+                      onToggleMaximize={toggleTerminalMaximize}
+                    />
+                  </Panel>
+                </>
               )}
-              
-              {activeWorkspacePanel === 'history' && (
-                <WorkspaceHistoryPanel className="flex-1 min-h-0" />
-              )}
-            </div>
+            </PanelGroup>
           </Panel>
 
           <PanelResizeHandle className="w-1 bg-white/5 hover:bg-accent transition-colors z-10" />

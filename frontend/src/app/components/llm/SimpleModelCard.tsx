@@ -27,7 +27,7 @@ interface SimpleModelCardProps {
   provider: SimpleProvider;
   onUpdate: (updates: Partial<SimpleProvider>) => void;
   onDelete: () => void;
-  onTest: (level: 'quick' | 'deep') => Promise<void>;
+  onTest: () => void;
   onOpenTuiBrowser?: () => void;
   onViewTestReport?: () => void;
 }
@@ -148,7 +148,7 @@ export function SimpleModelCard({
         
         <div className="flex items-center gap-2">
           <button
-            onClick={() => onTest('quick')}
+            onClick={onTest}
             disabled={provider.status === 'testing'}
             className="px-3 py-1.5 text-[10px] font-semibold bg-cyan-500/80 hover:bg-cyan-500 text-white rounded transition-colors disabled:opacity-60 flex items-center gap-1"
           >
@@ -272,12 +272,12 @@ export function SimpleModelCard({
       {/* Actions */}
       <div className="flex items-center gap-2 pt-3 border-t border-white/10">
         <button
-          onClick={() => onTest('deep')}
+          onClick={onTest}
           disabled={provider.status === 'testing'}
           className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-accent/40 disabled:opacity-60 flex items-center gap-1"
         >
           <PlayCircle className="size-3" />
-          Deep Test
+          Test
         </button>
         
         {isCLIConnection(provider.conn) && cliMode === 'tui' && onOpenTuiBrowser && (

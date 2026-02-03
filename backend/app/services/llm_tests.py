@@ -126,8 +126,10 @@ def run_llm_tests(
     model: str,
     suites: List[str],
     test_level: str,
+    evaluation_mode: Optional[str] = None,
     api_key: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
+    prompt_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     workspace = settings.workspace
     cache_root = build_cache_root(settings.ramdisk_root or "", workspace)
@@ -164,7 +166,15 @@ def run_llm_tests(
         if suite == "connectivity":
             result = _run_connectivity_suite(provider_cfg, model, api_key)
         elif suite == "response":
-            result = _run_response_suite(provider_cfg, model, api_key, role, events_path, run_id)
+            result = _run_response_suite(
+                provider_cfg,
+                model,
+                api_key,
+                role,
+                events_path,
+                run_id,
+                prompt_override,
+            )
         elif suite == "qualification":
             result = _run_qualification_suite(provider_cfg, model, api_key, role, test_level, events_path, run_id)
         elif suite == "thinking":
@@ -189,7 +199,11 @@ def run_llm_tests(
         _update_usage(usage_total, result)
         transcript_entries.extend(_suite_transcript(suite, result))
 
-    required = _required_suites_for_role(config, role)
+    evaluation_mode = (evaluation_mode or "").strip().lower()
+    if evaluation_mode in ("provider", "run_suites"):
+        required = _dedupe([suite for suite in suites if suite != "interview"])
+    else:
+        required = _required_suites_for_role(config, role)
     ready = all(bool(suite_results.get(name, {}).get("ok")) for name in required)
     report["suites"] = suite_results
     report["usage"] = usage_total
@@ -307,8 +321,9 @@ def _run_response_suite(
     role: str,
     events_path: str,
     run_id: str,
+    prompt_override: Optional[str] = None,
 ) -> Dict[str, Any]:
-    prompt = "Reply with the single word OK."
+    prompt = prompt_override or "Reply with the single word OK."
     result = _provider_invoke(
         provider_cfg,
         model,
@@ -320,15 +335,21 @@ def _run_response_suite(
         run_id=run_id,
     )
     output = result.output.strip()
-    ok = result.ok and ("ok" in output.lower())
+    if prompt_override:
+        ok = result.ok and bool(output)
+    else:
+        ok = result.ok and ("ok" in output.lower())
+    details = {
+        "prompt": prompt,
+        "output": _truncate(output, 800),
+        "latency_ms": result.latency_ms,
+        "usage": result.usage.to_dict(),
+    }
+    if result.error:
+        details["error"] = result.error
     return {
         "ok": ok,
-        "details": {
-            "prompt": prompt,
-            "output": _truncate(output, 800),
-            "latency_ms": result.latency_ms,
-            "usage": result.usage.to_dict(),
-        },
+        "details": details,
     }
 
 

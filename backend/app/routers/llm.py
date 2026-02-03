@@ -43,8 +43,10 @@ class LlmTestPayload(BaseModel):
     model: Optional[str] = None
     suites: Optional[list[str]] = None
     test_level: str = "quick"
+    evaluation_mode: Optional[str] = None
     api_key: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
+    prompt_override: Optional[str] = None
 
 
 class ProviderActionPayload(BaseModel):
@@ -151,8 +153,10 @@ def llm_test(request: Request, payload: LlmTestPayload) -> Dict[str, Any]:
         str(model),
         list(suites),
         payload.test_level or "quick",
+        evaluation_mode=payload.evaluation_mode,
         api_key=payload.api_key,
         extra_headers=payload.headers,
+        prompt_override=payload.prompt_override,
     )
     return report
 

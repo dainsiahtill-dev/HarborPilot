@@ -1,9 +1,11 @@
 import { X, Save, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { apiFetch } from '@/api';
 import { PtyDrawer } from '@/app/components/PtyDrawer';
 import { LLMSettingsTab } from '@/app/components/llm/LLMSettingsTab';
+import type { SimpleProvider } from '@/app/components/llm/types';
+import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -60,7 +62,16 @@ interface SettingsModalProps {
   }) => Promise<void>;
 }
 
-type LlmProviderType = 'cli' | 'ollama' | 'openai_compat' | 'anthropic_compat';
+type LlmProviderType =
+  | 'cli'
+  | 'codex_cli'
+  | 'gemini_cli'
+  | 'ollama'
+  | 'openai_compat'
+  | 'anthropic_compat'
+  | 'custom_https'
+  | 'maxmini'
+  | 'gemini_api';
 
 interface LlmProviderConfig {
   type: LlmProviderType;
@@ -68,6 +79,7 @@ interface LlmProviderConfig {
   working_dir?: string;
   env?: Record<string, string>;
   args?: string[];
+  cli_mode?: 'tui' | 'headless';
   codex_exec?: Record<string, unknown>;
   list_args?: string[];
   tui_args?: string[];
@@ -114,6 +126,13 @@ interface LlmStatus {
       runtime_supported?: boolean;
     }
   >;
+}
+
+interface ProviderValidationResult {
+  valid: boolean;
+  errors?: string[];
+  warnings?: string[];
+  normalized_config?: Record<string, unknown> | null;
 }
 
 const ROLE_META: Record<string, { label: string; color: string; badge: string }> = {
@@ -172,6 +191,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   });
   const [tuiModelDraft, setTuiModelDraft] = useState('');
   const [tuiError, setTuiError] = useState<string | null>(null);
+  const testAbortRef = useRef<AbortController | null>(null);
 
   
   useEffect(() => {
@@ -388,17 +408,247 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const runProviderTest = async (providerId: string, level: 'quick' | 'deep') => {
-    if (!llmConfig) return;
-    const providerCfg = llmConfig.providers?.[providerId];
-    if (!providerCfg) return;
+  const mapSimpleProviderToConfig = (provider: SimpleProvider): LlmProviderConfig => {
+    const base: LlmProviderConfig = {
+      type: provider.kind as LlmProviderType,
+      name: provider.name
+    };
+    if (provider.conn.kind === 'http') {
+      return {
+        ...base,
+        base_url: provider.conn.baseUrl
+      };
+    }
+    return {
+      ...base,
+      command: provider.conn.command,
+      args: provider.conn.args || [],
+      env: provider.conn.env || {},
+      cli_mode: provider.cliMode || 'headless',
+      output_path: provider.outputPath
+    };
+  };
+
+  const ensureProviderSaved = async (provider: SimpleProvider) => {
+    if (!llmConfig) return null;
+    const mapped = mapSimpleProviderToConfig(provider);
+    const nextConfig: LlmConfig = {
+      ...llmConfig,
+      providers: {
+        ...(llmConfig.providers || {}),
+        [provider.id]: mapped
+      }
+    };
+    const res = await apiFetch('/llm/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nextConfig)
+    });
+    if (!res.ok) {
+      throw new Error('Failed to save LLM config before test');
+    }
+    const data = (await res.json()) as LlmConfig;
+    setLlmConfig(data);
+    return data;
+  };
+
+  const buildTestUsage = (usage: unknown): TestUsageSummary | undefined => {
+    if (!usage || typeof usage !== 'object') return undefined;
+    const data = usage as Record<string, unknown>;
+    const prompt = Number(data.prompt_tokens ?? data.promptTokens);
+    const completion = Number(data.completion_tokens ?? data.completionTokens);
+    const total = Number(data.total_tokens ?? data.totalTokens);
+    if ([prompt, completion, total].some((value) => Number.isNaN(value))) return undefined;
+    return {
+      promptTokens: prompt,
+      completionTokens: completion,
+      totalTokens: total,
+      estimated: Boolean(data.estimated)
+    };
+  };
+
+  const buildSuiteSummary = (suites: unknown): TestSuiteSummary[] => {
+    if (!suites || typeof suites !== 'object') return [];
+    const entries = Object.entries(suites as Record<string, unknown>);
+    return entries.map(([name, value]) => {
+      const payload = value as Record<string, unknown>;
+      const ok = Boolean(payload?.ok);
+      const note = typeof payload?.status === 'string' ? payload.status : undefined;
+      return { name, ok, note };
+    });
+  };
+
+  const buildLatency = (suites: unknown): number | undefined => {
+    if (!suites || typeof suites !== 'object') return undefined;
+    const entries = Object.values(suites as Record<string, unknown>);
+    const samples: number[] = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const payload = entry as Record<string, unknown>;
+      const details = payload.details as Record<string, unknown> | undefined;
+      if (details && typeof details.latency_ms === 'number') {
+        samples.push(details.latency_ms);
+      }
+      const cases = payload.cases;
+      if (Array.isArray(cases)) {
+        cases.forEach((item) => {
+          if (item && typeof item === 'object' && typeof (item as Record<string, unknown>).latency_ms === 'number') {
+            samples.push(Number((item as Record<string, unknown>).latency_ms));
+          }
+        });
+      }
+    }
+    if (samples.length === 0) return undefined;
+    const total = samples.reduce((sum, value) => sum + value, 0);
+    return total / samples.length;
+  };
+
+  const buildThinkingMeta = (suites: unknown): TestResult['thinking'] => {
+    if (!suites || typeof suites !== 'object') return undefined;
+    const suite = (suites as Record<string, unknown>).thinking as Record<string, unknown> | undefined;
+    if (!suite) return undefined;
+    const details = suite.details as Record<string, unknown> | undefined;
+    const thinking = (details?.thinking as Record<string, unknown>) || (suite.thinking as Record<string, unknown>);
+    if (!thinking) return undefined;
+    return {
+      supportsThinking: typeof thinking.supports_thinking === 'boolean' ? thinking.supports_thinking : undefined,
+      confidence: typeof thinking.confidence === 'number' ? thinking.confidence : undefined,
+      format: typeof thinking.format === 'string' ? thinking.format : undefined
+    };
+  };
+
+  const buildTestResult = (report: Record<string, unknown>): TestResult => {
+    const final = report.final as Record<string, unknown> | undefined;
+    const runId = typeof report.test_run_id === 'string' ? report.test_run_id : undefined;
+    const ready = typeof final?.ready === 'boolean' ? final.ready : undefined;
+    const grade = typeof final?.grade === 'string' ? final.grade : undefined;
+    return {
+      report,
+      runId,
+      ready,
+      grade,
+      usage: buildTestUsage(report.usage),
+      suites: buildSuiteSummary(report.suites),
+      thinking: buildThinkingMeta(report.suites),
+      latencyMs: buildLatency(report.suites)
+    };
+  };
+
+  const isMissingCodexCliError = (message: string): boolean => {
+    const lowered = message.toLowerCase();
+    if (lowered.includes('codex cli command not found') || lowered.includes('codex command not found')) {
+      return true;
+    }
+    if (lowered.includes('codex') && (lowered.includes('not found') || lowered.includes('not recognized'))) {
+      return true;
+    }
+    if (lowered.includes('command not found') || lowered.includes('enoent')) {
+      return true;
+    }
+    return false;
+  };
+
+  const collectSuiteErrors = (report: Record<string, unknown>): string[] => {
+    const suites = report.suites as Record<string, unknown> | undefined;
+    if (!suites || typeof suites !== 'object') return [];
+    const errors: string[] = [];
+
+    const responseDetails = (suites.response as Record<string, unknown> | undefined)?.details as Record<string, unknown> | undefined;
+    if (responseDetails && typeof responseDetails.error === 'string') {
+      errors.push(responseDetails.error);
+    }
+
+    const connectivityDetails = (suites.connectivity as Record<string, unknown> | undefined)?.details as Record<string, unknown> | undefined;
+    const healthError = (connectivityDetails?.health as Record<string, unknown> | undefined)?.error;
+    if (typeof healthError === 'string') {
+      errors.push(healthError);
+    }
+    const modelError = (connectivityDetails?.model_available as Record<string, unknown> | undefined)?.error;
+    if (typeof modelError === 'string') {
+      errors.push(modelError);
+    }
+
+    return errors;
+  };
+
+  const emitPromptEvents = (report: Record<string, unknown>, emitEvent: (type: TestEvent['type'], content: string) => void) => {
+    const suites = report.suites as Record<string, unknown> | undefined;
+    if (!suites || typeof suites !== 'object') return;
+
+    const responseSuite = suites.response as Record<string, unknown> | undefined;
+    const responsePrompt = responseSuite?.details && typeof (responseSuite.details as Record<string, unknown>).prompt === 'string'
+      ? String((responseSuite.details as Record<string, unknown>).prompt)
+      : '';
+    if (responsePrompt) {
+      emitEvent('stdout', `Response prompt: ${responsePrompt}`);
+    }
+
+    const thinkingSuite = suites.thinking as Record<string, unknown> | undefined;
+    const thinkingPrompt = thinkingSuite?.details && typeof (thinkingSuite.details as Record<string, unknown>).prompt === 'string'
+      ? String((thinkingSuite.details as Record<string, unknown>).prompt)
+      : '';
+    if (thinkingPrompt) {
+      emitEvent('stdout', `Thinking prompt: ${thinkingPrompt}`);
+    }
+
+    const qualificationSuite = suites.qualification as Record<string, unknown> | undefined;
+    const qualificationCases = qualificationSuite?.cases as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(qualificationCases)) {
+      qualificationCases.forEach((caseItem) => {
+        const prompt = typeof caseItem.prompt === 'string' ? caseItem.prompt : '';
+        const caseId = typeof caseItem.id === 'string' ? caseItem.id : 'case';
+        if (prompt) {
+          emitEvent('stdout', `Qualification ${caseId} prompt: ${prompt}`);
+        }
+      });
+    }
+
+    const interviewSuite = suites.interview as Record<string, unknown> | undefined;
+    const interviewCases = interviewSuite?.cases as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(interviewCases)) {
+      interviewCases.forEach((caseItem) => {
+        const question = typeof caseItem.question === 'string' ? caseItem.question : '';
+        const caseId = typeof caseItem.id === 'string' ? caseItem.id : 'question';
+        if (question) {
+          emitEvent('stdout', `Interview ${caseId} question: ${question}`);
+        }
+      });
+    }
+  };
+
+  const validateProviderConfig = async (
+    providerType: string,
+    config: LlmProviderConfig
+  ): Promise<ProviderValidationResult | null> => {
+    if (!providerType) return null;
+    try {
+      const res = await apiFetch(`/llm/providers/${providerType}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as ProviderValidationResult;
+    } catch {
+      return null;
+    }
+  };
+
+  const runProviderTest = async (
+    provider: SimpleProvider,
+    onEvent?: (event: TestEvent) => void
+  ): Promise<TestResult | null> => {
+    if (!llmConfig) return null;
+    let activeConfig = llmConfig;
+    const providerId = provider.id;
+    let providerCfg = activeConfig.providers?.[providerId];
     
     // Find a role that uses this provider, or create a temporary test role
     let testRole = null;
-    let testModel = 'test-model'; // Default test model
+    let testModel = provider.modelId || 'test-model';
     
     // Look for existing role that uses this provider
-    for (const [roleId, roleCfg] of Object.entries(llmConfig.roles || {})) {
+    for (const [roleId, roleCfg] of Object.entries(activeConfig.roles || {})) {
       if (roleCfg.provider_id === providerId && roleCfg.model) {
         testRole = roleId;
         testModel = roleCfg.model;
@@ -406,14 +656,125 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       }
     }
     
-    // If no role found, create a temporary test using the provider directly
+    // If no role found, fall back to an existing role to satisfy backend validation
     if (!testRole) {
-      testRole = `test_${providerId}`;
+      const fallbackRoles = Object.keys(activeConfig.roles || {});
+      testRole = fallbackRoles.find((role) => role === 'qa') || fallbackRoles[0] || null;
     }
-    
-    const apiKey = await resolveApiKey(providerId, providerCfg);
-    
+
+    const providerName = provider.name || providerId;
+    const emitEvent = (type: TestEvent['type'], content: string, details?: unknown) => {
+      if (!onEvent) return;
+      onEvent({
+        type,
+        timestamp: new Date().toISOString(),
+        content,
+        details
+      });
+    };
+    const controller = new AbortController();
+    testAbortRef.current = controller;
+    let codexGuidanceEmitted = false;
+    const emitCodexGuidanceOnce = (errors?: string[]) => {
+      if (codexGuidanceEmitted) return;
+      codexGuidanceEmitted = true;
+      emitEvent('stdout', '安装 Codex CLI：npm install -g @openai/codex');
+      emitEvent('stdout', '验证安装：codex --version');
+      emitEvent('stdout', '临时使用：npx @openai/codex --version');
+      if (errors && errors.some((item) => item.toLowerCase().includes('eperm'))) {
+        emitEvent('stdout', '如果出现 EPERM，请关闭占用的 codex 进程或用管理员终端清理后重装。');
+      }
+    };
+
     try {
+      emitEvent('command', `Starting test for ${providerName}`);
+
+      emitEvent('stdout', '同步提供商配置到后端...');
+      activeConfig = (await ensureProviderSaved(provider)) || activeConfig;
+      providerCfg = activeConfig.providers?.[providerId];
+
+      if (!providerCfg) {
+        emitEvent('error', '提供商配置未保存，无法执行测试');
+        return null;
+      }
+
+      if (!testRole) {
+        emitEvent('error', '未找到可用角色，请先配置角色后再测试');
+        return null;
+      }
+
+      const apiKey = await resolveApiKey(providerId, providerCfg);
+
+      emitEvent('stdout', '验证配置');
+      const warnings: string[] = [];
+      const providerType = String(providerCfg.type || '').toLowerCase();
+      if ((providerType === 'openai_compat' || providerType === 'anthropic_compat') && !providerCfg.base_url) {
+        warnings.push('缺少 Base URL');
+      }
+      if ((providerType === 'codex_cli' || providerType === 'gemini_cli' || providerType === 'cli') && !providerCfg.command) {
+        warnings.push('缺少 CLI command');
+      }
+      if (warnings.length > 0) {
+        emitEvent('stderr', `配置可能不完整: ${warnings.join(' / ')}`);
+      } else {
+        emitEvent('stdout', '配置验证通过');
+      }
+
+      const isCodex = provider.kind === 'codex_cli';
+      const shouldValidateCli =
+        providerType === 'codex_cli' || providerType === 'gemini_cli' || providerType === 'cli';
+      const validationResult = shouldValidateCli ? await validateProviderConfig(providerType, providerCfg) : null;
+      const validationErrors = Array.isArray(validationResult?.errors) ? validationResult?.errors : [];
+      const validationWarnings = Array.isArray(validationResult?.warnings) ? validationResult?.warnings : [];
+      if (validationWarnings.length > 0) {
+        emitEvent('stderr', `配置警告: ${validationWarnings.join(' / ')}`);
+      }
+      if (validationErrors.length > 0) {
+        emitEvent('stderr', `配置验证失败: ${validationErrors.join(' / ')}`);
+      }
+      if (isCodex && validationErrors.some((item) => isMissingCodexCliError(item))) {
+        emitEvent('error', '未检测到 Codex CLI，测试已取消');
+        emitCodexGuidanceOnce(validationErrors);
+        const error = new Error('未检测到 Codex CLI，请先安装 @openai/codex') as Error & { skipUiEvent?: boolean };
+        error.skipUiEvent = true;
+        throw error;
+      }
+
+      const promptOverride = undefined;
+      const promptPreview = isCodex ? 'Reply with the single word OK.' : undefined;
+      const evaluationMode = 'provider';
+      if (promptPreview) {
+        emitEvent('stdout', `Prompt: ${promptPreview}`);
+      }
+      const suites = isCodex
+        ? ['response']
+        : llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+      const payload = {
+        role: testRole,
+        provider_id: providerId,
+        model: testModel,
+        suites,
+        test_level: 'full',
+        evaluation_mode: evaluationMode,
+        prompt_override: promptOverride,
+        api_key: apiKey ? '***' : null
+      };
+      emitEvent('command', `POST /llm/test ${JSON.stringify(payload)}`);
+
+      const willInvoke = suites.some((suite) => suite !== 'connectivity');
+      if (willInvoke && (provider.conn.kind === 'codex_cli' || provider.conn.kind === 'gemini_cli')) {
+        const command = String(provider.conn.command || '');
+        const args = Array.isArray(provider.conn.args) ? provider.conn.args : [];
+        const promptDisplay = promptPreview ? JSON.stringify(promptPreview) : '{prompt}';
+        const renderedArgs = args
+          .map((arg) => arg.replace('{model}', testModel).replace('{prompt}', promptDisplay))
+          .join(' ');
+        if (command) {
+          emitEvent('command', `Command: ${command} ${renderedArgs}`.trim());
+        }
+      }
+
+      emitEvent('stdout', '发送测试请求...');
       const res = await apiFetch('/llm/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -421,26 +782,62 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           role: testRole,
           provider_id: providerId,
           model: testModel,
-          suites: ['connectivity'], // Basic connectivity test
-          test_level: level,
-          api_key: apiKey,
+          suites,
+          test_level: 'full',
+          evaluation_mode: evaluationMode,
+          prompt_override: promptOverride,
+          api_key: apiKey
         }),
+        signal: controller.signal
       });
-      
+      emitEvent('stdout', '响应已返回，解析结果...');
+
       if (!res.ok) {
-        throw new Error(`Provider test failed: ${res.statusText}`);
+        const detail = await res.text().catch(() => res.statusText);
+        throw new Error(`Provider test failed: ${detail || res.statusText}`);
       }
-      
-      const report = await res.json();
-      console.log('Provider test result:', report);
-      
-      // Update provider status based on test result
+
+      const report = (await res.json()) as Record<string, unknown>;
+      emitPromptEvents(report, (type, content) => emitEvent(type, content));
+      const suiteErrors = collectSuiteErrors(report);
+      suiteErrors.forEach((error) => emitEvent('stderr', error));
+      if (isCodex && suiteErrors.some((item) => isMissingCodexCliError(item))) {
+        emitCodexGuidanceOnce(suiteErrors);
+      }
+      const result = buildTestResult(report);
+      emitEvent('response', JSON.stringify(report, null, 2));
+      emitEvent(
+        result.ready ? 'result' : 'error',
+        result.ready ? 'Test completed successfully' : 'Test failed'
+      );
+
       await loadLlmStatus();
-      
+      return result;
     } catch (err) {
-      console.error('Provider test error:', err);
-      setLlmError(err instanceof Error ? err.message : 'Provider test failed');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        emitEvent('error', 'Test cancelled');
+        return null;
+      }
+      const message = err instanceof Error ? err.message : 'Provider test failed';
+      const skipUiEvent =
+        typeof err === 'object' &&
+        err !== null &&
+        'skipUiEvent' in err &&
+        Boolean((err as { skipUiEvent?: boolean }).skipUiEvent);
+      if (!skipUiEvent) {
+        emitEvent('error', message);
+      }
+      setLlmError(message);
+      throw err;
+    } finally {
+      if (testAbortRef.current === controller) {
+        testAbortRef.current = null;
+      }
     }
+  };
+
+  const cancelProviderTest = () => {
+    testAbortRef.current?.abort();
   };
 
   const runLlmTest = async (
@@ -645,7 +1042,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-      <div className="bg-bg-panel/95 border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl">
+      <div className="relative">
+        <div
+          data-settings-modal
+          className="bg-bg-panel/95 border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl"
+        >
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <h2 className="text-lg font-heading font-bold text-text-main flex items-center gap-2">
@@ -1044,6 +1445,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onRunInterview={runInterview}
                 onRunReadiness={runReadiness}
                 onTestProvider={runProviderTest}
+                onCancelTestProvider={cancelProviderTest}
               />
             </TabsContent>
 
@@ -1105,6 +1507,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             {saving ? '保存中...' : '保存配置'}
           </button>
         </div>
+        </div>
+        <div
+          id="llm-test-panel-slot"
+          className="absolute left-0 top-full mt-4 w-full max-w-[90vw] lg:top-6 lg:left-full lg:ml-4 lg:mt-0 lg:w-[360px] xl:w-[420px]"
+        />
       </div>
     </div>
   );

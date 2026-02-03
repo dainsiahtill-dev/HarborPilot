@@ -1,8 +1,12 @@
-import { Loader2, CheckCircle2, AlertTriangle, Save, Plus, Settings, PlayCircle } from 'lucide-react';
+﻿import { Loader2, CheckCircle2, AlertTriangle, Save, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { InterviewHall } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
 import { SimpleModelCard, type SimpleProvider } from './SimpleModelCard';
+import { TestPanel } from './test/TestPanel';
+import { useTestEvents } from './test/hooks/useTestEvents';
+import type { TestEvent, TestResult } from './test/types';
 
 interface LlmProviderConfig {
   type?: string;
@@ -99,7 +103,11 @@ interface LLMSettingsTabProps {
   onAddProvider?: (provider: SimpleProvider) => void;
   onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;
   onDeleteProvider?: (id: string) => void;
-  onTestProvider?: (id: string, level: 'quick' | 'deep') => Promise<void>;
+  onTestProvider?: (
+    provider: SimpleProvider,
+    onEvent?: (event: TestEvent) => void
+  ) => Promise<TestResult | null>;
+  onCancelTestProvider?: () => void;
 }
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
@@ -215,7 +223,8 @@ export function LLMSettingsTab({
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
-  onTestProvider
+  onTestProvider,
+  onCancelTestProvider
 }: LLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
@@ -224,6 +233,129 @@ export function LLMSettingsTab({
   const [interviewRunning, setInterviewRunning] = useState(false);
   const [readinessRunning, setReadinessRunning] = useState(false);
   const [providers, setProviders] = useState<SimpleProvider[]>([]);
+  const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
+  const [testCancelled, setTestCancelled] = useState(false);
+  const { events, addEvent, resetEvents } = useTestEvents();
+  const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
+
+  const updateProviderState = (id: string, updates: Partial<SimpleProvider>) => {
+    setProviders((prev) => prev.map((provider) => (provider.id === id ? { ...provider, ...updates } : provider)));
+  };
+
+  const selectedTestProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedTestProviderId) || null,
+    [providers, selectedTestProviderId]
+  );
+
+  const openTestPanel = (providerId: string) => {
+    setSelectedTestProviderId(providerId);
+    setTestStatus('idle');
+    setTestCancelled(false);
+    resetEvents();
+  };
+
+  const closeTestPanel = () => {
+    setSelectedTestProviderId(null);
+    setTestStatus('idle');
+    setTestCancelled(false);
+    resetEvents();
+  };
+
+  const cancelTestRun = () => {
+    if (onCancelTestProvider) {
+      onCancelTestProvider();
+    }
+    setTestCancelled(true);
+    addEvent({
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      content: 'Test cancelled by user'
+    });
+    setTestStatus('failed');
+  };
+
+  const shouldSkipErrorEvent = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    return 'skipUiEvent' in err && Boolean((err as { skipUiEvent?: boolean }).skipUiEvent);
+  };
+
+  const runSelectedTest = async () => {
+    if (!selectedTestProvider || !onTestProvider) return;
+    setTestStatus('running');
+    setTestCancelled(false);
+    resetEvents();
+    addEvent({
+      type: 'command',
+      timestamp: new Date().toISOString(),
+      content: `Preparing test for ${selectedTestProvider.name}`
+    });
+    updateProviderState(selectedTestProvider.id, { status: 'testing', lastError: undefined });
+    try {
+      const result = await onTestProvider(selectedTestProvider, (event) => {
+        addEvent(event);
+      });
+      if (!result) {
+        setTestStatus('failed');
+        const hasErrorEvent = events.some((event) => event.type === 'error');
+        const fallbackMessage = testCancelled ? '测试已取消' : '测试未返回结果';
+        if (!hasErrorEvent) {
+          addEvent({
+            type: 'error',
+            timestamp: new Date().toISOString(),
+            content: fallbackMessage
+          });
+        }
+        updateProviderState(selectedTestProvider.id, {
+          status: 'failed',
+          lastError: testCancelled ? '测试已取消' : '测试未返回结果',
+          lastTest: {
+            at: new Date().toISOString(),
+            note: testCancelled ? '测试已取消' : '测试未返回结果'
+          }
+        });
+        return;
+      }
+      const ready = result.ready ?? result.grade === 'PASS';
+      setTestStatus(ready ? 'success' : 'failed');
+      updateProviderState(selectedTestProvider.id, {
+        status: ready ? 'ready' : 'failed',
+        lastError: ready ? undefined : '测试未通过',
+        lastTest: {
+          at: new Date().toISOString(),
+          latencyMs: typeof result.latencyMs === 'number' ? Math.round(result.latencyMs) : undefined,
+          usage: {
+            totalTokens: result.usage?.totalTokens,
+            estimated: result.usage?.estimated
+          },
+          note: ready ? '测试通过' : '测试未通过'
+        }
+      });
+      addEvent({
+        type: ready ? 'result' : 'error',
+        timestamp: new Date().toISOString(),
+        content: ready ? '测试完成' : '测试未通过'
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '测试失败';
+      setTestStatus('failed');
+      if (!shouldSkipErrorEvent(err)) {
+        addEvent({
+          type: 'error',
+          timestamp: new Date().toISOString(),
+          content: message
+        });
+      }
+      updateProviderState(selectedTestProvider.id, {
+        status: 'failed',
+        lastError: message,
+        lastTest: {
+          at: new Date().toISOString(),
+          note: '测试失败'
+        }
+      });
+    }
+  };
 
   const roleRequirements = useMemo(() => buildRoleRequirements(llmConfig), [llmConfig]);
 
@@ -277,6 +409,24 @@ export function LLMSettingsTab({
       setSelectedRole('pm');
     }
   }, [llmConfig, roles, selectedRole]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    setPanelHost(document.getElementById('llm-test-panel-slot'));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTestProviderId) return;
+    if (!providers.find((provider) => provider.id === selectedTestProviderId)) {
+      closeTestPanel();
+    }
+  }, [providers, selectedTestProviderId]);
+
+  useEffect(() => {
+    if (view !== 'config' && selectedTestProviderId) {
+      closeTestPanel();
+    }
+  }, [view, selectedTestProviderId]);
 
   const globalReadiness = useMemo(() => {
     const state = llmStatus?.state || 'UNKNOWN';
@@ -404,119 +554,125 @@ export function LLMSettingsTab({
       {/* 配置视图 */}
       {view === 'config' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
-              <p className="text-[10px] text-text-dim">
-                添加和配置LLM提供商（OpenAI、Ollama、Claude等）
-              </p>
-            </div>
-            {providers.length > 0 ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const newProvider = createCodexProvider();
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-1"
-                >
-                  <PlayCircle className="size-3" />
-                  添加 Codex CLI
-                </button>
-                <button
-                  onClick={() => {
-                    const newProvider: SimpleProvider = {
-                      id: `provider-${Date.now()}`,
-                      name: '新提供商',
-                      kind: 'openai_compat',
-                      conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                      modelId: 'gpt-3.5-turbo',
-                      status: 'untested',
-                      costClass: 'METERED'
-                    };
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1"
-                >
-                  <Plus className="size-3" />
-                  添加提供商
-                </button>
-              </div>
-            ) : null}
-          </div>
-
           {providers.length === 0 ? (
-            <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
-              <Settings className="size-8 text-text-dim mx-auto mb-3" />
-              <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
-              <p className="text-xs text-text-dim mb-4">
-                请先添加至少一个LLM提供商，然后进行模型测试
-              </p>
-              <div className="flex items-center justify-center gap-3 flex-wrap">
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
+                  <p className="text-[10px] text-text-dim">
+                    添加和配置LLM提供商（OpenAI、Ollama、Claude等）
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
+                <Settings className="size-8 text-text-dim mx-auto mb-3" />
+                <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
+                <p className="text-xs text-text-dim mb-4">
+                  请先添加至少一个LLM提供商，然后进行模型测试
+                </p>
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <button
+                    onClick={() => {
+                      const newProvider = createCodexProvider();
+                      setProviders([...providers, newProvider]);
+                      onAddProvider?.(newProvider);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
+                  >
+                    添加 Codex CLI
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newProvider: SimpleProvider = {
+                        id: `provider-${Date.now()}`,
+                        name: 'OpenAI',
+                        kind: 'openai_compat',
+                        conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
+                        modelId: 'gpt-3.5-turbo',
+                        status: 'untested',
+                        costClass: 'METERED'
+                      };
+                      setProviders([...providers, newProvider]);
+                      onAddProvider?.(newProvider);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
+                  >
+                    添加OpenAI提供商
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
+                  <p className="text-[10px] text-text-dim">
+                    添加和配置LLM提供商（OpenAI、Ollama、Claude等）
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const newProvider = createCodexProvider();
+                      setProviders([...providers, newProvider]);
+                      onAddProvider?.(newProvider);
+                    }}
+                    className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-1"
+                  >
+                    <PlayCircle className="size-3" />
+                    添加 Codex CLI
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newProvider: SimpleProvider = {
+                        id: `provider-${Date.now()}`,
+                        name: '新提供商',
+                        kind: 'openai_compat',
+                        conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
+                        modelId: 'gpt-3.5-turbo',
+                        status: 'untested',
+                        costClass: 'METERED'
+                      };
+                      setProviders([...providers, newProvider]);
+                      onAddProvider?.(newProvider);
+                    }}
+                    className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1"
+                  >
+                    <Plus className="size-3" />
+                    添加提供商
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {providers.map((provider) => (
+                  <SimpleModelCard
+                    key={provider.id}
+                    provider={provider}
+                    onUpdate={(updates) => {
+                      const updated = { ...provider, ...updates };
+                      setProviders(providers.map(p => p.id === provider.id ? updated : p));
+                      onUpdateProvider?.(provider.id, updates);
+                    }}
+                    onDelete={() => {
+                      setProviders(providers.filter(p => p.id !== provider.id));
+                      onDeleteProvider?.(provider.id);
+                    }}
+                    onTest={() => openTestPanel(provider.id)}
+                  />
+                ))}
+              </div>
+
+              <div className="flex justify-center">
                 <button
-                  onClick={() => {
-                    const newProvider = createCodexProvider();
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
+                  onClick={() => setView('hall')}
+                  className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
                 >
-                  添加 Codex CLI
-                </button>
-                <button
-                  onClick={() => {
-                    const newProvider: SimpleProvider = {
-                      id: `provider-${Date.now()}`,
-                      name: 'OpenAI',
-                      kind: 'openai_compat',
-                      conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                      modelId: 'gpt-3.5-turbo',
-                      status: 'untested',
-                      costClass: 'METERED'
-                    };
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
-                >
-                  添加OpenAI提供商
+                  下一步：测试模型
+                  <PlayCircle className="size-3" />
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {providers.map((provider) => (
-                <SimpleModelCard
-                  key={provider.id}
-                  provider={provider}
-                  onUpdate={(updates) => {
-                    const updated = { ...provider, ...updates };
-                    setProviders(providers.map(p => p.id === provider.id ? updated : p));
-                    onUpdateProvider?.(provider.id, updates);
-                  }}
-                  onDelete={() => {
-                    setProviders(providers.filter(p => p.id !== provider.id));
-                    onDeleteProvider?.(provider.id);
-                  }}
-                  onTest={async (level) => {
-                    await onTestProvider?.(provider.id, level);
-                  }}
-                />
-              ))}
-            </div>
-          )}
-
-          {providers.length > 0 && (
-            <div className="flex justify-center">
-              <button
-                onClick={() => setView('hall')}
-                className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
-              >
-                下一步：测试模型
-                <PlayCircle className="size-3" />
-              </button>
             </div>
           )}
         </div>
@@ -547,6 +703,27 @@ export function LLMSettingsTab({
           onBack={() => setView('hall')}
         />
       )}
+
+      {panelHost && selectedTestProvider && view === 'config'
+        ? createPortal(
+            <TestPanel
+              provider={selectedTestProvider}
+              events={events}
+              status={testStatus}              onClose={closeTestPanel}
+              onRunTest={runSelectedTest}
+              onCancel={cancelTestRun}            />,
+            panelHost
+          )
+        : null}
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

@@ -1,6 +1,24 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require("electron");
 const { spawn, spawnSync } = require("child_process");
 const { randomBytes } = require("crypto");
+
+// 完全禁用 util._extend 的弃用警告
+const util = require("util");
+const originalExtend = util._extend;
+if (originalExtend) {
+  util._extend = function(target, source) {
+    // 直接使用 Object.assign 替代，不产生警告
+    return Object.assign(target, source);
+  };
+  // 保持原有属性
+  Object.setPrototypeOf(util._extend, Object.getPrototypeOf(originalExtend));
+  Object.getOwnPropertyNames(originalExtend).forEach(name => {
+    if (name !== 'length' && name !== 'name' && name !== 'prototype') {
+      Object.defineProperty(util._extend, name, Object.getOwnPropertyDescriptor(originalExtend, name));
+    }
+  });
+}
+
 const pty = require("node-pty");
 const net = require("net");
 const path = require("path");
@@ -296,9 +314,9 @@ app.whenReady().then(async () => {
     return deleteSecret(key);
   });
   ipcMain.handle("hp:pty-start", async (event, payload = {}) => {
-    const command = payload.command;
+    let command = payload.command;
     if (!command) {
-      return { ok: false, error: "command required" };
+      command = process.platform === "win32" ? "powershell.exe" : "bash";
     }
     const args = Array.isArray(payload.args) ? payload.args.map((arg) => String(arg)) : [];
     const cols = Number(payload.cols) || 120;
