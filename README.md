@@ -32,7 +32,7 @@ HarborPilot 的核心不是"更花哨的 Agent"，而是**面向现实**：
 - [🚀 快速开始](#-快速开始)
 - [🏗️ 系统架构](#️-系统架构)
 - [📁 产物与目录结构](#-产物与目录结构)
-- [⚖️ 六条系统不变量](#️-六条系统不变量)
+- [⚖️ 系统不变量（v2：核心 6 + 修正案 3）](#️-系统不变量)
 - [🧠 拟人化核心与 Glass Mind](#-拟人化核心与-glass-mind)
 - [🎛️ 模型路由与接入验证](#️-模型路由与接入验证)
 - [📊 用量与成本观测](#-用量与成本观测)
@@ -233,7 +233,7 @@ graph LR
 
 ---
 
-## ⚖️ 系统不变量（v2：核心 6 + 修正案 2）
+## ⚖️ 系统不变量（v2：核心 6 + 修正案 3）
 
 > 这组不变量是 HarborPilot 的"**系统宪法**"。详见 [完整文档](docs/agent/invariants.md)。
 
@@ -247,6 +247,7 @@ graph LR
 | 6️⃣  | **失败可定位**               | 失败必须在 3 hops 内定位到 Phase → Evidence → Tool Output   |
 | 7️⃣  | **原子写入与一致性读取**     | 关键状态文件写入必须原子化，读取永不读到半截                |
 | 8️⃣  | **记忆必须可溯源**           | memory/reflection 不能当事实，只能当建议，且必须带 refs     |
+| 9️⃣  | **编码统一性**               | 所有文本读写必须显式 UTF-8，防止乱码破坏证据             |
 
 > 💡 **例外**：Setup/Onboarding 模式允许"受限写入"（仅写 `docs/` 与 `config`），且同样写入事件流以审计。
 
@@ -285,6 +286,12 @@ UI 侧边栏展示：
 
 > 目标：无论接入命令行 LLM、本地运行时、还是第三方 HTTPS API，都必须能在 UI 中完成**接入验证与胜任性测试**，确保"可用且胜任"。
 
+**面试模式（Interview Mode）**：
+- LLM 设置以“面试大厅 → 面试进行中”组织测试流程，用户作为面试官。
+- **PM / Director** 为核心岗位，必须使用支持 thinking/reasoning 的模型；检测失败将阻止进入 READY。
+- **QA / Docs** 为辅助岗位，thinking 可选但会提示建议。
+
+
 ### 角色路由（Role Routing）
 
 HarborPilot 支持为不同角色选择不同模型：
@@ -298,6 +305,21 @@ HarborPilot 支持为不同角色选择不同模型：
 | **CLI Provider**            | Codex CLI、Gemini CLI             | FIXED             |
 | **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp | LOCAL             |
 | **Standard HTTPS Provider** | OpenAI-compatible API（OpenAI / MiniMax） | METERED（强门禁） |
+
+#### Codex CLI 接入（exec 模式）
+
+推荐在 CLI Provider 中使用 `codex exec` + `--json` 的事件流输出，便于解析 thinking 与工具事件。
+
+示例参数：
+
+```bash
+codex exec --skip-git-repo-check --color never --model {model} --sandbox danger-full-access --json {prompt}
+```
+
+- `--json` 输出 newline-delimited JSON 事件流，适合 UI/脚本解析。
+- `--ask-for-approval` / `--sandbox` / `--add-dir` 对应权限与沙箱策略。
+- `--output-schema` 可用来校验最终输出结构。
+
 
 MiniMax（OpenAI-compatible）配置示例：
 - Base URL：`https://api.minimax.io/v1`
@@ -327,6 +349,12 @@ MiniMax（Anthropic-compatible）配置示例：
 | **Director** | 证据优先、计划可执行、不臆造文件 |
 | **QA**       | 严格 PASS/FAIL + 原因与证据引用  |
 | **Docs**     | 按模板生成，不编造事实           |
+
+
+**补充门槛（Thinking 能力）**：
+- PM/Director 必须检测到 thinking/reasoning 信号（如 `thinking` / `reasoning_summary` / `<think>`）。
+- 未满足则视为不胜任并阻止进入 READY。
+- QA/Docs 不强制，但会给出建议提示。
 
 - ✅ 通过 → role **READY**
 - ❌ 未通过 → role **BLOCKED**（对应运行按钮置灰，跳转到 Test Center）

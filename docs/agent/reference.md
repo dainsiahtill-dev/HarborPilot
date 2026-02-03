@@ -252,7 +252,38 @@ HarborPilot 内置了 `tools.py` 统一入口。
 | `HARBORPILOT_COST_MODEL`       | Cost model (`LOCAL` / `FIXED` / `METERED`)           |
 | `HARBORPILOT_CONTEXT_SNAPSHOT` | Context 快照开关（`1` 开 / `0` 关）              |
 
-### 5.3 Context Engine v2 策略字段（policy hints）
+### 5.2 Codex CLI Exec (PM/Docs)
+
+这些环境变量会映射到 `codex exec` 参数，用于 CLI Provider / PM backend：
+
+| 变量 | 说明 | 默认值 |
+| :--------------------------- | :----------------------------------------------- | :------ |
+| `HARBORPILOT_CODEX_MODEL` | 覆盖 `--model` | `gpt-5.2-codex` |
+| `HARBORPILOT_CODEX_SANDBOX` | 覆盖 `--sandbox`（read-only/workspace-write/danger-full-access） | `danger-full-access` |
+| `HARBORPILOT_CODEX_APPROVALS` | 覆盖 `--ask-for-approval`（untrusted/on-failure/on-request/never） | 空 |
+| `HARBORPILOT_CODEX_COLOR` | 覆盖 `--color`（always/never/auto） | `never` |
+| `HARBORPILOT_CODEX_CD` | 覆盖 `--cd` 工作目录 | workspace |
+| `HARBORPILOT_CODEX_SKIP_GIT_CHECK` | 是否添加 `--skip-git-repo-check` | `1` |
+| `HARBORPILOT_CODEX_OUTPUT_SCHEMA` | 覆盖 `--output-schema` | 空 |
+| `HARBORPILOT_CODEX_ADD_DIRS` | 追加 `--add-dir`（`;` / `,` 分隔） | 空 |
+| `HARBORPILOT_CODEX_CONFIG` | 追加 `--config key=value`（`;` / `,` 分隔） | 空 |
+| `HARBORPILOT_CODEX_OSS` | 启用 `--oss`（需 Ollama） | `0` |
+| `HARBORPILOT_CODEX_UTF8_GUARD` | 注入 UTF-8 编码 guardrail | `1` |
+| `HARBORPILOT_CODEX_CAPTURE_STDOUT` | 未使用 `--json` 时是否捕获 stdout | `0` |
+
+> LLM 设置中的 `codex_cli` 支持 `codex_exec` 字段，字段名与 codex exec 参数一一对应（cd/color/approvals/.../prompt_from_stdin）。
+
+
+
+### 5.3 Inner Voice 配置
+
+| 变量                                      | 说明                 | 默认值  |
+| :---------------------------------------- | :------------------- | :------ |
+| `HARBORPILOT_INNER_VOICE_ENABLED`         | 启用内心独白抽取     | `true`  |
+| `HARBORPILOT_INNER_VOICE_MAX_LENGTH`      | 独白最大长度（字符） | `2048`  |
+| `HARBORPILOT_INNER_VOICE_SHOW_BY_DEFAULT` | UI 默认显示独白      | `false` |
+
+### 5.4 Context Engine v2 策略字段（policy hints）
 
 这些字段由调用方在 ContextRequest.policy 中传入，用于控制 ContextPack 构建：
 
@@ -264,14 +295,6 @@ HarborPilot 内置了 `tools.py` 统一入口。
 | `events_max_chars`           | EventsProvider 最大字符数 |
 | `snapshot_context`           | 是否强制写入 Context Snapshot（覆盖 env） |
 | `memory_refs_required`       | 记忆必须带 refs（缺失则丢弃） |
-
-### 5.2 Inner Voice 配置
-
-| 变量                                      | 说明                 | 默认值  |
-| :---------------------------------------- | :------------------- | :------ |
-| `HARBORPILOT_INNER_VOICE_ENABLED`         | 启用内心独白抽取     | `true`  |
-| `HARBORPILOT_INNER_VOICE_MAX_LENGTH`      | 独白最大长度（字符） | `2048`  |
-| `HARBORPILOT_INNER_VOICE_SHOW_BY_DEFAULT` | UI 默认显示独白      | `false` |
 
 ---
 

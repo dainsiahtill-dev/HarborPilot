@@ -1,30 +1,11 @@
-import { Loader2, CheckCircle2, AlertTriangle, Save, Plus, Settings, PlayCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { InterviewHall } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
-import { SimpleModelCard, type SimpleProvider } from './SimpleModelCard';
+import { useProviderRegistry } from './ProviderRegistry';
+import { type ProviderConfig } from './types';
 
-interface LlmProviderConfig {
-  type?: string;
-  name?: string;
-  command?: string;
-  args?: string[];
-  cli_mode?: 'tui' | 'headless';
-  codex_exec?: Record<string, unknown>;
-  env?: Record<string, string>;
-  base_url?: string;
-  api_key_ref?: string;
-  list_args?: string[];
-  tui_args?: string[];
-  output_path?: string;
-  timeout?: number;
-  retries?: number;
-  api_path?: string;
-  models_path?: string;
-  headers?: Record<string, string>;
-  temperature?: number;
-}
-
+// Reuse existing interfaces
 interface LlmRoleConfig {
   provider_id?: string;
   model?: string;
@@ -39,7 +20,7 @@ interface RoleRequirement {
 
 interface LlmConfig {
   schema_version: number;
-  providers: Record<string, LlmProviderConfig>;
+  providers: Record<string, ProviderConfig>;
   roles: Record<string, LlmRoleConfig>;
   policies?: {
     required_ready_roles?: string[];
@@ -87,7 +68,7 @@ interface InterviewSuiteReport {
   };
 }
 
-interface LLMSettingsTabProps {
+interface EnhancedLLMSettingsTabProps {
   llmConfig: LlmConfig | null;
   llmStatus: LlmStatus | null;
   llmLoading: boolean;
@@ -96,10 +77,9 @@ interface LLMSettingsTabProps {
   onSaveConfig: () => void;
   onRunInterview: (role: RoleId) => Promise<Record<string, unknown> | null>;
   onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
-  onAddProvider?: (provider: SimpleProvider) => void;
-  onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;
-  onDeleteProvider?: (id: string) => void;
-  onTestProvider?: (id: string, level: 'quick' | 'deep') => Promise<void>;
+  onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
+  onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
+  onDeleteProvider?: (providerId: string) => void;
 }
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
@@ -148,62 +128,7 @@ const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
   }
 };
 
-const CODEX_CLI_ARGS = [
-  'exec',
-  '--skip-git-repo-check',
-  '--color',
-  'never',
-  '--model',
-  '{model}',
-  '--sandbox',
-  'danger-full-access',
-  '--json',
-  '{prompt}',
-];
-
-const createCodexProvider = (): SimpleProvider => ({
-  id: `codex-cli-${Date.now()}`,
-  name: 'Codex CLI',
-  kind: 'codex_cli',
-  conn: { kind: 'codex_cli', command: 'codex', args: CODEX_CLI_ARGS },
-  cliMode: 'headless',
-  modelId: 'gpt-5.2-codex',
-  status: 'untested',
-  costClass: 'FIXED',
-});
-
-
-function extractThinkingMeta(suites?: Record<string, unknown> | null) {
-  if (!suites || typeof suites !== 'object') return null;
-  const suite = (suites as Record<string, unknown>).thinking as Record<string, unknown> | undefined;
-  if (!suite) return null;
-  const details = suite.details as Record<string, unknown> | undefined;
-  const thinking = (details?.thinking as Record<string, unknown>) || (suite.thinking as Record<string, unknown>);
-  if (!thinking) return null;
-  return {
-    supportsThinking: Boolean(thinking.supports_thinking),
-    confidence:
-      typeof thinking.confidence === 'number'
-        ? thinking.confidence
-        : thinking.confidence
-          ? Number(thinking.confidence)
-          : null,
-    format: typeof thinking.format === 'string' ? thinking.format : null,
-    thinkingText: typeof thinking.thinking_text === 'string' ? thinking.thinking_text : null
-  };
-}
-
-function buildRoleRequirements(config: LlmConfig | null): Record<RoleId, RoleRequirement> {
-  const policies = config?.policies?.role_requirements || {};
-  return {
-    pm: { ...DEFAULT_ROLE_REQUIREMENTS.pm, ...(policies.pm || {}) },
-    director: { ...DEFAULT_ROLE_REQUIREMENTS.director, ...(policies.director || {}) },
-    qa: { ...DEFAULT_ROLE_REQUIREMENTS.qa, ...(policies.qa || {}) },
-    docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
-  };
-}
-
-export function LLMSettingsTab({
+export function EnhancedLLMSettingsTab({
   llmConfig,
   llmStatus,
   llmLoading,
@@ -214,18 +139,38 @@ export function LLMSettingsTab({
   onRunReadiness,
   onAddProvider,
   onUpdateProvider,
-  onDeleteProvider,
-  onTestProvider
-}: LLMSettingsTabProps) {
+  onDeleteProvider
+}: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
   const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [interviewRunning, setInterviewRunning] = useState(false);
   const [readinessRunning, setReadinessRunning] = useState(false);
-  const [providers, setProviders] = useState<SimpleProvider[]>([]);
+  const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [selectedProviderType, setSelectedProviderType] = useState<string>('');
 
-  const roleRequirements = useMemo(() => buildRoleRequirements(llmConfig), [llmConfig]);
+  const {
+    loading: providersLoading,
+    error: providersError,
+    providers,
+    getProviderInfo,
+    getProviderDefaultConfig,
+    getProviderComponent,
+    requiresApiKey,
+    getCostClass,
+    validateProviderConfig
+  } = useProviderRegistry();
+
+  const roleRequirements = useMemo(() => {
+    const policies = llmConfig?.policies?.role_requirements || {};
+    return {
+      pm: { ...DEFAULT_ROLE_REQUIREMENTS.pm, ...(policies.pm || {}) },
+      director: { ...DEFAULT_ROLE_REQUIREMENTS.director, ...(policies.director || {}) },
+      qa: { ...DEFAULT_ROLE_REQUIREMENTS.qa, ...(policies.qa || {}) },
+      docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
+    };
+  }, [llmConfig]);
 
   const roles = useMemo(() => {
     const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
@@ -234,16 +179,14 @@ export function LLMSettingsTab({
       const providerId = roleCfg?.provider_id || '';
       const providerCfg = providerId ? llmConfig?.providers?.[providerId] : undefined;
       const status = llmStatus?.roles?.[roleId];
-      const thinkingMeta = extractThinkingMeta(status?.suites || null);
       const requirement = roleRequirements[roleId];
+      
       return {
         id: roleId,
         label: ROLE_META[roleId].label,
         description: ROLE_META[roleId].description,
         requiresThinking: Boolean(requirement?.requires_thinking),
         minConfidence: requirement?.min_confidence ?? 0.5,
-        thinkingConfidence: thinkingMeta?.confidence ?? null,
-        thinkingSupported: thinkingMeta?.supportsThinking ?? null,
         candidate: {
           providerId,
           providerName: providerCfg?.name || providerId || 'Unassigned',
@@ -265,9 +208,7 @@ export function LLMSettingsTab({
         roleLabel: role.label,
         providerName: role.candidate?.providerName || 'Unknown',
         model: role.candidate?.model || 'Unassigned',
-        ready: role.readiness?.ready,
-        thinkingSupported: role.thinkingSupported ?? null,
-        thinkingConfidence: role.thinkingConfidence ?? null
+        ready: role.readiness?.ready
       }));
   }, [roles]);
 
@@ -287,23 +228,49 @@ export function LLMSettingsTab({
       return { state: 'BLOCKED', color: 'text-amber-400' };
     }
     return { state: 'UNKNOWN', color: 'text-gray-400' };
-  }, [llmStatus?.state]);
+  }, [llmStatus]);
 
   const selectedMeta = roles.find((role) => role.id === selectedRole);
   const canRunReadiness = Boolean(
     selectedMeta?.candidate?.providerId && selectedMeta?.candidate?.model
   );
-  let disabledReason: string | null = null;
-  if (!selectedMeta?.candidate?.providerId || !selectedMeta?.candidate?.model) {
-    disabledReason = '请选择LLM提供商和模型';
-  } else if (selectedMeta.requiresThinking) {
-    const confidence = selectedMeta.thinkingConfidence;
-    if (confidence !== null && confidence < selectedMeta.minConfidence) {
-      disabledReason =
-        roleRequirements[selectedRole]?.error_message ||
-        'Thinking 功能置信度不足';
+
+  const handleAddProvider = async (providerType: string) => {
+    const defaultConfig = getProviderDefaultConfig(providerType);
+    if (!defaultConfig) return;
+
+    const providerId = `${providerType}-${Date.now()}`;
+    const newProvider: ProviderConfig = {
+      ...defaultConfig,
+      name: defaultConfig.name || `${providerType} Provider`,
+      type: providerType
+    };
+
+    // Add to config (this would need to be connected to the parent component)
+    if (onAddProvider) {
+      onAddProvider(providerId, newProvider);
     }
-  }
+    
+    setEditingProvider(providerId);
+    setSelectedProviderType(providerType);
+  };
+
+  const handleUpdateProvider = (providerId: string, updates: Partial<ProviderConfig>) => {
+    // This would need to be connected to the parent component
+    if (onUpdateProvider) {
+      onUpdateProvider(providerId, updates);
+    }
+  };
+
+  const handleDeleteProvider = (providerId: string) => {
+    // This would need to be connected to the parent component
+    if (onDeleteProvider) {
+      onDeleteProvider(providerId);
+    }
+    if (editingProvider === providerId) {
+      setEditingProvider(null);
+    }
+  };
 
   const handleStartInterview = async () => {
     if (!selectedMeta) return;
@@ -338,7 +305,111 @@ export function LLMSettingsTab({
     }
   };
 
-  if (llmLoading) {
+  const renderProviderCard = (providerId: string, provider: ProviderConfig) => {
+    const providerInfo = getProviderInfo(provider.type || '');
+    const ProviderComponent = getProviderComponent(provider.type || '');
+    
+    if (!providerInfo) return null;
+
+    const isEditing = editingProvider === providerId;
+
+    return (
+      <div key={providerId} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-text-main">{provider.name || providerInfo.name}</h4>
+              <div className="flex items-center gap-2 text-[10px] text-text-dim">
+                <span className="capitalize">{providerInfo.type}</span>
+                <span>•</span>
+                <span className="font-mono">{provider.model || "default"}</span>
+                <span>•</span>
+                <span className={`${getCostClass(provider.type || '').toLowerCase() === 'local' ? 'text-green-400' : getCostClass(provider.type || '').toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
+                  {getCostClass(provider.type || '')}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditingProvider(isEditing ? null : providerId)}
+              className="p-1.5 rounded border border-white/10 hover:border-accent/40 transition-colors"
+            >
+              <Settings className="size-3" />
+            </button>
+            <button
+              onClick={() => handleDeleteProvider(providerId)}
+              className="p-1.5 rounded border border-red-500/30 hover:border-red-500/40 text-red-400 transition-colors"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Provider Settings */}
+        {isEditing && ProviderComponent ? (
+          <div className="space-y-4 pt-4 border-t border-white/10">
+            <ProviderComponent
+              provider={provider}
+              onUpdate={(updates) => handleUpdateProvider(providerId, updates)}
+              onValidate={() => {
+                // Return a mock validation result for now
+                // In a real implementation, this would be handled by the parent component
+                return { valid: true, errors: [], warnings: [] };
+              }}
+            />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Quick Info */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-muted">Type:</span>
+              <span className="text-xs text-text-main capitalize">{providerInfo.type}</span>
+            </div>
+            
+            {/* API Key Status */}
+            {!requiresApiKey(provider.type || '') && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-text-muted">Authentication:</span>
+                <span className="text-xs text-emerald-400">No API Key Required</span>
+              </div>
+            )}
+            
+            {/* Usage Class */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-muted">Usage Class:</span>
+              <span className={`text-xs capitalize ${getCostClass(provider.type || '').toLowerCase() === 'local' ? 'text-green-400' : getCostClass(provider.type || '').toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
+                {getCostClass(provider.type || '')}
+              </span>
+            </div>
+
+            {/* Features */}
+            {providerInfo.supported_features.length > 0 && (
+              <div>
+                <span className="text-xs text-text-muted">Features:</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {providerInfo.supported_features.slice(0, 3).map((feature) => (
+                    <span key={feature} className="text-[9px] bg-accent/20 text-accent px-2 py-1 rounded">
+                      {feature}
+                    </span>
+                  ))}
+                  {providerInfo.supported_features.length > 3 && (
+                    <span className="text-[9px] text-text-dim">
+                      +{providerInfo.supported_features.length - 3} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (llmLoading || providersLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex items-center gap-2 text-text-muted">
@@ -351,7 +422,7 @@ export function LLMSettingsTab({
 
   return (
     <div className="space-y-6">
-      {/* 步骤导航 */}
+      {/* Navigation */}
       <div className="bg-white/5 rounded-xl p-4 border border-white/5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -368,11 +439,11 @@ export function LLMSettingsTab({
             </button>
             <button
               onClick={() => setView('hall')}
-              disabled={providers.length === 0}
+              disabled={Object.keys(llmConfig?.providers || {}).length === 0}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                 view === 'hall' 
                   ? 'bg-accent/20 text-accent border border-accent/30' 
-                  : providers.length === 0
+                  : Object.keys(llmConfig?.providers || {}).length === 0
                     ? 'text-gray-500 cursor-not-allowed'
                     : 'text-text-dim hover:text-text-main hover:bg-white/5'
               }`}
@@ -394,121 +465,75 @@ export function LLMSettingsTab({
           </div>
         </div>
 
-        {llmError ? (
+        {(llmError || providersError) && (
           <div className="mt-3 text-xs text-status-error bg-status-error/10 border border-status-error/20 rounded p-2">
-            {llmError}
+            {llmError || providersError}
           </div>
-        ) : null}
+        )}
       </div>
 
-      {/* 配置视图 */}
+      {/* Configuration View */}
       {view === 'config' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
               <p className="text-[10px] text-text-dim">
-                添加和配置LLM提供商（OpenAI、Ollama、Claude等）
+                添加和配置LLM提供商，支持多种类型和执行模式
               </p>
             </div>
-            {providers.length > 0 ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const newProvider = createCodexProvider();
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-1"
-                >
-                  <PlayCircle className="size-3" />
-                  添加 Codex CLI
-                </button>
-                <button
-                  onClick={() => {
-                    const newProvider: SimpleProvider = {
-                      id: `provider-${Date.now()}`,
-                      name: '新提供商',
-                      kind: 'openai_compat',
-                      conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                      modelId: 'gpt-3.5-turbo',
-                      status: 'untested',
-                      costClass: 'METERED'
-                    };
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1"
-                >
-                  <Plus className="size-3" />
-                  添加提供商
-                </button>
-              </div>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {/* Add Provider Dropdown */}
+              <select
+                value={selectedProviderType}
+                onChange={(e) => setSelectedProviderType(e.target.value)}
+                className="bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              >
+                <option value="">选择提供商类型</option>
+                {providers.map((provider) => (
+                  <option key={provider.info.type} value={provider.info.type}>
+                    {provider.info.name} ({provider.info.cost_class})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => selectedProviderType && handleAddProvider(selectedProviderType)}
+                disabled={!selectedProviderType}
+                className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1 disabled:opacity-60"
+              >
+                <Plus className="size-3" />
+                添加提供商
+              </button>
+            </div>
           </div>
 
-          {providers.length === 0 ? (
+          {Object.keys(llmConfig?.providers || {}).length === 0 ? (
             <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
               <Settings className="size-8 text-text-dim mx-auto mb-3" />
               <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
               <p className="text-xs text-text-dim mb-4">
-                请先添加至少一个LLM提供商，然后进行模型测试
+                选择一个提供商类型并添加配置，然后进行模型测试
               </p>
-              <div className="flex items-center justify-center gap-3 flex-wrap">
-                <button
-                  onClick={() => {
-                    const newProvider = createCodexProvider();
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
-                >
-                  添加 Codex CLI
-                </button>
-                <button
-                  onClick={() => {
-                    const newProvider: SimpleProvider = {
-                      id: `provider-${Date.now()}`,
-                      name: 'OpenAI',
-                      kind: 'openai_compat',
-                      conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                      modelId: 'gpt-3.5-turbo',
-                      status: 'untested',
-                      costClass: 'METERED'
-                    };
-                    setProviders([...providers, newProvider]);
-                    onAddProvider?.(newProvider);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
-                >
-                  添加OpenAI提供商
-                </button>
+              <div className="text-xs text-text-dim">
+                <p>支持的提供商类型：</p>
+                <div className="flex flex-wrap gap-2 justify-center mt-2">
+                  {providers.slice(0, 6).map((provider) => (
+                    <span key={provider.info.type} className="bg-black/30 px-2 py-1 rounded text-[9px]">
+                      {provider.info.name}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
             <div className="space-y-3">
-              {providers.map((provider) => (
-                <SimpleModelCard
-                  key={provider.id}
-                  provider={provider}
-                  onUpdate={(updates) => {
-                    const updated = { ...provider, ...updates };
-                    setProviders(providers.map(p => p.id === provider.id ? updated : p));
-                    onUpdateProvider?.(provider.id, updates);
-                  }}
-                  onDelete={() => {
-                    setProviders(providers.filter(p => p.id !== provider.id));
-                    onDeleteProvider?.(provider.id);
-                  }}
-                  onTest={async (level) => {
-                    await onTestProvider?.(provider.id, level);
-                  }}
-                />
-              ))}
+              {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
+                renderProviderCard(providerId, provider)
+              )}
             </div>
           )}
 
-          {providers.length > 0 && (
+          {Object.keys(llmConfig?.providers || {}).length > 0 && (
             <div className="flex justify-center">
               <button
                 onClick={() => setView('hall')}
@@ -522,7 +547,7 @@ export function LLMSettingsTab({
         </div>
       )}
 
-      {/* 测试视图 */}
+      {/* Testing View */}
       {view === 'hall' && (
         <InterviewHall
           roles={roles}
@@ -531,12 +556,12 @@ export function LLMSettingsTab({
           onSelectRole={setSelectedRole}
           onStartInterview={handleStartInterview}
           onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
-          disabledReason={disabledReason}
+          disabledReason={readinessRunning || !canRunReadiness ? "请先选择LLM提供商和模型" : undefined}
           running={interviewRunning}
         />
       )}
 
-      {/* 面试会话视图 */}
+      {/* Interview Session View */}
       {view === 'session' && (
         <InterviewSession
           roleLabel={selectedMeta?.label || selectedRole}

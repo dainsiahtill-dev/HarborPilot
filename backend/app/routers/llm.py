@@ -13,14 +13,14 @@ from ..utils import build_cache_root, resolve_artifact_path
 from ..services.llm_tests import run_llm_tests, load_llm_test_index, reset_llm_test_index
 from ..llm import config as llm_config
 from ..llm.providers import (
-    cli_health,
-    cli_list_models,
     ollama_health,
     ollama_list_models,
     openai_health,
     openai_list_models,
     anthropic_health,
     anthropic_list_models,
+    # New enhanced providers
+    provider_manager,
 )
 from ..utils import save_persisted_settings
 
@@ -85,14 +85,20 @@ def provider_health(request: Request, provider_id: str, payload: ProviderActionP
     if headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **headers}}
     api_key = payload.api_key or provider_cfg.get("api_key")
-    if provider_type == "cli":
-        return cli_health(provider_cfg).to_dict()
+    
+    # Try enhanced providers first
+    provider_instance = provider_manager.get_provider_instance(provider_type)
+    if provider_instance:
+        return provider_instance.health(provider_cfg).to_dict()
+    
+    # Fallback to function-based providers
     if provider_type == "ollama":
         return ollama_health(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_health(provider_cfg, api_key).to_dict()
     if provider_type == "anthropic_compat":
         return anthropic_health(provider_cfg, api_key).to_dict()
+    
     raise HTTPException(status_code=400, detail="unsupported provider type")
 
 
@@ -107,14 +113,20 @@ def provider_models(request: Request, provider_id: str, payload: ProviderActionP
     if headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **headers}}
     api_key = payload.api_key or provider_cfg.get("api_key")
-    if provider_type == "cli":
-        return cli_list_models(provider_cfg).to_dict()
+    
+    # Try enhanced providers first
+    provider_instance = provider_manager.get_provider_instance(provider_type)
+    if provider_instance:
+        return provider_instance.list_models(provider_cfg).to_dict()
+    
+    # Fallback to function-based providers
     if provider_type == "ollama":
         return ollama_list_models(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_list_models(provider_cfg, api_key).to_dict()
     if provider_type == "anthropic_compat":
         return anthropic_list_models(provider_cfg, api_key).to_dict()
+    
     raise HTTPException(status_code=400, detail="unsupported provider type")
 
 
@@ -243,7 +255,7 @@ def _sync_settings_from_llm(settings: Settings, config: Dict[str, Any]) -> None:
         command = str(provider_cfg.get("command") or "").lower()
         if provider_type == "ollama":
             settings.pm_backend = "ollama"
-        elif provider_type == "cli" and ("codex" in command or provider_id == "codex_cli"):
+        elif provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
             settings.pm_backend = "codex"
         if pm_role.get("model"):
             settings.pm_model = pm_role.get("model")
@@ -264,7 +276,7 @@ def _sync_settings_from_llm(settings: Settings, config: Dict[str, Any]) -> None:
         command = str(provider_cfg.get("command") or "").lower()
         if provider_type == "ollama":
             settings.docs_init_provider = "ollama"
-        elif provider_type == "cli" and ("codex" in command or provider_id == "codex_cli"):
+        elif provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
             settings.docs_init_provider = "codex"
         elif provider_type == "openai_compat":
             settings.docs_init_provider = "custom"
@@ -276,6 +288,110 @@ def _sync_settings_from_llm(settings: Settings, config: Dict[str, Any]) -> None:
             settings.docs_init_model = docs_role.get("model")
 
 
+@router.get("/llm/providers", dependencies=[Depends(require_auth)])
+def list_providers(request: Request) -> Dict[str, Any]:
+    """List all available providers with their information"""
+    try:
+        providers_info = provider_manager.list_provider_info()
+        return {
+            "providers": [info.__dict__ if hasattr(info, '__dict__') else {
+                "name": info.name,
+                "type": info.type,
+                "description": info.description,
+                "version": info.version,
+                "author": info.author,
+                "documentation_url": info.documentation_url,
+                "supported_features": info.supported_features,
+                "cost_class": info.cost_class,
+                "provider_category": getattr(info, 'provider_category', 'LLM'),
+                "autonomous_file_access": getattr(info, 'autonomous_file_access', False),
+                "requires_file_interfaces": getattr(info, 'requires_file_interfaces', True),
+                "model_listing_method": getattr(info, 'model_listing_method', 'API')
+            } for info in providers_info]
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/llm/providers/{provider_type}/info", dependencies=[Depends(require_auth)])
+def get_provider_info(request: Request, provider_type: str) -> Dict[str, Any]:
+    """Get detailed information about a specific provider"""
+    try:
+        info = provider_manager.get_provider_info(provider_type)
+        if not info:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        
+        return {
+            "name": info.name,
+            "type": info.type,
+            "description": info.description,
+            "version": info.version,
+            "author": info.author,
+            "documentation_url": info.documentation_url,
+            "supported_features": info.supported_features,
+            "cost_class": info.cost_class
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/llm/providers/{provider_type}/config", dependencies=[Depends(require_auth)])
+def get_provider_default_config(request: Request, provider_type: str) -> Dict[str, Any]:
+    """Get default configuration for a provider"""
+    try:
+        config = provider_manager.get_provider_default_config(provider_type)
+        if config is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        return config
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/llm/providers/{provider_type}/validate", dependencies=[Depends(require_auth)])
+def validate_provider_config(request: Request, provider_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate provider configuration"""
+    try:
+        result = provider_manager.get_provider_class(provider_type).validate_config(payload)
+        return {
+            "valid": result.valid,
+            "errors": result.errors,
+            "warnings": result.warnings,
+            "normalized_config": result.normalized_config
+        }
+    except Exception as exc:
+        return {
+            "valid": False,
+            "errors": [str(exc)],
+            "warnings": [],
+            "normalized_config": None
+        }
+
+
+@router.post("/llm/config/migrate", dependencies=[Depends(require_auth)])
+def migrate_config(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Migrate legacy configuration to new provider format"""
+    try:
+        migrated = provider_manager.migrate_legacy_config(payload)
+        return migrated
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/llm/providers/health-all", dependencies=[Depends(require_auth)])
+def health_check_all(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Perform health checks on all configured providers"""
+    try:
+        configs = payload.get("providers", {})
+        results = provider_manager.health_check_all(configs)
+        return results
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 def _runtime_supported(role: str, provider_id: Optional[str], provider_cfg: Dict[str, Any]) -> bool:
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
     command = str(provider_cfg.get("command") or "").lower()
@@ -283,7 +399,7 @@ def _runtime_supported(role: str, provider_id: Optional[str], provider_cfg: Dict
     if role == "pm":
         if provider_type == "ollama":
             return True
-        if provider_type == "cli" and ("codex" in command or provider_id == "codex_cli"):
+        if provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
             return True
         return False
     if role == "director":

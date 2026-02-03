@@ -9,35 +9,19 @@ import {
   Edit3, 
   ChevronDown, 
   ChevronUp,
-  Terminal,
-  Settings
+  Terminal
 } from 'lucide-react';
 import { useState } from 'react';
-
-// 统一的连接方式，兼容CLI/HTTP/HTTPS
-export type ProviderKind = "cli" | "ollama" | "openai_compat" | "anthropic_compat" | "custom_https";
-export type ProviderStatus = "untested" | "testing" | "ready" | "failed";
-
-export type ProviderConn =
-  | { kind: "cli"; command: string; args?: string[]; env?: Record<string, string> }
-  | { kind: "http"; baseUrl: string; apiKey?: string };
-
-export interface SimpleProvider {
-  id: string;
-  name: string;
-  kind: ProviderKind;
-  conn: ProviderConn;
-  modelId: string;
-  status: ProviderStatus;
-  lastError?: string;
-  lastTest?: {
-    at: string;
-    latencyMs?: number;
-    usage?: { totalTokens?: number; estimated?: boolean };
-    note?: string;
-  };
-  costClass?: "LOCAL" | "FIXED" | "METERED";
-}
+import {
+  PROVIDER_LABELS,
+  STATUS_BADGES,
+  isCLIProvider,
+  isCodexCLIProvider,
+  isCLIConnection,
+  isHTTPConnection,
+  type ProviderKind,
+  type SimpleProvider
+} from './types';
 
 interface SimpleModelCardProps {
   provider: SimpleProvider;
@@ -48,27 +32,39 @@ interface SimpleModelCardProps {
   onViewTestReport?: () => void;
 }
 
-const PROVIDER_LABELS = {
-  cli: 'CLI',
-  ollama: 'Ollama', 
-  openai_compat: 'OpenAI',
-  anthropic_compat: 'Anthropic-compatible',
-  custom_https: 'Custom HTTPS'
-};
+const CODEX_EXEC_PRESET = [
+  'exec',
+  '--skip-git-repo-check',
+  '--color',
+  'never',
+  '--model',
+  '{model}',
+  '--sandbox',
+  'danger-full-access',
+  '--json',
+  '{prompt}',
+];
 
-const STATUS_COLORS = {
-  untested: 'text-gray-400',
-  testing: 'text-blue-400',
-  ready: 'text-emerald-400',
-  failed: 'text-red-400'
-};
-
-const STATUS_BADGES = {
-  untested: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
-  testing: 'bg-blue-500/20 text-blue-200 border-blue-500/30 animate-pulse',
-  ready: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30',
-  failed: 'bg-red-500/20 text-red-200 border-red-500/30'
-};
+const CODEX_SLASH_COMMANDS = [
+  '/permissions',
+  '/apps',
+  '/compact',
+  '/diff',
+  '/exit',
+  '/feedback',
+  '/init',
+  '/logout',
+  '/mcp',
+  '/mention',
+  '/model',
+  '/ps',
+  '/fork',
+  '/resume',
+  '/new',
+  '/quit',
+  '/review',
+  '/status'
+];
 
 export function SimpleModelCard({
   provider,
@@ -83,6 +79,28 @@ export function SimpleModelCard({
   const [showApiKey, setShowApiKey] = useState(false);
   const [editForm, setEditForm] = useState<SimpleProvider>(provider);
   const [advancedJson, setAdvancedJson] = useState('{}');
+
+  const isCodexCli = isCodexCLIProvider(provider.kind, provider.conn);
+  const cliMode = provider.cliMode || 'headless';
+
+  const usesOutputPath =
+    isCLIConnection(provider.conn) &&
+    (provider.conn.args || []).some((arg: string) => arg.includes('{output}'));
+
+  const applyCodexPreset = () => {
+    setEditForm((prev) => ({
+      ...prev,
+      name: prev.name && prev.name.trim() ? prev.name : 'Codex CLI',
+      kind: 'codex_cli',
+      cliMode: 'headless',
+      conn: {
+        kind: 'codex_cli',
+        command: 'codex',
+        args: CODEX_EXEC_PRESET,
+        env: (prev.conn.kind === 'codex_cli' || prev.conn.kind === 'gemini_cli') ? prev.conn.env : {}
+      }
+    }));
+  };
 
   const handleSaveEdit = () => {
     onUpdate(editForm);
@@ -117,7 +135,7 @@ export function SimpleModelCard({
             <div className="flex items-center gap-2 text-[10px] text-text-dim">
               <span className="capitalize">{PROVIDER_LABELS[provider.kind]}</span>
               <span>•</span>
-              <span className="font-mono">{provider.modelId}</span>
+              <span className="font-mono">{provider.modelId || "default"}</span>
               {provider.costClass && (
                 <>
                   <span>•</span>
@@ -165,22 +183,20 @@ export function SimpleModelCard({
       <div className="space-y-3">
         <h5 className="text-xs font-semibold text-text-main">Connection Details</h5>
         
-        {provider.conn.kind === 'cli' ? (
+        {isCLIConnection(provider.conn) ? (
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-text-muted">Command:</span>
               <span className="text-text-main font-mono">{provider.conn.command}</span>
             </div>
-            {provider.conn.args && provider.conn.args.length > 0 && (
-              <div className="flex justify-between">
-                <span className="text-text-muted">Args:</span>
-                <span className="text-text-main font-mono">{provider.conn.args.join(' ')}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-text-muted">Args:</span>
+              <span className="text-text-main font-mono">{(provider.conn.args || []).join(' ')}</span>
+            </div>
             {provider.conn.env && Object.keys(provider.conn.env).length > 0 && (
               <div className="flex justify-between">
-                <span className="text-text-muted">Env:</span>
-                <span className="text-text-main font-mono">{Object.keys(provider.conn.env).length} vars</span>
+                <span className="text-text-muted">Environment:</span>
+                <span className="text-text-main font-mono">{Object.keys(provider.conn.env).join(', ')}</span>
               </div>
             )}
           </div>
@@ -188,17 +204,40 @@ export function SimpleModelCard({
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-text-muted">Base URL:</span>
-              <span className="text-text-main font-mono truncate max-w-[200px]">{provider.conn.baseUrl}</span>
+              <span className="text-text-main font-mono">
+                {isHTTPConnection(provider.conn) ? provider.conn.baseUrl : ''}
+              </span>
             </div>
-            {provider.conn.apiKey && (
+            {isHTTPConnection(provider.conn) && provider.conn.apiKey && (
               <div className="flex justify-between">
                 <span className="text-text-muted">API Key:</span>
-                <span className="text-text-main font-mono">••••••••••••••••</span>
+                <span className="text-text-main">•••••••••••••••</span>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {isCodexCli && cliMode === 'headless' && (
+        <div className="space-y-2 text-xs">
+          <h5 className="text-xs font-semibold text-text-main">Codex CLI Headless Template</h5>
+          <div className="text-[10px] text-text-dim">推荐 exec 参数（JSON 输出，适合自动化测试）</div>
+          <div className="text-[10px] font-mono text-text-main bg-black/30 rounded px-2 py-1 border border-white/10">
+            {CODEX_EXEC_PRESET.join(' ')}
+          </div>
+        </div>
+      )}
+
+      {isCodexCli && cliMode === 'tui' && (
+        <div className="space-y-2 text-xs">
+          <h5 className="text-xs font-semibold text-text-main">Codex CLI TUI 快速参考</h5>
+          <div className="text-[10px] text-text-dim">TUI Slash Commands：</div>
+          <div className="text-[10px] text-text-main font-mono">
+            {CODEX_SLASH_COMMANDS.join(' ')}
+          </div>
+          <div className="text-[9px] text-text-dim">{'\u5b9e\u9645\u53ef\u7528\u547d\u4ee4\u4ee5 Codex CLI \u7684 / \u5217\u8868\u4e3a\u51c6\uff0c/approvals \u4ecd\u53ef\u4f5c\u4e3a /permissions \u7684\u522b\u540d\u3002'}</div>
+        </div>
+      )}
 
       {/* Test Results */}
       {provider.lastTest && (
@@ -241,7 +280,7 @@ export function SimpleModelCard({
           Deep Test
         </button>
         
-        {provider.conn.kind === 'cli' && onOpenTuiBrowser && (
+        {isCLIConnection(provider.conn) && cliMode === 'tui' && onOpenTuiBrowser && (
           <button
             onClick={onOpenTuiBrowser}
             className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-cyan-400/40 flex items-center gap-1"
@@ -316,11 +355,11 @@ export function SimpleModelCard({
             onChange={(e) => {
               const newKind = e.target.value as ProviderKind;
               setEditForm(prev => {
-                const baseProvider = { ...prev, kind: newKind };
-                if (newKind === 'cli') {
+                const baseProvider = { ...prev, kind: newKind, cliMode: isCLIProvider(newKind) ? 'headless' : undefined };
+                if (newKind === 'codex_cli' || newKind === 'gemini_cli') {
                   return {
                     ...baseProvider,
-                    conn: { kind: 'cli', command: '', args: [], env: {} }
+                    conn: { kind: newKind, command: '', args: [], env: {} }
                   };
                 } else {
                   return {
@@ -332,7 +371,8 @@ export function SimpleModelCard({
             }}
             className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
           >
-            <option value="cli">CLI</option>
+            <option value="codex_cli">Codex CLI</option>
+            <option value="gemini_cli">Gemini CLI</option>
             <option value="ollama">Ollama</option>
             <option value="openai_compat">OpenAI-compatible</option>
             <option value="anthropic_compat">Anthropic-compatible</option>
@@ -340,8 +380,19 @@ export function SimpleModelCard({
           </select>
         </div>
 
-        {editForm.conn.kind === 'cli' ? (
+        {isCLIConnection(editForm.conn) ? (
           <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-text-muted mb-1">CLI Mode</label>
+              <select
+                value={editForm.cliMode || 'headless'}
+                onChange={(e) => setEditForm(prev => ({ ...prev, cliMode: e.target.value as 'tui' | 'headless' }))}
+                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              >
+                <option value="headless">Headless (non-interactive)</option>
+                <option value="tui">TUI (interactive)</option>
+              </select>
+            </div>
             <div>
               <label className="block text-xs text-text-muted mb-1">Command</label>
               <input
@@ -349,7 +400,7 @@ export function SimpleModelCard({
                 value={editForm.conn.command}
                 onChange={(e) => setEditForm(prev => ({ 
                   ...prev, 
-                  conn: { ...prev.conn, kind: 'cli' as const, command: e.target.value }
+                  conn: { ...prev.conn, kind: editForm.conn.kind, command: e.target.value }
                 }) as SimpleProvider)}
                 className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
                 placeholder="codex, gemini, etc."
@@ -361,10 +412,33 @@ export function SimpleModelCard({
                 value={(editForm.conn.args || []).join('\n')}
                 onChange={(e) => setEditForm(prev => ({ 
                   ...prev, 
-                  conn: { ...prev.conn, kind: 'cli' as const, args: e.target.value.split('\n').filter(Boolean) }
+                  conn: { ...prev.conn, kind: editForm.conn.kind, args: e.target.value.split('\n').filter(Boolean) }
                 }) as SimpleProvider)}
                 className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono h-16"
               />
+            </div>
+            {usesOutputPath && (
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Output Path (optional)</label>
+                <input
+                  type="text"
+                  value={editForm.outputPath || ""}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, outputPath: e.target.value }))}
+                  className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+                  placeholder=".harborpilot/runtime/CODEX_LAST_MESSAGE.md"
+                />
+                <p className="text-[9px] text-text-dim mt-1">仅当 args 中包含 {`{output}`} 时才会写入。</p>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={applyCodexPreset}
+                className="px-3 py-1.5 text-[10px] border border-emerald-500/30 rounded hover:border-emerald-400/60 text-emerald-200"
+              >
+                应用 Codex CLI 预设
+              </button>
+              <span className="text-[9px] text-text-dim">推荐用于 codex exec + 面试测试</span>
             </div>
           </div>
         ) : (
@@ -373,10 +447,10 @@ export function SimpleModelCard({
               <label className="block text-xs text-text-muted mb-1">Base URL</label>
               <input
                 type="text"
-                value={editForm.conn.baseUrl}
+                value={isHTTPConnection(editForm.conn) ? editForm.conn.baseUrl : ''}
                 onChange={(e) => setEditForm(prev => ({ 
                   ...prev, 
-                  conn: { ...prev.conn, kind: 'http' as const, baseUrl: e.target.value }
+                  conn: { ...prev.conn, kind: 'http', baseUrl: e.target.value }
                 }) as SimpleProvider)}
                 className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
                 placeholder="https://api.example.com/v1"
@@ -387,12 +461,13 @@ export function SimpleModelCard({
               <div className="flex items-center gap-2">
                 <input
                   type={showApiKey ? "text" : "password"}
-                  value={editForm.conn.apiKey || ''}
+                  value={isHTTPConnection(editForm.conn) ? editForm.conn.apiKey || '' : ''}
                   onChange={(e) => setEditForm(prev => ({ 
                     ...prev, 
-                    conn: { ...prev.conn, kind: 'http' as const, apiKey: e.target.value }
+                    conn: { ...prev.conn, kind: 'http', apiKey: e.target.value }
                   }) as SimpleProvider)}
                   className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+                  placeholder="Enter your API key"
                 />
                 <button
                   type="button"
@@ -446,6 +521,11 @@ export function SimpleModelCard({
           <span className="text-[10px] text-text-dim capitalize">
             {PROVIDER_LABELS[provider.kind]}
           </span>
+          {isCodexCli && (
+            <span className="px-2 py-1 text-[9px] uppercase font-semibold rounded border bg-emerald-500/10 text-emerald-200 border-emerald-500/30">
+              Codex CLI
+            </span>
+          )}
         </div>
       </div>
 

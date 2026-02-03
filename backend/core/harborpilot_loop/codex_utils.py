@@ -1,7 +1,9 @@
+import json
 import os
 import re
 import subprocess
 import sys
+import time
 from typing import Dict, List, Optional, Union, Any
 try:
     from .usage import UsageContext, TokenUsage, track_usage
@@ -10,6 +12,11 @@ except ImportError:
 
 from io_utils import ensure_codex_available, ensure_parent_dir, read_file_safe
 
+
+
+def _env_flag(name: str, default: str = "") -> bool:
+    value = str(os.environ.get(name, default)).strip().lower()
+    return value in ("1", "true", "yes", "on")
 
 def _decode_with_fallback(data: bytes) -> str:
     if not data:
@@ -52,6 +59,40 @@ def _read_codex_output(path: str) -> str:
     except Exception:
         return read_file_safe(path)
 
+
+
+def _extract_codex_json_output(raw_output: str) -> str:
+    lines = (raw_output or '').splitlines()
+    reasoning_parts: List[str] = []
+    message_parts: List[str] = []
+    for line in lines:
+        trimmed = line.strip()
+        if not trimmed or not trimmed.startswith("{"):
+            continue
+        try:
+            payload = json.loads(trimmed)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        item = payload.get("item")
+        if payload.get("type") == "item.completed" and isinstance(item, dict):
+            item_type = str(item.get("type") or "")
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            if item_type in ("reasoning", "thought", "analysis"):
+                reasoning_parts.append(text.strip())
+            elif item_type in ("agent_message", "assistant_message", "message"):
+                message_parts.append(text.strip())
+    if not reasoning_parts and not message_parts:
+        return raw_output
+    output_chunks: List[str] = []
+    if reasoning_parts:
+        output_chunks.append("<thinking>" + "\n\n".join(reasoning_parts).strip() + "</thinking>")
+    if message_parts:
+        output_chunks.append("\n".join(message_parts).strip())
+    return "\n".join(output_chunks).strip()
 
 def build_codex_command(base_args: List[str], codex_path: str) -> List[str]:
     ext = os.path.splitext(codex_path)[1].lower()
@@ -103,18 +144,43 @@ def invoke_codex(
     events_path: str = ""
 ) -> str:
     codex_path = ensure_codex_available()
-    if not output_file:
-        output_file = os.path.join(workspace, ".harborpilot", "runtime", "CODEX_LAST_MESSAGE.md")
-    ensure_parent_dir(output_file)
+    codex_model = str(os.environ.get("HARBORPILOT_CODEX_MODEL") or "gpt-5.2-codex").strip() or "gpt-5.2-codex"
+    codex_sandbox = str(os.environ.get("HARBORPILOT_CODEX_SANDBOX") or "danger-full-access").strip() or "danger-full-access"
+    codex_color = str(os.environ.get("HARBORPILOT_CODEX_COLOR") or "never").strip() or "never"
+    codex_cd = str(os.environ.get("HARBORPILOT_CODEX_CD") or "").strip() or workspace
+    codex_approvals = str(os.environ.get("HARBORPILOT_CODEX_APPROVALS") or "").strip()
+    codex_output_schema = str(os.environ.get("HARBORPILOT_CODEX_OUTPUT_SCHEMA") or "").strip()
+    codex_add_dirs = str(os.environ.get("HARBORPILOT_CODEX_ADD_DIRS") or "").strip()
+    codex_config_overrides = str(os.environ.get("HARBORPILOT_CODEX_CONFIG") or "").strip()
+    codex_use_oss = _env_flag("HARBORPILOT_CODEX_OSS", "0")
+    codex_skip_git_check = _env_flag("HARBORPILOT_CODEX_SKIP_GIT_CHECK", "1")
 
-    args = ["exec", "--cd", workspace, "--output-last-message", output_file, "--color", "never"]
+    args = ["exec", "--cd", codex_cd, "--color", codex_color]
+    if codex_skip_git_check:
+        args.append("--skip-git-repo-check")
+    args += ["--model", codex_model, "--sandbox", codex_sandbox, "--json"]
+    if codex_approvals:
+        args += ["--ask-for-approval", codex_approvals]
+    if codex_use_oss:
+        args.append("--oss")
+    if codex_output_schema:
+        args += ["--output-schema", codex_output_schema]
+    if codex_add_dirs:
+        for entry in re.split(r"[;,]", codex_add_dirs):
+            entry = entry.strip()
+            if entry:
+                args += ["--add-dir", entry]
+    if codex_config_overrides:
+        for entry in re.split(r"[;,]", codex_config_overrides):
+            entry = entry.strip()
+            if entry:
+                args += ["--config", entry]
     if dangerous:
         args.append("--dangerously-bypass-approvals-and-sandbox")
     elif full_auto:
         args.append("--full-auto")
     if profile:
         args.extend(["--profile", profile])
-    args.append("-")
 
     cmd = build_codex_command(args, codex_path)
     env = os.environ.copy()
@@ -126,7 +192,7 @@ def invoke_codex(
     if extra_env:
         env.update(extra_env)
 
-    capture_stdout = str(os.environ.get("HARBORPILOT_CODEX_CAPTURE_STDOUT", "0")).strip().lower() not in (
+    capture_stdout = True if "--json" in args else str(os.environ.get("HARBORPILOT_CODEX_CAPTURE_STDOUT", "0")).strip().lower() not in (
         "0",
         "false",
         "no",
@@ -135,15 +201,14 @@ def invoke_codex(
     )
 
     def _run_once(run_prompt: str) -> str:
+        run_cmd = cmd + [run_prompt]
         if os.name == "nt":
-            cmd_str = subprocess.list2cmdline(cmd)
+            cmd_str = subprocess.list2cmdline(run_cmd)
             run_cmd = ["cmd.exe", "/c", f"chcp 65001 >NUL & {cmd_str}"]
-        else:
-            run_cmd = cmd
         if capture_stdout:
             result = subprocess.run(
                 run_cmd,
-                input=run_prompt,
+                input=None,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -155,6 +220,8 @@ def invoke_codex(
                 check=False,
             )
             output = result.stdout or ""
+            if output and "--json" in args:
+                output = _extract_codex_json_output(output)
             if output and (show_output or not sys.stdout.isatty()):
                 try:
                     sys.stdout.write(output)
@@ -164,7 +231,7 @@ def invoke_codex(
             return output
         subprocess.run(
             run_cmd,
-            input=run_prompt,
+            input=None,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -186,20 +253,18 @@ def invoke_codex(
             "",
         )
         run_prompt = (_encoding_guardrail() + "\n" + prompt) if use_guard else prompt
-        
+
         start_time = time.time()
         output = _run_once(run_prompt)
         duration_ms = int((time.time() - start_time) * 1000)
 
         if capture_stdout and _detect_encoding_violations(output):
             output = _run_once(_retry_prompt_for_encoding(prompt))
-            duration_ms = int((time.time() - start_time) * 1000) # Update duration
-            
-        # Track Usage (Estimated)
+            duration_ms = int((time.time() - start_time) * 1000)
+
         if usage_ctx and events_path:
             p_chars = len(run_prompt)
             c_chars = len(output)
-            # Rough estimate: 4 chars per token
             p_tokens = p_chars // 4
             c_tokens = c_chars // 4
             usage_obj = TokenUsage(
@@ -214,12 +279,12 @@ def invoke_codex(
 
     except subprocess.TimeoutExpired:
         if usage_ctx and events_path:
-             usage_obj = TokenUsage(
+            usage_obj = TokenUsage(
                 prompt_tokens=len(prompt)//4, completion_tokens=0, total_tokens=len(prompt)//4, estimated=True,
                 prompt_chars=len(prompt), completion_chars=0
             )
-             track_usage(events_path, usage_ctx, "codex-cli", "codex", usage_obj, 0, ok=False, error="Timeout")
-
+            track_usage(events_path, usage_ctx, "codex-cli", "codex", usage_obj, 0, ok=False, error="Timeout")
         return ""
 
-    return _read_codex_output(output_file)
+    return output
+

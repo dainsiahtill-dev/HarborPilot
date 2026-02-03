@@ -68,6 +68,7 @@ interface LlmProviderConfig {
   working_dir?: string;
   env?: Record<string, string>;
   args?: string[];
+  codex_exec?: Record<string, unknown>;
   list_args?: string[];
   tui_args?: string[];
   output_path?: string;
@@ -387,6 +388,61 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
+  const runProviderTest = async (providerId: string, level: 'quick' | 'deep') => {
+    if (!llmConfig) return;
+    const providerCfg = llmConfig.providers?.[providerId];
+    if (!providerCfg) return;
+    
+    // Find a role that uses this provider, or create a temporary test role
+    let testRole = null;
+    let testModel = 'test-model'; // Default test model
+    
+    // Look for existing role that uses this provider
+    for (const [roleId, roleCfg] of Object.entries(llmConfig.roles || {})) {
+      if (roleCfg.provider_id === providerId && roleCfg.model) {
+        testRole = roleId;
+        testModel = roleCfg.model;
+        break;
+      }
+    }
+    
+    // If no role found, create a temporary test using the provider directly
+    if (!testRole) {
+      testRole = `test_${providerId}`;
+    }
+    
+    const apiKey = await resolveApiKey(providerId, providerCfg);
+    
+    try {
+      const res = await apiFetch('/llm/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: testRole,
+          provider_id: providerId,
+          model: testModel,
+          suites: ['connectivity'], // Basic connectivity test
+          test_level: level,
+          api_key: apiKey,
+        }),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Provider test failed: ${res.statusText}`);
+      }
+      
+      const report = await res.json();
+      console.log('Provider test result:', report);
+      
+      // Update provider status based on test result
+      await loadLlmStatus();
+      
+    } catch (err) {
+      console.error('Provider test error:', err);
+      setLlmError(err instanceof Error ? err.message : 'Provider test failed');
+    }
+  };
+
   const runLlmTest = async (
     role: string,
     level: 'quick' | 'full' = 'quick',
@@ -432,12 +488,14 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const runInterview = async (role: string) => {
-    return await runLlmTest(role, 'full', ['thinking', 'interview'], false);
+  const runInterview = async (role: string): Promise<Record<string, unknown> | null> => {
+    const result = await runLlmTest(role, 'full', ['thinking', 'interview'], false);
+    return result || null;
   };
 
-  const runReadiness = async (role: string) => {
-    return await runLlmTest(role, 'quick', undefined, false);
+  const runReadiness = async (role: string): Promise<Record<string, unknown> | null> => {
+    const result = await runLlmTest(role, 'quick', undefined, false);
+    return result || null;
   };
 
   const runAllTests = async () => {
@@ -985,6 +1043,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onSaveConfig={saveLlmConfig}
                 onRunInterview={runInterview}
                 onRunReadiness={runReadiness}
+                onTestProvider={runProviderTest}
               />
             </TabsContent>
 

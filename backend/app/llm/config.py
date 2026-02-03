@@ -54,21 +54,136 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
 
     providers: Dict[str, Any] = {
         "codex_cli": {
-            "type": "cli",
+            "type": "codex_cli",
+            "name": "Codex CLI",
             "command": "codex",
-            "args": ["exec", "--color", "never", "--full-auto", "--output-last-message", "{output}", "-"],
-            "list_args": ["models", "list"],
+            "args": [],
+            "cli_mode": "headless",
+            "codex_exec": {
+                "cd": "",
+                "color": "never",
+                "approvals": "",
+                "sandbox": "danger-full-access",
+                "skip_git_repo_check": True,
+                "json": True,
+                "experimental_json": False,
+                "full_auto": False,
+                "yolo": False,
+                "oss": False,
+                "output_schema": "",
+                "output_last_message": "",
+                "profile": "",
+                "add_dirs": [],
+                "config": [],
+                "images": [],
+                "prompt_from_stdin": False,
+            },
+            "list_args": [],
             "tui_args": [],
-            "output_path": ".harborpilot/runtime/CODEX_LAST_MESSAGE.md",
             "timeout": 60,
         },
         "gemini_cli": {
-            "type": "cli",
+            "type": "gemini_cli",
+            "name": "Gemini CLI",
             "command": "gemini",
             "args": ["chat", "--model", "{model}", "--prompt", "{prompt}"],
+            "cli_mode": "headless",
             "list_args": ["models", "list"],
-            "tui_args": [],
+            "health_args": ["version"],
+            "env": {
+                "GOOGLE_API_KEY": "",
+                "GOOGLE_GENAI_USE_VERTEXAI": "false",
+                "GOOGLE_GENAI_API_KEY": ""
+            },
             "timeout": 60,
+            "thinking_extraction": {
+                "enabled": True,
+                "patterns": [
+                    r"<thinking>(.*?)</thinking>",
+                    r"```thinking(.*?)```",
+                    r"Let me think(.*?)(?:\n\n|\n[A-Z])",
+                    r"I need to consider(.*?)(?:\n\n|\n[A-Z])"
+                ],
+                "confidence_threshold": 0.6
+            }
+        },
+        "maxmini": {
+            "type": "maxmini",
+            "name": "MiniMax",
+            "base_url": "https://api.minimax.chat/v1",
+            "api_key_ref": "keychain:maxmini",
+            "api_path": "/text/chatcompletion_pro",
+            "models_path": "/query/model_list",
+            "timeout": 60,
+            "retries": 3,
+            "temperature": 0.7,
+            "max_tokens": 2048,
+            "thinking_extraction": {
+                "enabled": True,
+                "patterns": [
+                    r"<思考>(.*?)</思考>",
+                    r"<thinking>(.*?)</thinking>",
+                    r"```思考(.*?)```",
+                    r"让我想想(.*?)(?:\n\n|\n[A-Z\u4e00-\u9fff])",
+                    r"我需要考虑(.*?)(?:\n\n|\n[A-Z\u4e00-\u9fff])"
+                ],
+                "confidence_threshold": 0.6
+            },
+            "model_specific": {
+                "abab6.5": {
+                    "max_tokens": 245760,
+                    "supports_thinking": True
+                },
+                "abab6.5s": {
+                    "max_tokens": 245760,
+                    "supports_thinking": True
+                },
+                "abab6": {
+                    "max_tokens": 8192,
+                    "supports_thinking": False
+                }
+            }
+        },
+        "gemini_api": {
+            "type": "gemini_api",
+            "name": "Gemini API",
+            "base_url": "https://generativelanguage.googleapis.com",
+            "api_key_ref": "keychain:gemini",
+            "api_path": "/v1beta/models/{model}:generateContent",
+            "models_path": "/v1beta/models",
+            "timeout": 60,
+            "retries": 3,
+            "temperature": 0.7,
+            "max_tokens": 8192,
+            "thinking_extraction": {
+                "enabled": True,
+                "patterns": [
+                    r"<thinking>(.*?)</thinking>",
+                    r"```thinking(.*?)```",
+                    r"Let me think(.*?)(?:\n\n|\n[A-Z])",
+                    r"I need to consider(.*?)(?:\n\n|\n[A-Z])",
+                    r"Looking at this(.*?)(?:\n\n|\n[A-Z])",
+                    r"Step by step(.*?)(?:\n\n|\n[A-Z])"
+                ],
+                "confidence_threshold": 0.6
+            },
+            "model_specific": {
+                "gemini-1.5-pro": {
+                    "max_tokens": 2097152,
+                    "supports_thinking": True,
+                    "context_window": 2000000
+                },
+                "gemini-1.5-flash": {
+                    "max_tokens": 1048576,
+                    "supports_thinking": True,
+                    "context_window": 1000000
+                },
+                "gemini-1.0-pro": {
+                    "max_tokens": 32768,
+                    "supports_thinking": False,
+                    "context_window": 32768
+                }
+            }
         },
         "ollama": {
             "type": "ollama",

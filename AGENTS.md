@@ -12,7 +12,7 @@
 
 - 本文档适用于 HarborPilot 系统内部的 AI Agent 执行。
 - 若某工具/命令在当前环境不可用，使用语义等价的可用工具替代，并在 Evidence 中记录替代关系与原因。
-- 任何替代不得违反 8 条铁律与系统不变量。
+- 任何替代不得违反 9 条铁律与系统不变量。
 
 ---
 
@@ -149,7 +149,7 @@ HarborPilot/
 
 ---
 
-## ⚖️ 8 条铁律 (The 8 Commandments)
+## ⚖️ 9 条铁律 (The 9 Commandments)
 
 > **📍 注意**: 以下规则为 **Hard Constraints**，**仅适用于 HarborPilot 内部 AI Agent**，违反将被系统级拦截或回滚：
 

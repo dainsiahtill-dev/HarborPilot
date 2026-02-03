@@ -132,6 +132,12 @@ HarborPilot 把"经验复用"工程化为四块能力：
 | Inner Voice | 思考摘要抽取与展示         |
 | Glass Mind  | 记忆检索与上下文构建可视化 |
 
+### LLM 面试模式
+
+- LLM 设置以“面试大厅 → 面试进行中”完成模型接入与胜任性测试。
+- PM/Director 为核心岗位，必须通过 thinking/reasoning 检测才可上岗。
+- QA/Docs 为辅助岗位，thinking 可选但会提示建议。
+
 ### 单人本地优先体验
 
 | 特性          | 说明                                      |
@@ -238,7 +244,7 @@ PM 定义合约，Director 执行合约，Dashboard 旁路观测。
 
 ## ⚖️ 系统不变量
 
-为了防止系统在长期迭代中失控，HarborPilot 遵循以下 **6 条不可打破的约束**：
+为了防止系统在长期迭代中失控，HarborPilot 遵循以下 **9 条不可打破的约束**：
 
 ### 1️⃣ 合同不可变 (Immutable Contract)
 
@@ -264,6 +270,18 @@ Dashboard UI **只读**。UI 不产生决策、不修改状态、不直接操作
 
 任何失败都必须能在 **3 跳 (Hops)** 内定位到：Phase → Evidence → Tool Output。
 
+### 7️⃣ 原子写入与一致性读取 (Atomic Writes)
+
+关键状态文件必须使用原子写入策略，避免中断导致半截文件或状态破坏。
+
+### 8️⃣ 记忆必须可溯源 (Memory with Refs)
+
+Memory/Reflection 只能作为建议，必须带可回放的 refs 才能参与决策。
+
+### 9️⃣ 编码统一性 (Encoding Uniformity)
+
+所有文本读写必须显式使用 UTF-8，避免乱码破坏证据与回放。
+
 ---
 
 ## 📚 相关文档
@@ -277,4 +295,4 @@ Dashboard UI **只读**。UI 不产生决策、不修改状态、不直接操作
 
 ---
 
-_最后更新：2026-02-02_
+_最后更新：2026-02-03_

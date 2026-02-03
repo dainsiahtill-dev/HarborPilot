@@ -11,9 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..config import Settings
 from ..llm import config as llm_config
 from ..llm.providers import (
-    cli_health,
-    cli_list_models,
-    cli_invoke,
     ollama_health,
     ollama_list_models,
     ollama_invoke,
@@ -506,27 +503,39 @@ def _run_interview_suite(
 
 
 def _provider_health(provider_type: str, provider_cfg: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
-    if provider_type == "cli":
-        return cli_health(provider_cfg).to_dict()
+    from ..llm.providers.provider_registry import provider_manager
+    
+    provider_instance = provider_manager.get_provider_instance(provider_type)
+    if provider_instance:
+        return provider_instance.health(provider_cfg).to_dict()
+    
+    # Fallback to function-based providers
     if provider_type == "ollama":
         return ollama_health(provider_cfg).to_dict()
     if provider_type == "openai_compat":
         return openai_health(provider_cfg, api_key).to_dict()
     if provider_type == "anthropic_compat":
         return anthropic_health(provider_cfg, api_key).to_dict()
-    return {"ok": False, "latency_ms": 0, "error": f"unsupported provider type: {provider_type}"}
+    
+    return {"ok": False, "error": f"Unknown provider type: {provider_type}"}
 
 
 def _provider_list_models(provider_type: str, provider_cfg: Dict[str, Any], api_key: Optional[str]) -> ModelListResult:
-    if provider_type == "cli":
-        return cli_list_models(provider_cfg)
+    from ..llm.providers.provider_registry import provider_manager
+    
+    provider_instance = provider_manager.get_provider_instance(provider_type)
+    if provider_instance:
+        return provider_instance.list_models(provider_cfg)
+    
+    # Fallback to function-based providers
     if provider_type == "ollama":
         return ollama_list_models(provider_cfg)
     if provider_type == "openai_compat":
         return openai_list_models(provider_cfg, api_key)
     if provider_type == "anthropic_compat":
         return anthropic_list_models(provider_cfg, api_key)
-    return ModelListResult(ok=False, supported=False, models=[], error="unsupported provider type")
+    
+    return ModelListResult(ok=False, supported=False, models=[], error=f"Unknown provider type: {provider_type}")
 
 
 def _provider_invoke(
@@ -541,17 +550,27 @@ def _provider_invoke(
     run_id: str,
 ) -> InvokeResult:
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
-    result: InvokeResult
-    if provider_type == "cli":
-        result = cli_invoke(prompt, model, provider_cfg)
-    elif provider_type == "ollama":
+    from ..llm.providers.provider_registry import provider_manager
+    
+    provider_instance = provider_manager.get_provider_instance(provider_type)
+    if provider_instance:
+        return provider_instance.invoke(prompt, model, provider_cfg)
+    
+    # Fallback to function-based providers
+    if provider_type == "ollama":
         result = ollama_invoke(prompt, model, provider_cfg)
     elif provider_type == "openai_compat":
         result = openai_invoke(prompt, model, provider_cfg, api_key)
     elif provider_type == "anthropic_compat":
         result = anthropic_invoke(prompt, model, provider_cfg, api_key)
     else:
-        result = InvokeResult(ok=False, output="", latency_ms=0, usage=estimate_usage(prompt, ""), error="unsupported provider")
+        result = InvokeResult(
+            ok=False,
+            output="",
+            latency_ms=0,
+            usage=estimate_usage(prompt, ""),
+            error=f"Unknown provider type: {provider_type}"
+        )
     _track_usage_event(result, model, provider_type, role, suite, events_path, run_id)
     return result
 
