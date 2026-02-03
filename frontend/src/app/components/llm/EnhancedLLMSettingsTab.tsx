@@ -74,12 +74,13 @@ interface EnhancedLLMSettingsTabProps {
   llmLoading: boolean;
   llmSaving: boolean;
   llmError: string | null;
+  deletingProviders?: Record<string, boolean>;
   onSaveConfig: () => void;
   onRunInterview: (role: RoleId) => Promise<Record<string, unknown> | null>;
   onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
-  onDeleteProvider?: (providerId: string) => void;
+  onDeleteProvider?: (providerId: string) => void | Promise<void>;
 }
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
@@ -134,6 +135,7 @@ export function EnhancedLLMSettingsTab({
   llmLoading,
   llmSaving,
   llmError,
+  deletingProviders,
   onSaveConfig,
   onRunInterview,
   onRunReadiness,
@@ -236,6 +238,7 @@ export function EnhancedLLMSettingsTab({
   );
 
   const handleAddProvider = async (providerType: string) => {
+    if (llmSaving) return;
     const defaultConfig = getProviderDefaultConfig(providerType);
     if (!defaultConfig) return;
 
@@ -262,10 +265,11 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
-  const handleDeleteProvider = (providerId: string) => {
+  const handleDeleteProvider = async (providerId: string) => {
     // This would need to be connected to the parent component
+    if (deletingProviders?.[providerId]) return;
     if (onDeleteProvider) {
-      onDeleteProvider(providerId);
+      await onDeleteProvider(providerId);
     }
     if (editingProvider === providerId) {
       setEditingProvider(null);
@@ -312,6 +316,8 @@ export function EnhancedLLMSettingsTab({
     if (!providerInfo) return null;
 
     const isEditing = editingProvider === providerId;
+    const isDeleting = Boolean(deletingProviders?.[providerId]);
+    const actionsDisabled = llmSaving || isDeleting;
 
     return (
       <div key={providerId} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all">
@@ -335,15 +341,17 @@ export function EnhancedLLMSettingsTab({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setEditingProvider(isEditing ? null : providerId)}
-              className="p-1.5 rounded border border-white/10 hover:border-accent/40 transition-colors"
+              disabled={actionsDisabled}
+              className="p-1.5 rounded border border-white/10 hover:border-accent/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Settings className="size-3" />
             </button>
             <button
               onClick={() => handleDeleteProvider(providerId)}
-              className="p-1.5 rounded border border-red-500/30 hover:border-red-500/40 text-red-400 transition-colors"
+              disabled={actionsDisabled}
+              className="p-1.5 rounded border border-red-500/30 hover:border-red-500/40 text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              ×
+              {isDeleting ? <Loader2 className="size-3 animate-spin" /> : '×'}
             </button>
           </div>
         </div>
@@ -470,6 +478,12 @@ export function EnhancedLLMSettingsTab({
             {llmError || providersError}
           </div>
         )}
+        {llmSaving && (
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-text-dim">
+            <Loader2 className="size-3 animate-spin" />
+            <span>Saving LLM configuration...</span>
+          </div>
+        )}
       </div>
 
       {/* Configuration View */}
@@ -498,7 +512,7 @@ export function EnhancedLLMSettingsTab({
               </select>
               <button
                 onClick={() => selectedProviderType && handleAddProvider(selectedProviderType)}
-                disabled={!selectedProviderType}
+                disabled={!selectedProviderType || llmSaving}
                 className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1 disabled:opacity-60"
               >
                 <Plus className="size-3" />

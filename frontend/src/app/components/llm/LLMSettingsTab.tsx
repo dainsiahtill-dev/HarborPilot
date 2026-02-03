@@ -9,7 +9,14 @@ import { useTestEvents } from './test/hooks/useTestEvents';
 import type { TestEvent, TestResult } from './test/types';
 import { LLMVisualEditor } from './visual/LLMVisualEditor';
 import { CodexModelBrowser } from './model-browser/CodexModelBrowser';
-import { isCLIConnection } from './types';
+import {
+  COST_CLASSES,
+  PROVIDER_KINDS,
+  isCLIConnection,
+  isCLIProviderType,
+  type CostClass,
+  type ProviderKind
+} from './types';
 
 interface LlmProviderConfig {
   type?: string;
@@ -30,6 +37,9 @@ interface LlmProviderConfig {
   models_path?: string;
   headers?: Record<string, string>;
   temperature?: number;
+  model?: string;
+  model_id?: string;
+  default_model?: string;
 }
 
 interface LlmRoleConfig {
@@ -160,6 +170,122 @@ const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
   }
 };
 
+const PROVIDER_KIND_VALUES = new Set(Object.values(PROVIDER_KINDS));
+
+const DEFAULT_COST_CLASS_BY_KIND: Record<ProviderKind, CostClass> = {
+  [PROVIDER_KINDS.CODEX_CLI]: COST_CLASSES.FIXED,
+  [PROVIDER_KINDS.GEMINI_CLI]: COST_CLASSES.FIXED,
+  [PROVIDER_KINDS.OLLAMA]: COST_CLASSES.LOCAL,
+  [PROVIDER_KINDS.OPENAI_COMPAT]: COST_CLASSES.METERED,
+  [PROVIDER_KINDS.ANTHROPIC_COMPAT]: COST_CLASSES.METERED,
+  [PROVIDER_KINDS.CUSTOM_HTTPS]: COST_CLASSES.METERED,
+  [PROVIDER_KINDS.MAXMINI]: COST_CLASSES.METERED,
+  [PROVIDER_KINDS.GEMINI_API]: COST_CLASSES.METERED
+};
+
+const resolveProviderKind = (
+  raw?: string,
+  fallback?: { command?: string; base_url?: string }
+): ProviderKind => {
+  const candidate = String(raw || '').trim();
+  if (candidate && PROVIDER_KIND_VALUES.has(candidate as ProviderKind)) {
+    return candidate as ProviderKind;
+  }
+  if (fallback?.command) {
+    return PROVIDER_KINDS.CODEX_CLI;
+  }
+  return PROVIDER_KINDS.OPENAI_COMPAT;
+};
+
+const resolveCostClass = (kind: ProviderKind, current?: CostClass): CostClass => {
+  if (current) return current;
+  return DEFAULT_COST_CLASS_BY_KIND[kind] || COST_CLASSES.METERED;
+};
+
+const extractProviderModel = (
+  providerId: string,
+  cfg: LlmProviderConfig,
+  roles?: Record<string, LlmRoleConfig>
+): string => {
+  const direct = typeof cfg.model === 'string' ? cfg.model.trim() : '';
+  if (direct) return direct;
+  const legacy = typeof cfg.model_id === 'string' ? cfg.model_id.trim() : '';
+  if (legacy) return legacy;
+  const fallback = typeof cfg.default_model === 'string' ? cfg.default_model.trim() : '';
+  if (fallback) return fallback;
+  if (!roles) return '';
+  for (const roleCfg of Object.values(roles)) {
+    if (!roleCfg || typeof roleCfg !== 'object') continue;
+    if (roleCfg.provider_id === providerId && roleCfg.model) {
+      return roleCfg.model;
+    }
+  }
+  return '';
+};
+
+const buildProviderFromConfig = (
+  providerId: string,
+  cfg: LlmProviderConfig,
+  roles: Record<string, LlmRoleConfig> | undefined,
+  previous?: SimpleProvider
+): SimpleProvider => {
+  const kind = resolveProviderKind(cfg.type, { command: cfg.command, base_url: cfg.base_url });
+  const isCli = Boolean(cfg.command) || isCLIProviderType(kind);
+  const conn = isCli
+    ? {
+        kind: kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli',
+        command: cfg.command || (kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
+        args: cfg.args || [],
+        env: cfg.env || {}
+      }
+    : {
+        kind: 'http',
+        baseUrl: cfg.base_url || ''
+      };
+  const modelId = extractProviderModel(providerId, cfg, roles);
+  const cliMode = cfg.cli_mode || previous?.cliMode;
+  const base: SimpleProvider = {
+    id: providerId,
+    name: cfg.name || providerId,
+    kind,
+    conn,
+    cliMode,
+    modelId,
+    status: previous?.status || 'untested',
+    costClass: resolveCostClass(kind, previous?.costClass),
+    outputPath: cfg.output_path,
+    lastError: previous?.lastError,
+    lastTest: previous?.lastTest
+  };
+  return base;
+};
+
+const mapProviderToConfig = (
+  provider: SimpleProvider,
+  existing?: LlmProviderConfig
+): LlmProviderConfig => {
+  const base: LlmProviderConfig = { ...(existing || {}) };
+  base.type = provider.kind;
+  base.name = provider.name;
+  base.model = provider.modelId;
+  if (provider.conn.kind === 'http') {
+    base.base_url = provider.conn.baseUrl;
+    delete base.command;
+    delete base.args;
+    delete base.env;
+  } else {
+    base.command = provider.conn.command;
+    base.args = provider.conn.args || [];
+    base.env = provider.conn.env || {};
+    base.cli_mode = provider.cliMode || 'headless';
+    delete base.base_url;
+  }
+  if (provider.outputPath !== undefined) {
+    base.output_path = provider.outputPath;
+  }
+  return base;
+};
+
 const CODEX_CLI_ARGS = [
   'exec',
   '--skip-git-repo-check',
@@ -248,6 +374,37 @@ export function LLMSettingsTab({
   const updateProviderState = (id: string, updates: Partial<SimpleProvider>) => {
     setProviders((prev) => prev.map((provider) => (provider.id === id ? { ...provider, ...updates } : provider)));
   };
+
+  const syncProvidersToConfig = (nextProviders: SimpleProvider[]) => {
+    if (!llmConfig || !onUpdateConfig) return;
+    const nextConfigs: Record<string, LlmProviderConfig> = {};
+    nextProviders.forEach((provider) => {
+      const existing = llmConfig.providers?.[provider.id];
+      nextConfigs[provider.id] = mapProviderToConfig(provider, existing);
+    });
+    onUpdateConfig({
+      ...llmConfig,
+      providers: nextConfigs
+    });
+  };
+
+  const applyProvidersUpdate = (nextProviders: SimpleProvider[]) => {
+    setProviders(nextProviders);
+    syncProvidersToConfig(nextProviders);
+  };
+
+
+  useEffect(() => {
+    if (!llmConfig) return;
+    const entries = Object.entries(llmConfig.providers || {});
+    const roles = llmConfig.roles || {};
+    setProviders((prev) => {
+      const prevMap = new Map(prev.map((provider) => [provider.id, provider]));
+      return entries.map(([id, cfg]) =>
+        buildProviderFromConfig(id, cfg as LlmProviderConfig, roles, prevMap.get(id))
+      );
+    });
+  }, [llmConfig]);
 
   const selectedTestProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedTestProviderId) || null,
@@ -608,7 +765,8 @@ export function LLMSettingsTab({
                     <button
                       onClick={() => {
                         const newProvider = createCodexProvider();
-                        setProviders([...providers, newProvider]);
+                        const nextProviders = [...providers, newProvider];
+                        applyProvidersUpdate(nextProviders);
                         onAddProvider?.(newProvider);
                       }}
                       className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
@@ -626,7 +784,8 @@ export function LLMSettingsTab({
                           status: 'untested',
                           costClass: 'METERED'
                         };
-                        setProviders([...providers, newProvider]);
+                        const nextProviders = [...providers, newProvider];
+                        applyProvidersUpdate(nextProviders);
                         onAddProvider?.(newProvider);
                       }}
                       className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
@@ -670,7 +829,8 @@ export function LLMSettingsTab({
                   <button
                     onClick={() => {
                       const newProvider = createCodexProvider();
-                      setProviders([...providers, newProvider]);
+                      const nextProviders = [...providers, newProvider];
+                      applyProvidersUpdate(nextProviders);
                       onAddProvider?.(newProvider);
                     }}
                     className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-1"
@@ -730,11 +890,13 @@ export function LLMSettingsTab({
                         }
                         onUpdate={(updates) => {
                           const updated = { ...provider, ...updates };
-                          setProviders(providers.map(p => p.id === provider.id ? updated : p));
+                          const nextProviders = providers.map(p => p.id === provider.id ? updated : p);
+                          applyProvidersUpdate(nextProviders);
                           onUpdateProvider?.(provider.id, updates);
                         }}
                         onDelete={() => {
-                          setProviders(providers.filter(p => p.id !== provider.id));
+                          const nextProviders = providers.filter(p => p.id !== provider.id);
+                          applyProvidersUpdate(nextProviders);
                           onDeleteProvider?.(provider.id);
                         }}
                         onTest={() => openTestPanel(provider.id)}

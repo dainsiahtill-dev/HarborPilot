@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '@/api';
 import { 
   type ProviderInfo,
   type ProviderConfig,
@@ -26,7 +27,7 @@ class ProviderRegistryClass {
     
     try {
       // Fetch providers from backend
-      const response = await fetch('/api/llm/providers');
+      const response = await apiFetch('/llm/providers');
       if (!response.ok) {
         throw new Error(`Failed to load providers: ${response.statusText}`);
       }
@@ -60,7 +61,7 @@ class ProviderRegistryClass {
   }
 
   private async fetchProviderConfig(providerType: string): Promise<ProviderConfig> {
-    const response = await fetch(`/api/llm/providers/${providerType}/config`);
+    const response = await apiFetch(`/llm/providers/${providerType}/config`);
     if (!response.ok) {
       throw new Error(`Failed to fetch config for ${providerType}`);
     }
@@ -143,7 +144,7 @@ class ProviderRegistryClass {
 
   async validateProviderConfig(providerType: string, config: ProviderConfig): Promise<ValidationResult> {
     try {
-      const response = await fetch(`/api/llm/providers/${providerType}/validate`, {
+      const response = await apiFetch(`/llm/providers/${providerType}/validate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

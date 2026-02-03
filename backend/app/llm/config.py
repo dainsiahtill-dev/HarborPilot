@@ -235,7 +235,11 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
 
 
 def llm_config_path(workspace: str, cache_root: str) -> str:
-    return resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/config/llm_config.json")
+    try:
+        return resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/config/llm_config.json")
+    except Exception:
+        # Fallback to local workspace path if cache/ramdisk is invalid
+        return os.path.join(workspace, ".harborpilot", "runtime", "config", "llm_config.json")
 
 
 def load_llm_config(workspace: str, cache_root: str, settings: Optional[Settings] = None) -> Dict[str, Any]:
@@ -266,15 +270,23 @@ def save_llm_config(workspace: str, cache_root: str, payload: Dict[str, Any], se
 
 def normalize_llm_config(payload: Dict[str, Any], settings: Optional[Settings] = None) -> Dict[str, Any]:
     base = build_default_config(settings)
+    
     data = payload.copy() if isinstance(payload, dict) else {}
-    providers = data.get("providers")
-    roles = data.get("roles")
-    policies = data.get("policies")
     schema_version = data.get("schema_version", 1)
-    if not isinstance(providers, dict):
+    
+    # Provider logic: if user supplies providers, use them (allows deletion).
+    # Otherwise fall back to defaults.
+    user_providers = data.get("providers")
+    if isinstance(user_providers, dict):
+        providers = user_providers
+    else:
         providers = base.get("providers", {})
+        
+    roles = data.get("roles")
     if not isinstance(roles, dict):
         roles = base.get("roles", {})
+        
+    policies = data.get("policies")
     if not isinstance(policies, dict):
         policies = base.get("policies", {})
     else:
@@ -289,7 +301,7 @@ def normalize_llm_config(payload: Dict[str, Any], settings: Optional[Settings] =
                 }
     merged = {
         "schema_version": int(schema_version or 1),
-        "providers": {**base.get("providers", {}), **providers},
+        "providers": providers,
         "roles": {**base.get("roles", {}), **roles},
         "policies": {**base.get("policies", {}), **policies},
     }
