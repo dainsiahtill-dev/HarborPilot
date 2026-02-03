@@ -1,24 +1,44 @@
 
-import { X, Minus, Maximize2 } from 'lucide-react';
-import { useState } from 'react';
+import { X, Minus, Maximize2, Square } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export function WindowControls() {
     const [isHovered, setIsHovered] = useState(false);
+    const [isMaximized, setIsMaximized] = useState(false);
 
-    const handleMinimize = () => {
-        window.harborpilot?.windowControl?.minimize();
-    };
+    useEffect(() => {
+        // Get initial state
+        const loadState = async () => {
+            try {
+                const state = await window.harborpilot?.windowControl?.getState?.();
+                if (state) {
+                    setIsMaximized(state.maximized);
+                }
+            } catch (error) {
+                console.warn('Failed to get window state:', error);
+            }
+        };
+        loadState();
+    }, []);
 
-    const handleMaximize = () => {
-        window.harborpilot?.windowControl?.maximize();
+    const handleMaximize = async () => {
+        try {
+            const newState = await window.harborpilot?.windowControl?.maximize?.();
+            if (typeof newState === 'boolean') {
+                setIsMaximized(newState);
+            }
+        } catch (error) {
+            console.error('Failed to toggle maximize:', error);
+        }
     };
 
     const handleClose = () => {
-        window.harborpilot?.windowControl?.close();
+        window.harborpilot?.windowControl?.close?.();
     };
 
-    // If not running in Electron (or preload not loaded), we could hide this.
-    // But for design preview, we'll render it.
+    const handleMinimize = () => {
+        window.harborpilot?.windowControl?.minimize?.();
+    };
 
     return (
         <div
@@ -45,9 +65,13 @@ export function WindowControls() {
             <button
                 onClick={handleMaximize}
                 className="size-3 rounded-full bg-[#27c93f] border border-[#1aab29] flex items-center justify-center text-[#0a4d13]/70 hover:text-[#0a4d13] transition-colors shadow-inner"
-                aria-label="Maximize"
+                aria-label={isMaximized ? "Restore" : "Maximize"}
             >
-                {isHovered && <Maximize2 className="size-2" strokeWidth={3} />}
+                {isHovered && (
+                    isMaximized ? 
+                    <Square className="size-2" strokeWidth={3} /> : 
+                    <Maximize2 className="size-2" strokeWidth={3} />
+                )}
             </button>
         </div>
     );

@@ -22,10 +22,74 @@ export function CodexCLIProviderSettings({
 
   const codexExec = provider.codex_exec || {};
   const modelId = typeof provider.model === 'string' ? provider.model : '';
+  const configOverrides = Array.isArray(codexExec.config) ? codexExec.config : [];
   const cliMode: CLIMode =
     provider.cli_mode === CLI_MODES.TUI || provider.cli_mode === CLI_MODES.HEADLESS
       ? provider.cli_mode
       : CLI_MODES.HEADLESS;
+
+  const getConfigOverrideValue = (key: string): string | null => {
+    for (const entry of configOverrides) {
+      const eqIndex = entry.indexOf('=');
+      if (eqIndex <= 0) {
+        continue;
+      }
+      const entryKey = entry.slice(0, eqIndex).trim();
+      if (entryKey !== key) {
+        continue;
+      }
+      const rawValue = entry.slice(eqIndex + 1).trim();
+      if (
+        (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+        (rawValue.startsWith("'") && rawValue.endsWith("'"))
+      ) {
+        return rawValue.slice(1, -1);
+      }
+      return rawValue;
+    }
+    return null;
+  };
+
+  const upsertConfigOverride = (key: string, value: string | null): string[] => {
+    const updated = configOverrides
+      .map((entry) => {
+        const eqIndex = entry.indexOf('=');
+        if (eqIndex <= 0) {
+          return entry;
+        }
+        const entryKey = entry.slice(0, eqIndex).trim();
+        if (entryKey !== key) {
+          return entry;
+        }
+        return value ? `${key}=${value}` : null;
+      })
+      .filter((entry): entry is string => Boolean(entry));
+
+    const hasKey = updated.some((entry) => entry.split('=', 1)[0].trim() === key);
+    if (value && !hasKey) {
+      updated.push(`${key}=${value}`);
+    }
+    return updated;
+  };
+
+  const approvalPolicyOverride = getConfigOverrideValue('approval_policy');
+  const approvalPolicyValue =
+    approvalPolicyOverride ??
+    (typeof codexExec.ask_for_approval === 'string' && codexExec.ask_for_approval
+      ? codexExec.ask_for_approval
+      : 'auto');
+
+  const reasoningEffortOverride = getConfigOverrideValue('model_reasoning_effort');
+  const reasoningEffortValue = reasoningEffortOverride || 'auto';
+
+  const updateConfigOverride = (
+    key: string,
+    value: string | null,
+    extraUpdates: Record<string, unknown> = {}
+  ) => {
+    const nextOverrides = upsertConfigOverride(key, value);
+    handleFieldChange('codex_exec', { ...codexExec, ...extraUpdates, config: nextOverrides });
+  };
 
   const buildHeadlessArgs = (): string[] => {
     const opts = typeof codexExec === 'object' && codexExec ? codexExec : {};
@@ -57,14 +121,7 @@ export function CodexCLIProviderSettings({
       args.push(jsonMode === 'experimental' ? '--experimental-json' : '--json');
     }
 
-    const approvals = String(
-      (opts as Record<string, unknown>).ask_for_approval ||
-        (opts as Record<string, unknown>).approvals ||
-        ''
-    ).trim();
-    if (approvals) {
-      args.push('--ask-for-approval', approvals);
-    }
+    // codex exec no longer supports --ask-for-approval; avoid rendering it in templates.
 
     if ((opts as Record<string, unknown>).oss) {
       args.push('--oss');
@@ -177,21 +234,54 @@ export function CodexCLIProviderSettings({
           </p>
         </div>
 
-        {/* Approval Mode */}
+        {/* Approval Policy */}
         <div>
-          <label className="block text-xs text-text-muted mb-1">Approval Mode</label>
+          <label className="block text-xs text-text-muted mb-1">Approval Policy</label>
           <select
-            value={codexExec.ask_for_approval || 'on-request'}
-            onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, ask_for_approval: e.target.value })}
+            value={approvalPolicyValue}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === 'auto') {
+                updateConfigOverride('approval_policy', null, { ask_for_approval: '' });
+                return;
+              }
+              updateConfigOverride('approval_policy', `"${value}"`, { ask_for_approval: value });
+            }}
             className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
           >
+            <option value="auto">Auto (profile/default)</option>
             <option value="untrusted">Untrusted (Always ask)</option>
             <option value="on-failure">On Failure</option>
             <option value="on-request">On Request</option>
             <option value="never">Never</option>
           </select>
           <p className="text-[9px] text-text-dim mt-1">
-            Controls when Codex asks for approval before running commands
+            Stored as <span className="font-mono">--config approval_policy=...</span> (overrides profile defaults).
+          </p>
+        </div>
+
+        {/* Reasoning Effort */}
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Reasoning Effort</label>
+          <select
+            value={reasoningEffortValue}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === 'auto') {
+                updateConfigOverride('model_reasoning_effort', null);
+                return;
+              }
+              updateConfigOverride('model_reasoning_effort', `"${value}"`);
+            }}
+            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+          >
+            <option value="auto">Auto (profile/default)</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+          <p className="text-[9px] text-text-dim mt-1">
+            Some models only support a subset (e.g. medium/high). Auto uses the profile default.
           </p>
         </div>
 
@@ -392,7 +482,8 @@ export function CodexCLIProviderSettings({
             placeholder="key1=value1&#10;key2=value2"
           />
           <p className="text-[9px] text-text-dim mt-1">
-            Inline configuration overrides (one per line, key=value format)
+            TOML values are supported. Examples: <span className="font-mono">web_search=&quot;live&quot;</span>,{' '}
+            <span className="font-mono">shell_environment_policy.include_only=[&quot;PATH&quot;,&quot;HOME&quot;]</span>
           </p>
         </div>
 

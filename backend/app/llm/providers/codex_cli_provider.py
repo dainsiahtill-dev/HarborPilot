@@ -100,12 +100,7 @@ def _build_codex_exec_args(model: str, config: Dict[str, Any]) -> List[str]:
         else:
             args.append('--json')
     
-    # Approval control (--ask-for-approval, -a)
-    approvals = str(opts.get('ask_for_approval') or opts.get('approvals') or '').strip()
-    if approvals:
-        valid_approvals = ['untrusted', 'on-failure', 'on-request', 'never']
-        if approvals.lower() in valid_approvals:
-            args += ['--ask-for-approval', approvals.lower()]
+    # Approval control was removed from recent codex exec CLI; skip to avoid errors.
     
     # OSS provider (--oss)
     if bool(opts.get('oss')):
@@ -166,6 +161,76 @@ def _build_codex_exec_args(model: str, config: Dict[str, Any]) -> List[str]:
     args.append('{prompt}')
     
     return args
+
+
+_REASONING_EFFORT_RANK = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "xhigh": 4,
+}
+
+
+def _pick_reasoning_effort_fallback(error_text: str) -> Optional[str]:
+    """Pick a safe reasoning.effort fallback based on CLI error details."""
+    if not error_text:
+        return None
+    if "reasoning.effort" not in error_text and "reasoning effort" not in error_text:
+        return None
+
+    supported: List[str] = []
+    match = re.search(r"Supported values are:(.*)$", error_text, re.IGNORECASE | re.DOTALL)
+    if match:
+        supported = [
+            value.lower()
+            for value in re.findall(r"'([a-zA-Z0-9_-]+)'", match.group(1))
+            if value.lower() in _REASONING_EFFORT_RANK
+        ]
+    if supported:
+        return max(supported, key=lambda effort: _REASONING_EFFORT_RANK[effort])
+
+    mentions = [
+        value.lower()
+        for value in re.findall(r"'([a-zA-Z0-9_-]+)'", error_text)
+        if value.lower() in _REASONING_EFFORT_RANK
+    ]
+    if "xhigh" in mentions:
+        return "high"
+    if "high" in mentions:
+        return "medium"
+    if "medium" in mentions:
+        return "low"
+    return None
+
+
+def _set_codex_config_override(args: List[str], key: str, value: str) -> List[str]:
+    """Insert or replace a --config key=value override for codex exec."""
+    updated: List[str] = []
+    replaced = False
+    idx = 0
+    while idx < len(args):
+        item = args[idx]
+        if item == "--config" and idx + 1 < len(args):
+            kv = str(args[idx + 1])
+            if kv.split("=", 1)[0].strip() == key:
+                updated.extend(["--config", f"{key}={value}"])
+                idx += 2
+                replaced = True
+                continue
+        updated.append(item)
+        idx += 1
+
+    if not replaced:
+        inserted = False
+        for pos, item in enumerate(updated):
+            if item == "{prompt}":
+                updated = updated[:pos] + ["--config", f"{key}={value}"] + updated[pos:]
+                inserted = True
+                break
+        if not inserted:
+            updated.extend(["--config", f"{key}={value}"])
+
+    return updated
 
 
 def _run_cli(
@@ -639,22 +704,22 @@ class CodexCLIProvider(BaseProvider):
         
         rendered_args, send_prompt = self._render_args(args, prompt, model, output_path)
         timeout = int(config.get("timeout") or 60)
-        
-        try:
+
+        def run_once(selected_args: List[str], use_prompt: bool) -> Tuple[int, str, str, str, int]:
             code, stdout, stderr, latency_ms = _run_cli(
                 resolved,
-                rendered_args,
+                selected_args,
                 str(config.get("working_dir") or ""),
                 config.get("env") or {},
                 timeout,
-                prompt if send_prompt else None,
+                prompt if use_prompt else None,
             )
             output = stdout.strip() if stdout else ""
-            
+
             # Parse JSON output for structured content
-            if output and '--json' in rendered_args:
+            if output and '--json' in selected_args:
                 output = _parse_codex_json_output(output)
-            
+
             # Check output file if specified
             if not output and output_path and os.path.isfile(output_path):
                 try:
@@ -662,12 +727,35 @@ class CodexCLIProvider(BaseProvider):
                         output = handle.read().strip()
                 except Exception:
                     pass
-            
-            usage = estimate_usage(prompt, output)
+
+            return code, output, stdout or "", stderr or "", latency_ms
+
+        try:
+            code, output, stdout_raw, stderr_raw, latency_ms = run_once(rendered_args, send_prompt)
             if code != 0:
-                message = (stderr or stdout or "Codex CLI invoke failed").strip()
+                message = (stderr_raw or stdout_raw or "Codex CLI invoke failed").strip()
+                fallback_effort = _pick_reasoning_effort_fallback(message)
+                if fallback_effort:
+                    retry_args = _set_codex_config_override(
+                        args,
+                        "model_reasoning_effort",
+                        f'"{fallback_effort}"'
+                    )
+                    rendered_retry_args, send_prompt_retry = self._render_args(retry_args, prompt, model, output_path)
+                    code, output, stdout_raw, stderr_raw, latency_ms = run_once(
+                        rendered_retry_args, send_prompt_retry
+                    )
+                    if code == 0:
+                        usage = estimate_usage(prompt, output)
+                        return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage)
+                    message = (stderr_raw or stdout_raw or "Codex CLI invoke failed").strip()
+                    if message:
+                        message = f"{message}\n(auto-fallback reasoning.effort={fallback_effort} failed)"
+
+                usage = estimate_usage(prompt, output)
                 return InvokeResult(ok=False, output=output, latency_ms=latency_ms, usage=usage, error=message)
-            
+
+            usage = estimate_usage(prompt, output)
             return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage)
         except subprocess.TimeoutExpired:
             usage = estimate_usage(prompt, "")

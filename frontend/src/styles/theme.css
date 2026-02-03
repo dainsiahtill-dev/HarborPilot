@@ -201,6 +201,45 @@
     @apply backdrop-blur-md bg-white/5 border border-white/10 shadow-lg;
   }
 
+  /* Cyberpunk Button Classes - Opt-in Only */
+  .btn-cyber {
+    @apply bg-accent/10 text-accent-text border border-accent/30;
+    @apply hover:bg-accent/20 hover:border-accent/50;
+    @apply transition-all duration-200;
+    @apply shadow-sm hover:shadow-glow;
+  }
+
+  .btn-cyber-primary {
+    @apply bg-gradient-to-r from-violet-500 to-purple-600 text-white border-transparent;
+    @apply hover:from-violet-600 hover:to-purple-700;
+    @apply shadow-glow hover:shadow-glow-lg;
+    @apply transition-all duration-200;
+  }
+
+  .btn-cyber-secondary {
+    @apply bg-bg-surface/50 text-text-main border-border/50;
+    @apply hover:bg-bg-surface/70 hover:border-accent/30;
+    @apply transition-all duration-200;
+  }
+
+  .btn-cyber-danger {
+    @apply bg-status-error/20 text-status-error border-status-error/30;
+    @apply hover:bg-status-error/30 hover:border-status-error/50;
+    @apply transition-all duration-200;
+  }
+
+  .btn-cyber-success {
+    @apply bg-status-success/20 text-status-success border-status-success/30;
+    @apply hover:bg-status-success/30 hover:border-status-success/50;
+    @apply transition-all duration-200;
+  }
+
+  .btn-cyber-ghost {
+    @apply bg-transparent text-accent-text border-transparent;
+    @apply hover:bg-accent/10 hover:border-accent/20;
+    @apply transition-all duration-200;
+  }
+
   .bg-cyber-grid {
     background-image:
       linear-gradient(rgba(139, 92, 246, 0.05) 1px, transparent 1px),

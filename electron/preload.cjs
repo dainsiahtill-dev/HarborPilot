@@ -30,5 +30,6 @@ contextBridge.exposeInMainWorld("harborpilot", {
     minimize: () => ipcRenderer.invoke("hp:window-minimize"),
     maximize: () => ipcRenderer.invoke("hp:window-maximize"),
     close: () => ipcRenderer.invoke("hp:window-close"),
+    getState: () => ipcRenderer.invoke("hp:window-get-state"),
   },
 });

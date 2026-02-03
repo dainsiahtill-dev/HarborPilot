@@ -33,6 +33,54 @@ const repoRoot = path.join(__dirname, "..");
 const backendScript = path.join(__dirname, "..", "backend", "server.py");
 const frontendDist = path.join(__dirname, "..", "frontend", "dist", "index.html");
 
+// Window state management
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'window-config.json');
+}
+
+function loadWindowState() {
+  try {
+    const configPath = getConfigPath();
+    console.log('Loading window state from:', configPath);
+    
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf8');
+      const state = JSON.parse(data);
+      console.log('Loaded window state:', state);
+      return state;
+    } else {
+      console.log('Window config file does not exist, using defaults');
+    }
+  } catch (error) {
+    console.warn('Failed to load window config:', error);
+  }
+  return { maximized: false, bounds: null };
+}
+
+function saveWindowState(win) {
+  try {
+    const configPath = getConfigPath();
+    const configDir = path.dirname(configPath);
+    
+    // Ensure config directory exists
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+      console.log('Created config directory:', configDir);
+    }
+    
+    const state = {
+      maximized: win.isMaximized(),
+      bounds: win.isMaximized() ? null : win.getBounds()
+    };
+    
+    fs.writeFileSync(configPath, JSON.stringify(state, null, 2));
+    console.log('Window state saved to:', configPath);
+    console.log('Saved state:', state);
+  } catch (error) {
+    console.warn('Failed to save window config:', error);
+  }
+}
+
 let backendProcess = null;
 let backendInfo = {
   port: null,
@@ -253,9 +301,14 @@ async function startBackend() {
 }
 
 async function createWindow() {
+  const savedState = loadWindowState();
+  console.log('Creating window with saved state:', savedState);
+  
   const win = new BrowserWindow({
-    width: 1200,
-    height: 900,
+    width: savedState.bounds?.width || 1200,
+    height: savedState.bounds?.height || 900,
+    x: savedState.bounds?.x || undefined,
+    y: savedState.bounds?.y || undefined,
     frame: false, // Custom frame
     backgroundColor: '#000000', // Avoid white flash
     icon: path.join(__dirname, 'assets', 'icons', 'icon.png'), // 应用图标
@@ -265,12 +318,45 @@ async function createWindow() {
     },
   });
 
+  // Restore maximized state after window is ready
+  if (savedState.maximized) {
+    console.log('Window will be maximized after ready');
+    // Wait for window to be fully loaded and ready
+    win.once('ready-to-show', () => {
+      console.log('Window ready to show, maximizing now');
+      win.maximize();
+    });
+  }
+
+  // Save state on window events
+  win.on('maximize', () => {
+    console.log('Window maximized, saving state');
+    saveWindowState(win);
+  });
+  win.on('unmaximize', () => {
+    console.log('Window unmaximized, saving state');
+    saveWindowState(win);
+  });
+  win.on('resized', () => saveWindowState(win));
+  win.on('moved', () => saveWindowState(win));
+
   const devUrl = process.env.HARBORPILOT_DEV_SERVER_URL || "http://localhost:5173";
   if (!app.isPackaged) {
     await win.loadURL(devUrl);
     win.webContents.openDevTools({ mode: "detach" });
   } else {
     await win.loadFile(frontendDist);
+  }
+
+  // Alternative: maximize after URL is loaded as backup
+  if (savedState.maximized) {
+    console.log('Window loaded, checking if maximization needed');
+    setTimeout(() => {
+      if (!win.isMaximized()) {
+        console.log('Window not maximized yet, forcing maximize now');
+        win.maximize();
+      }
+    }, 100);
   }
 }
 
@@ -494,10 +580,19 @@ app.whenReady().then(async () => {
     } else {
       win?.maximize();
     }
+    // State is automatically saved by event listeners
+    return win?.isMaximized() || false;
   });
   ipcMain.handle("hp:window-close", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     win?.close();
+  });
+  ipcMain.handle("hp:window-get-state", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return {
+      maximized: win?.isMaximized() || false,
+      bounds: win?.getBounds() || null
+    };
   });
 
   await createWindow();

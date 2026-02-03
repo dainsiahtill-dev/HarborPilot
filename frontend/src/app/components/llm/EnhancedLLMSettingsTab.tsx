@@ -53,6 +53,18 @@ interface LlmStatus {
   blocked_roles: string[];
   unsupported_roles: string[];
   roles: Record<string, LlmStatusRole>;
+  providers?: Record<
+    string,
+    {
+      ready?: boolean | null;
+      grade?: string;
+      last_run_id?: string | null;
+      timestamp?: string | null;
+      suites?: Record<string, unknown> | null;
+      model?: string | null;
+      role?: string | null;
+    }
+  >;
 }
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
@@ -90,8 +102,9 @@ interface EnhancedLLMSettingsTabProps {
   onUpdateConfig?: (config: LlmConfig) => void;
   onTestProvider?: (provider: SimpleProvider, onEvent?: (event: TestEvent) => void) => Promise<TestResult | null>;
   onCancelTestProvider?: () => void;
-  onVisualModeChange?: (active: boolean) => void;
 }
+
+type ConnectivityStatus = 'unknown' | 'running' | 'success' | 'failed';
 
 const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
   pm: {
@@ -154,8 +167,7 @@ export function EnhancedLLMSettingsTab({
   onDeleteProvider,
   onUpdateConfig,
   onTestProvider,
-  onCancelTestProvider,
-  onVisualModeChange
+  onCancelTestProvider
 }: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [activeTab, setActiveTab] = useState<'config' | 'deepTest'>('config');
@@ -170,6 +182,7 @@ export function EnhancedLLMSettingsTab({
   const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testCancelled, setTestCancelled] = useState(false);
+  const [providerTestStatus, setProviderTestStatus] = useState<Record<string, ConnectivityStatus>>({});
   const { events, addEvent, resetEvents } = useTestEvents();
   const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
 
@@ -294,12 +307,6 @@ export function EnhancedLLMSettingsTab({
   }, [llmConfig, roles, selectedRole]);
 
   useEffect(() => {
-    if (onVisualModeChange) {
-      onVisualModeChange(activeTab === 'config' && configView === 'visual');
-    }
-  }, [activeTab, configView, onVisualModeChange]);
-
-  useEffect(() => {
     if (typeof document === 'undefined') return;
     setPanelHost(document.getElementById('llm-test-panel-slot'));
   }, []);
@@ -343,6 +350,9 @@ export function EnhancedLLMSettingsTab({
       onCancelTestProvider();
     }
     setTestCancelled(true);
+    if (selectedTestProviderId) {
+      setProviderTestStatus((prev) => ({ ...prev, [selectedTestProviderId]: 'unknown' }));
+    }
     addEvent({
       type: 'error',
       timestamp: new Date().toISOString(),
@@ -358,6 +368,7 @@ export function EnhancedLLMSettingsTab({
 
   const runSelectedTest = async () => {
     if (!selectedTestProvider || !onTestProvider) return;
+    setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: 'running' }));
     setTestStatus('running');
     setTestCancelled(false);
     resetEvents();
@@ -371,6 +382,10 @@ export function EnhancedLLMSettingsTab({
         addEvent(event);
       });
       if (!result) {
+        setProviderTestStatus((prev) => ({
+          ...prev,
+          [selectedTestProvider.id]: testCancelled ? 'unknown' : 'failed'
+        }));
         setTestStatus('failed');
         const hasErrorEvent = events.some((event) => event.type === 'error');
         const fallbackMessage = testCancelled ? '测试已取消' : '测试未返回结果';
@@ -383,7 +398,16 @@ export function EnhancedLLMSettingsTab({
         }
         return;
       }
+      const connectivitySuite = result.suites?.find((suite) => suite.name === 'connectivity');
       const ready = result.ready ?? result.grade === 'PASS';
+      const connectivityStatus: ConnectivityStatus = connectivitySuite
+        ? connectivitySuite.ok
+          ? 'success'
+          : 'failed'
+        : ready
+          ? 'success'
+          : 'failed';
+      setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: connectivityStatus }));
       setTestStatus(ready ? 'success' : 'failed');
       addEvent({
         type: ready ? 'result' : 'error',
@@ -392,6 +416,9 @@ export function EnhancedLLMSettingsTab({
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : '测试失败';
+      if (selectedTestProvider) {
+        setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: 'failed' }));
+      }
       setTestStatus('failed');
       if (!shouldSkipErrorEvent(err)) {
         addEvent({
@@ -402,6 +429,30 @@ export function EnhancedLLMSettingsTab({
       }
     }
   };
+
+  const providerConnectivityStatus = useMemo(() => {
+    const status: Record<string, ConnectivityStatus> = {};
+    const providersStatus = llmStatus?.providers;
+    if (!providersStatus) return status;
+    Object.entries(providersStatus).forEach(([providerId, providerStatus]) => {
+      if (!providerStatus || typeof providerStatus !== 'object') {
+        status[providerId] = 'unknown';
+        return;
+      }
+      const suites = providerStatus.suites as Record<string, unknown> | undefined;
+      const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
+      if (connectivity && typeof connectivity.ok === 'boolean') {
+        status[providerId] = connectivity.ok ? 'success' : 'failed';
+        return;
+      }
+      if (typeof providerStatus.ready === 'boolean') {
+        status[providerId] = providerStatus.ready ? 'success' : 'failed';
+        return;
+      }
+      status[providerId] = 'unknown';
+    });
+    return status;
+  }, [llmStatus]);
 
   const globalReadiness = useMemo(() => {
     const state = llmStatus?.state || 'UNKNOWN';
@@ -522,8 +573,50 @@ export function EnhancedLLMSettingsTab({
     const actionsDisabled = llmSaving || isDeleting;
     const testDisabled = actionsDisabled || !onTestProvider;
 
+    const localStatus = providerTestStatus[providerId];
+    const persistedStatus = providerConnectivityStatus[providerId];
+    const connectivityState =
+      localStatus === 'running'
+        ? 'running'
+        : persistedStatus || localStatus || 'unknown';
+    const statusStyleKey = connectivityState === 'running' ? 'unknown' : connectivityState;
+    const statusStyles = {
+      unknown: {
+        border: 'border-amber-500/30',
+        bg: 'bg-amber-500/5',
+        glow: 'shadow-[0_0_24px_rgba(251,191,36,0.15)]',
+        dot: 'bg-amber-400',
+        text: 'text-amber-300'
+      },
+      success: {
+        border: 'border-emerald-500/40',
+        bg: 'bg-emerald-500/5',
+        glow: 'shadow-[0_0_24px_rgba(16,185,129,0.18)]',
+        dot: 'bg-emerald-400',
+        text: 'text-emerald-300'
+      },
+      failed: {
+        border: 'border-rose-500/40',
+        bg: 'bg-rose-500/5',
+        glow: 'shadow-[0_0_24px_rgba(244,63,94,0.18)]',
+        dot: 'bg-rose-400',
+        text: 'text-rose-300'
+      }
+    }[statusStyleKey];
+    const connectivityLabel =
+      connectivityState === 'running'
+        ? '测试中'
+        : connectivityState === 'success'
+          ? '连通正常'
+          : connectivityState === 'failed'
+            ? '连通失败'
+            : '连通未知';
+
     return (
-      <div key={providerId} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-all">
+      <div
+        key={providerId}
+        className={`rounded-xl p-4 border transition-all ${statusStyles.border} ${statusStyles.bg} ${statusStyles.glow}`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -536,6 +629,11 @@ export function EnhancedLLMSettingsTab({
                 <span>•</span>
                 <span className={`${getCostClass(provider.type || '').toLowerCase() === 'local' ? 'text-green-400' : getCostClass(provider.type || '').toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
                   {getCostClass(provider.type || '')}
+                </span>
+                <span>•</span>
+                <span className={`flex items-center gap-1 ${statusStyles.text}`}>
+                  <span className={`size-2 rounded-full ${statusStyles.dot} animate-pulse`} />
+                  {connectivityLabel}
                 </span>
               </div>
             </div>
@@ -805,7 +903,7 @@ export function EnhancedLLMSettingsTab({
 
       {/* DEEP TEST Tab */}
       {activeTab === 'deepTest' && (
-        <div className="space-y-4">
+        <div className="space-y-4 w-full max-w-5xl mx-auto min-h-[60vh]">
           <div className="rounded-2xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(16,185,129,0.18)]">
             <div className="text-xs uppercase tracking-widest text-emerald-200">Deep Test Chamber</div>
             <div className="text-[10px] text-text-dim mt-1">
@@ -813,27 +911,29 @@ export function EnhancedLLMSettingsTab({
             </div>
           </div>
 
-          {deepView === 'hall' ? (
-            <InterviewHall
-              roles={roles}
-              candidates={candidates}
-              selectedRole={selectedRole}
-              onSelectRole={setSelectedRole}
-              onStartInterview={handleStartInterview}
-              onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
-              disabledReason={!canRunReadiness ? '请先选择LLM提供商和模型' : undefined}
-              running={interviewRunning}
-            />
-          ) : (
-            <InterviewSession
-              roleLabel={selectedMeta?.label || selectedRole}
-              roleId={selectedRole}
-              report={interviewReport}
-              running={interviewRunning}
-              error={interviewError}
-              onBack={() => setDeepView('hall')}
-            />
-          )}
+          <div className="w-full">
+            {deepView === 'hall' ? (
+              <InterviewHall
+                roles={roles}
+                candidates={candidates}
+                selectedRole={selectedRole}
+                onSelectRole={setSelectedRole}
+                onStartInterview={handleStartInterview}
+                onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
+                disabledReason={!canRunReadiness ? '请先选择LLM提供商和模型' : undefined}
+                running={interviewRunning}
+              />
+            ) : (
+              <InterviewSession
+                roleLabel={selectedMeta?.label || selectedRole}
+                roleId={selectedRole}
+                report={interviewReport}
+                running={interviewRunning}
+                error={interviewError}
+                onBack={() => setDeepView('hall')}
+              />
+            )}
+          </div>
         </div>
       )}
 

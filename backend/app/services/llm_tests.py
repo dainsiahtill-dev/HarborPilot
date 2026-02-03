@@ -1011,9 +1011,25 @@ def _update_index(settings: Settings, cache_root: str, role: str, report: Dict[s
         "timestamp": report.get("timestamp"),
         "suites": report.get("suites"),
     }
+    providers = data.get("providers")
+    if not isinstance(providers, dict):
+        providers = {}
+    target = report.get("target") if isinstance(report.get("target"), dict) else {}
+    provider_id = target.get("provider_id") if isinstance(target, dict) else None
+    if provider_id:
+        providers[str(provider_id)] = {
+            "last_run_id": report.get("test_run_id"),
+            "ready": report.get("final", {}).get("ready"),
+            "grade": report.get("final", {}).get("grade"),
+            "timestamp": report.get("timestamp"),
+            "suites": report.get("suites"),
+            "model": target.get("model") if isinstance(target, dict) else None,
+            "role": target.get("role") if isinstance(target, dict) else None,
+        }
     data["schema_version"] = 1
     data["updated_at"] = _utc_now()
     data["roles"] = roles
+    data["providers"] = providers
     _write_json(index_path, data)
 
 
@@ -1022,13 +1038,13 @@ def load_llm_test_index(settings: Settings) -> Dict[str, Any]:
     cache_root = build_cache_root(settings.ramdisk_root or "", workspace)
     index_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/llm_tests/index.json")
     if not os.path.isfile(index_path):
-        return {"schema_version": 1, "roles": {}}
+        return {"schema_version": 1, "roles": {}, "providers": {}}
     try:
         with open(index_path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-        return data if isinstance(data, dict) else {"schema_version": 1, "roles": {}}
+        return data if isinstance(data, dict) else {"schema_version": 1, "roles": {}, "providers": {}}
     except Exception:
-        return {"schema_version": 1, "roles": {}}
+        return {"schema_version": 1, "roles": {}, "providers": {}}
 
 
 def reset_llm_test_index(settings: Settings) -> None:

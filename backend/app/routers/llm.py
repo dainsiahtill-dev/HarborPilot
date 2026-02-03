@@ -197,7 +197,9 @@ def llm_status(request: Request) -> Dict[str, Any]:
     index = load_llm_test_index(state.settings)
     roles_cfg = config.get("roles", {}) if isinstance(config.get("roles"), dict) else {}
     providers = config.get("providers", {}) if isinstance(config.get("providers"), dict) else {}
+    provider_index = index.get("providers", {}) if isinstance(index.get("providers"), dict) else {}
     roles_status: Dict[str, Any] = {}
+    providers_status: Dict[str, Any] = {}
     for role, role_cfg in roles_cfg.items():
         if not isinstance(role_cfg, dict):
             continue
@@ -216,6 +218,19 @@ def llm_status(request: Request) -> Dict[str, Any]:
             "suites": test_info.get("suites") if isinstance(test_info, dict) else None,
             "runtime_supported": runtime_supported,
         }
+    for provider_id, provider_cfg in providers.items():
+        if not isinstance(provider_cfg, dict):
+            continue
+        test_info = provider_index.get(provider_id) if isinstance(provider_index, dict) else None
+        providers_status[provider_id] = {
+            "ready": test_info.get("ready") if isinstance(test_info, dict) else None,
+            "grade": test_info.get("grade") if isinstance(test_info, dict) else "UNKNOWN",
+            "last_run_id": test_info.get("last_run_id") if isinstance(test_info, dict) else None,
+            "timestamp": test_info.get("timestamp") if isinstance(test_info, dict) else None,
+            "suites": test_info.get("suites") if isinstance(test_info, dict) else None,
+            "model": test_info.get("model") if isinstance(test_info, dict) else None,
+            "role": test_info.get("role") if isinstance(test_info, dict) else None,
+        }
     required = config.get("policies", {}).get("required_ready_roles") or []
     blocked = [r for r in required if not roles_status.get(r, {}).get("ready")]
     unsupported = [r for r in required if not roles_status.get(r, {}).get("runtime_supported")]
@@ -224,6 +239,7 @@ def llm_status(request: Request) -> Dict[str, Any]:
         global_state = "BLOCKED"
     return {
         "roles": roles_status,
+        "providers": providers_status,
         "required_ready_roles": required,
         "blocked_roles": blocked,
         "unsupported_roles": unsupported,
