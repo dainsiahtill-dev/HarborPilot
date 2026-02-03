@@ -3,21 +3,21 @@ const { spawn, spawnSync } = require("child_process");
 const { randomBytes } = require("crypto");
 
 // 完全禁用 util._extend 的弃用警告
-const util = require("util");
-const originalExtend = util._extend;
-if (originalExtend) {
-  util._extend = function(target, source) {
-    // 直接使用 Object.assign 替代，不产生警告
-    return Object.assign(target, source);
-  };
-  // 保持原有属性
-  Object.setPrototypeOf(util._extend, Object.getPrototypeOf(originalExtend));
-  Object.getOwnPropertyNames(originalExtend).forEach(name => {
-    if (name !== 'length' && name !== 'name' && name !== 'prototype') {
-      Object.defineProperty(util._extend, name, Object.getOwnPropertyDescriptor(originalExtend, name));
-    }
-  });
-}
+// const util = require("util");
+// const originalExtend = util._extend;
+// if (originalExtend) {
+//   util._extend = function(target, source) {
+//     // 直接使用 Object.assign 替代，不产生警告
+//     return Object.assign(target, source);
+//   };
+//   // 保持原有属性
+//   Object.setPrototypeOf(util._extend, Object.getPrototypeOf(originalExtend));
+//   Object.getOwnPropertyNames(originalExtend).forEach(name => {
+//     if (name !== 'length' && name !== 'name' && name !== 'prototype') {
+//       Object.defineProperty(util._extend, name, Object.getOwnPropertyDescriptor(originalExtend, name));
+//     }
+//   });
+// }
 
 const pty = require("node-pty");
 const net = require("net");
@@ -318,19 +318,96 @@ app.whenReady().then(async () => {
     if (!command) {
       command = process.platform === "win32" ? "powershell.exe" : "bash";
     }
-    const args = Array.isArray(payload.args) ? payload.args.map((arg) => String(arg)) : [];
+    const rawArgs = Array.isArray(payload.args) ? payload.args.map((arg) => String(arg)) : [];
+    let spawnCommand = String(command);
+    let spawnArgs = rawArgs;
+    if (process.platform === "win32") {
+      const preferredExts = [".exe", ".cmd", ".bat", ".ps1"];
+      const resolveCandidate = (candidate) => {
+        if (!candidate) return null;
+        const ext = path.extname(candidate).toLowerCase();
+        if (ext) return candidate;
+        if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+          for (const extOpt of preferredExts) {
+            const withExt = `${candidate}${extOpt}`;
+            if (fs.existsSync(withExt)) return withExt;
+          }
+        }
+        return null;
+      };
+      const resolveFromWhere = (value) => {
+        try {
+          const result = spawnSync("where", [value], { encoding: "utf-8" });
+          if (result.status !== 0 || typeof result.stdout !== "string") return null;
+          const lines = result.stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          if (lines.length === 0) return null;
+          for (const extOpt of preferredExts) {
+            const match = lines.find((line) => path.extname(line).toLowerCase() === extOpt);
+            if (match) return match;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      };
+
+      let resolved = resolveCandidate(spawnCommand);
+      if (!resolved && !path.isAbsolute(spawnCommand)) {
+        resolved = resolveFromWhere(spawnCommand);
+        if (!resolved) {
+          for (const extOpt of preferredExts) {
+            resolved = resolveFromWhere(`${spawnCommand}${extOpt}`);
+            if (resolved) break;
+          }
+        }
+      }
+
+      const target = resolved || spawnCommand;
+      const targetExt = path.extname(target).toLowerCase();
+      if (targetExt === ".cmd" || targetExt === ".bat") {
+        spawnCommand = "cmd.exe";
+        spawnArgs = ["/c", target, ...rawArgs];
+      } else if (targetExt === ".ps1") {
+        spawnCommand = "powershell.exe";
+        spawnArgs = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", target, ...rawArgs];
+      } else if (resolved) {
+        spawnCommand = resolved;
+        spawnArgs = rawArgs;
+      }
+    }
     const cols = Number(payload.cols) || 120;
     const rows = Number(payload.rows) || 32;
     const cwd = payload.cwd || repoRoot;
     const env = buildPtyEnv(payload.env);
-    try {
-      const term = pty.spawn(String(command), args, {
-        name: "xterm-256color",
-        cols,
-        rows,
-        cwd,
-        env,
-      });
+      try {
+        const useConpty = typeof payload.use_conpty === "boolean" ? payload.use_conpty : false;
+        let term;
+        try {
+          term = pty.spawn(spawnCommand, spawnArgs, {
+            name: "xterm-256color",
+            cols,
+            rows,
+            cwd,
+            env,
+            useConpty, // Override to allow ConPTY for specific CLIs (e.g. Codex)
+          });
+        } catch (err) {
+          if (useConpty) {
+            term = pty.spawn(spawnCommand, spawnArgs, {
+              name: "xterm-256color",
+              cols,
+              rows,
+              cwd,
+              env,
+              useConpty: false,
+            });
+          } else {
+            throw err;
+          }
+        }
       const id = randomBytes(8).toString("hex");
       const sender = event.sender;
       term.onData((data) => {

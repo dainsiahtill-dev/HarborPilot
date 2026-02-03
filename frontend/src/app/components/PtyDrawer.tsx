@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { AlertTriangle, Loader2, Sparkles, TerminalSquare } from 'lucide-react';
@@ -17,6 +17,7 @@ interface PtyProviderConfig {
   working_dir?: string;
   env?: Record<string, string>;
   tui_args?: string[];
+  use_conpty?: boolean;
 }
 
 interface PtyDrawerProps {
@@ -30,6 +31,15 @@ interface PtyDrawerProps {
   onSaveModel: () => Promise<void> | void;
   onSaveAndTest: () => Promise<void> | void;
   error?: string | null;
+  showQuickTest?: boolean;
+  quickTestLabel?: string;
+  bootCommand?: string;
+  bootCommandDelayMs?: number;
+  bootCommandLabel?: string;
+  autoCommand?: string;
+  autoCommandOnce?: boolean;
+  autoCommandDelayMs?: number;
+  autoCommandLabel?: string;
 }
 
 export function PtyDrawer({
@@ -43,19 +53,36 @@ export function PtyDrawer({
   onSaveModel,
   onSaveAndTest,
   error,
+  showQuickTest = true,
+  quickTestLabel,
+  bootCommand,
+  bootCommandDelayMs = 0,
+  bootCommandLabel,
+  autoCommand,
+  autoCommandOnce = true,
+  autoCommandDelayMs = 0,
+  autoCommandLabel,
 }: PtyDrawerProps) {
-  const terminalRef = useRef<HTMLDivElement | null>(null);
+  const [terminalNode, setTerminalNode] = useState<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const pendingDataRef = useRef<Record<string, string>>({});
+  const openRef = useRef(open);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'connecting' | 'online' | 'error' | 'closed'>('idle');
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
+  const autoCommandSentRef = useRef(false);
+  const bootCommandSentRef = useRef(false);
+  const autoCommandTimerRef = useRef<number | null>(null);
+  const bootCommandTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     sessionRef.current = sessionId;
   }, [sessionId]);
+
+  openRef.current = open;
 
   useEffect(() => {
     return () => {
@@ -75,9 +102,13 @@ export function PtyDrawer({
     });
   }, [providerConfig]);
 
+  const handleTerminalRef = useCallback((node: HTMLDivElement | null) => {
+    setTerminalNode(node);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
-    if (!terminalRef.current || termRef.current) return;
+    if (!terminalNode || termRef.current) return;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -102,11 +133,11 @@ export function PtyDrawer({
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
+    term.open(terminalNode);
     fitAddon.fit();
     term.focus();
     term.writeln('\x1b[38;5;51mHarborPilot TUI channel online.\x1b[0m');
-    term.writeln('\x1b[38;5;105mTip:\x1b[0m Type /models in the CLI to browse.');
+    term.writeln('\x1b[38;5;105mTip:\x1b[0m Type /models (or /model) in the CLI to browse.');
     term.writeln('');
 
     term.onData((data) => {
@@ -127,11 +158,19 @@ export function PtyDrawer({
       if (!current) return;
       window.harborpilot?.pty?.resize(current, term.cols, term.rows);
     });
-    resizeObserver.observe(terminalRef.current);
+    resizeObserver.observe(terminalNode);
 
     termRef.current = term;
     fitRef.current = fitAddon;
     resizeObserverRef.current = resizeObserver;
+    const current = sessionRef.current;
+    if (current) {
+      const pending = pendingDataRef.current[current];
+      if (pending) {
+        term.write(pending);
+        delete pendingDataRef.current[current];
+      }
+    }
 
     return () => {
       resizeObserver.disconnect();
@@ -140,7 +179,7 @@ export function PtyDrawer({
       fitRef.current = null;
       resizeObserverRef.current = null;
     };
-  }, [open]);
+  }, [open, terminalNode]);
 
   useEffect(() => {
     if (!open) {
@@ -150,6 +189,17 @@ export function PtyDrawer({
       setSessionId(null);
       setStatus('idle');
       setStatusDetail(null);
+      autoCommandSentRef.current = false;
+      bootCommandSentRef.current = false;
+      pendingDataRef.current = {};
+      if (autoCommandTimerRef.current != null) {
+        window.clearTimeout(autoCommandTimerRef.current);
+        autoCommandTimerRef.current = null;
+      }
+      if (bootCommandTimerRef.current != null) {
+        window.clearTimeout(bootCommandTimerRef.current);
+        bootCommandTimerRef.current = null;
+      }
       return;
     }
 
@@ -166,6 +216,7 @@ export function PtyDrawer({
 
     let cancelled = false;
     const launch = async () => {
+      pendingDataRef.current = {};
       if (sessionRef.current) {
         await window.harborpilot?.pty?.close(sessionRef.current);
         setSessionId(null);
@@ -181,6 +232,7 @@ export function PtyDrawer({
         args: providerConfig.tui_args || [],
         cwd: providerConfig.working_dir || undefined,
         env: providerConfig.env || undefined,
+        use_conpty: providerConfig.use_conpty,
         cols,
         rows,
       });
@@ -190,9 +242,17 @@ export function PtyDrawer({
         setStatusDetail(result?.error || 'Failed to start PTY session.');
         return;
       }
+      sessionRef.current = result.id;
       setSessionId(result.id);
       setStatus('online');
       setStatusDetail(null);
+      autoCommandSentRef.current = false;
+      bootCommandSentRef.current = false;
+      const pending = pendingDataRef.current[result.id];
+      if (pending && termRef.current) {
+        termRef.current.write(pending);
+        delete pendingDataRef.current[result.id];
+      }
     };
 
     launch().catch((err) => {
@@ -206,11 +266,50 @@ export function PtyDrawer({
     };
   }, [open, providerKey]);
 
+  const sendCommand = (command: string) => {
+    const current = sessionRef.current;
+    if (!current || !window.harborpilot?.pty?.write) return;
+    let payload = command;
+    if (payload.endsWith('\n') && !payload.endsWith('\r\n')) {
+      payload = `${payload.slice(0, -1)}\r`;
+    } else if (!payload.endsWith('\r') && !payload.endsWith('\n')) {
+      payload = `${payload}\r`;
+    }
+    window.harborpilot.pty.write(current, payload);
+  };
+
+  const sendAutoCommand = (force = false) => {
+    if (!autoCommand) return;
+    if (autoCommandOnce && autoCommandSentRef.current && !force) return;
+    sendCommand(autoCommand);
+    autoCommandSentRef.current = true;
+  };
+
+  const handleBootCommand = () => {
+    if (!bootCommand) return;
+    sendCommand(bootCommand);
+    bootCommandSentRef.current = true;
+  };
+
   useEffect(() => {
-    if (!open || !window.harborpilot?.pty?.onData) return;
+    if (!window.harborpilot?.pty?.onData) return;
     const unsubscribe = window.harborpilot.pty.onData((payload) => {
-      if (!payload || payload.id !== sessionRef.current) return;
-      termRef.current?.write(payload.data || '');
+      if (!payload || !payload.id) return;
+      const data = payload.data || '';
+      if (!data) return;
+      const current = sessionRef.current;
+      if (payload.id === current) {
+        if (termRef.current) {
+          termRef.current.write(data);
+        } else {
+          const existing = pendingDataRef.current[payload.id] || '';
+          pendingDataRef.current[payload.id] = `${existing}${data}`;
+        }
+        return;
+      }
+      if (!openRef.current) return;
+      const existing = pendingDataRef.current[payload.id] || '';
+      pendingDataRef.current[payload.id] = `${existing}${data}`;
     });
     const unsubscribeExit = window.harborpilot.pty.onExit?.((payload) => {
       if (!payload || payload.id !== sessionRef.current) return;
@@ -221,7 +320,48 @@ export function PtyDrawer({
       unsubscribe?.();
       unsubscribeExit?.();
     };
-  }, [open]);
+  }, []);
+
+  useEffect(() => {
+    if (!open || status !== 'online') return;
+    if (bootCommand && !bootCommandSentRef.current) {
+      if (bootCommandTimerRef.current != null) {
+        window.clearTimeout(bootCommandTimerRef.current);
+      }
+      if (bootCommandDelayMs > 0) {
+        bootCommandTimerRef.current = window.setTimeout(() => {
+          sendCommand(bootCommand);
+          bootCommandSentRef.current = true;
+          bootCommandTimerRef.current = null;
+        }, bootCommandDelayMs);
+      } else {
+        sendCommand(bootCommand);
+        bootCommandSentRef.current = true;
+      }
+    }
+
+    if (autoCommand && (!autoCommandOnce || !autoCommandSentRef.current)) {
+      if (autoCommandTimerRef.current != null) {
+        window.clearTimeout(autoCommandTimerRef.current);
+      }
+      if (autoCommandDelayMs > 0) {
+        autoCommandTimerRef.current = window.setTimeout(() => {
+          sendAutoCommand();
+          autoCommandTimerRef.current = null;
+        }, autoCommandDelayMs);
+      } else {
+        sendAutoCommand();
+      }
+    }
+  }, [
+    autoCommand,
+    autoCommandDelayMs,
+    autoCommandOnce,
+    bootCommand,
+    bootCommandDelayMs,
+    open,
+    status,
+  ]);
 
   const handlePaste = async () => {
     try {
@@ -247,7 +387,8 @@ export function PtyDrawer({
           </div>
           <DrawerTitle className="text-sm text-text-main">CLI Session - {providerId}</DrawerTitle>
           <DrawerDescription className="text-[11px] text-text-dim">
-            Launch the CLI, browse models with <span className="text-cyan-200">/models</span>, then paste the ID below.
+            Launch the CLI, browse models with <span className="text-cyan-200">/models</span> or <span className="text-cyan-200">/model</span>,
+            then paste the ID below.
           </DrawerDescription>
         </DrawerHeader>
 
@@ -267,7 +408,7 @@ export function PtyDrawer({
             </div>
             <div className="relative">
               <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_10%,rgba(34,211,238,0.12),transparent_60%),radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.12),transparent_60%)]" />
-              <div ref={terminalRef} className="h-[320px] w-full relative z-10" />
+              <div ref={handleTerminalRef} className="h-[320px] w-full relative z-10" />
             </div>
           </div>
 
@@ -283,9 +424,21 @@ export function PtyDrawer({
           <div className="rounded-xl border border-white/10 bg-black/40 p-3 space-y-2">
             <div className="flex items-center justify-between text-[10px] text-text-dim uppercase tracking-widest">
               <span>Selected Model ID</span>
-              <button type="button" onClick={handlePaste} className="text-cyan-200 hover:text-cyan-100">
-                Paste
-              </button>
+              <div className="flex items-center gap-2">
+                {bootCommand ? (
+                  <button type="button" onClick={handleBootCommand} className="text-cyan-200 hover:text-cyan-100">
+                    {bootCommandLabel || 'Launch Codex'}
+                  </button>
+                ) : null}
+                {autoCommand ? (
+                  <button type="button" onClick={() => sendAutoCommand(true)} className="text-cyan-200 hover:text-cyan-100">
+                    {autoCommandLabel || 'Send /model'}
+                  </button>
+                ) : null}
+                <button type="button" onClick={handlePaste} className="text-cyan-200 hover:text-cyan-100">
+                  Paste
+                </button>
+              </div>
             </div>
             <input
               value={modelValue}
@@ -313,14 +466,16 @@ export function PtyDrawer({
             >
               Save Model
             </button>
-            <button
-              type="button"
-              onClick={onSaveAndTest}
-              className="px-3 py-1.5 text-[10px] text-black bg-cyan-400 hover:bg-cyan-300 rounded flex items-center gap-1"
-            >
-              <Sparkles className="size-3" />
-              Save + Quick Test
-            </button>
+            {showQuickTest ? (
+              <button
+                type="button"
+                onClick={onSaveAndTest}
+                className="px-3 py-1.5 text-[10px] text-black bg-cyan-400 hover:bg-cyan-300 rounded flex items-center gap-1"
+              >
+                <Sparkles className="size-3" />
+                {quickTestLabel || 'Save + Quick Test'}
+              </button>
+            ) : null}
           </div>
         </div>
       </DrawerContent>

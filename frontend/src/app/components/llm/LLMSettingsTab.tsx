@@ -1,4 +1,4 @@
-﻿import { Loader2, CheckCircle2, AlertTriangle, Save, Plus, Settings, PlayCircle } from 'lucide-react';
+﻿import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InterviewHall } from './interview/InterviewHall';
@@ -7,6 +7,9 @@ import { SimpleModelCard, type SimpleProvider } from './SimpleModelCard';
 import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
 import type { TestEvent, TestResult } from './test/types';
+import { LLMVisualEditor } from './visual/LLMVisualEditor';
+import { CodexModelBrowser } from './model-browser/CodexModelBrowser';
+import { isCLIConnection } from './types';
 
 interface LlmProviderConfig {
   type?: string;
@@ -103,6 +106,7 @@ interface LLMSettingsTabProps {
   onAddProvider?: (provider: SimpleProvider) => void;
   onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;
   onDeleteProvider?: (id: string) => void;
+  onUpdateConfig?: (config: LlmConfig) => void;
   onTestProvider?: (
     provider: SimpleProvider,
     onEvent?: (event: TestEvent) => void
@@ -223,11 +227,13 @@ export function LLMSettingsTab({
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
+  onUpdateConfig,
   onTestProvider,
   onCancelTestProvider
 }: LLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
+  const [configView, setConfigView] = useState<'list' | 'visual'>('list');
   const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [interviewRunning, setInterviewRunning] = useState(false);
@@ -563,44 +569,73 @@ export function LLMSettingsTab({
                     添加和配置LLM提供商（OpenAI、Ollama、Claude等）
                   </p>
                 </div>
-              </div>
-              <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
-                <Settings className="size-8 text-text-dim mx-auto mb-3" />
-                <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
-                <p className="text-xs text-text-dim mb-4">
-                  请先添加至少一个LLM提供商，然后进行模型测试
-                </p>
-                <div className="flex items-center justify-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 p-1">
                   <button
-                    onClick={() => {
-                      const newProvider = createCodexProvider();
-                      setProviders([...providers, newProvider]);
-                      onAddProvider?.(newProvider);
-                    }}
-                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
+                    type="button"
+                    onClick={() => setConfigView('list')}
+                    className={`px-3 py-1 text-[10px] font-semibold rounded ${
+                      configView === 'list' ? 'bg-cyan-500/70 text-white' : 'text-text-dim hover:text-text-main'
+                    }`}
                   >
-                    添加 Codex CLI
+                    列表
                   </button>
                   <button
-                    onClick={() => {
-                      const newProvider: SimpleProvider = {
-                        id: `provider-${Date.now()}`,
-                        name: 'OpenAI',
-                        kind: 'openai_compat',
-                        conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                        modelId: 'gpt-3.5-turbo',
-                        status: 'untested',
-                        costClass: 'METERED'
-                      };
-                      setProviders([...providers, newProvider]);
-                      onAddProvider?.(newProvider);
-                    }}
-                    className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
+                    type="button"
+                    onClick={() => setConfigView('visual')}
+                    className={`px-3 py-1 text-[10px] font-semibold rounded ${
+                      configView === 'visual' ? 'bg-fuchsia-500/70 text-white' : 'text-text-dim hover:text-text-main'
+                    }`}
                   >
-                    添加OpenAI提供商
+                    视觉
                   </button>
                 </div>
               </div>
+              {configView === 'visual' ? (
+                <LLMVisualEditor
+                  config={llmConfig}
+                  status={llmStatus}
+                  onConfigChange={onUpdateConfig}
+                  onSave={onSaveConfig}
+                />
+              ) : (
+                <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
+                  <Settings className="size-8 text-text-dim mx-auto mb-3" />
+                  <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
+                  <p className="text-xs text-text-dim mb-4">
+                    请先添加至少一个LLM提供商，然后进行模型测试
+                  </p>
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
+                    <button
+                      onClick={() => {
+                        const newProvider = createCodexProvider();
+                        setProviders([...providers, newProvider]);
+                        onAddProvider?.(newProvider);
+                      }}
+                      className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
+                    >
+                      添加 Codex CLI
+                    </button>
+                    <button
+                      onClick={() => {
+                        const newProvider: SimpleProvider = {
+                          id: `provider-${Date.now()}`,
+                          name: 'OpenAI',
+                          kind: 'openai_compat',
+                          conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
+                          modelId: 'gpt-3.5-turbo',
+                          status: 'untested',
+                          costClass: 'METERED'
+                        };
+                        setProviders([...providers, newProvider]);
+                        onAddProvider?.(newProvider);
+                      }}
+                      className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
+                    >
+                      添加OpenAI提供商
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="space-y-4">
@@ -612,6 +647,26 @@ export function LLMSettingsTab({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/30 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setConfigView('list')}
+                      className={`px-3 py-1 text-[10px] font-semibold rounded ${
+                        configView === 'list' ? 'bg-cyan-500/70 text-white' : 'text-text-dim hover:text-text-main'
+                      }`}
+                    >
+                      列表
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfigView('visual')}
+                      className={`px-3 py-1 text-[10px] font-semibold rounded ${
+                        configView === 'visual' ? 'bg-fuchsia-500/70 text-white' : 'text-text-dim hover:text-text-main'
+                      }`}
+                    >
+                      视觉
+                    </button>
+                  </div>
                   <button
                     onClick={() => {
                       const newProvider = createCodexProvider();
@@ -645,34 +700,59 @@ export function LLMSettingsTab({
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {providers.map((provider) => (
-                  <SimpleModelCard
-                    key={provider.id}
-                    provider={provider}
-                    onUpdate={(updates) => {
-                      const updated = { ...provider, ...updates };
-                      setProviders(providers.map(p => p.id === provider.id ? updated : p));
-                      onUpdateProvider?.(provider.id, updates);
-                    }}
-                    onDelete={() => {
-                      setProviders(providers.filter(p => p.id !== provider.id));
-                      onDeleteProvider?.(provider.id);
-                    }}
-                    onTest={() => openTestPanel(provider.id)}
-                  />
-                ))}
-              </div>
+              {configView === 'visual' ? (
+                <LLMVisualEditor
+                  config={llmConfig}
+                  status={llmStatus}
+                  onConfigChange={onUpdateConfig}
+                  onSave={onSaveConfig}
+                />
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    {providers.map((provider) => (
+                      <SimpleModelCard
+                        key={provider.id}
+                        provider={provider}
+                        renderModelBrowser={
+                          provider.kind === 'codex_cli' && isCLIConnection(provider.conn)
+                            ? ({ modelId, onSelect }) => (
+                                <CodexModelBrowser
+                                  providerId={provider.id}
+                                  command={provider.conn.command}
+                                  tuiArgs={provider.conn.tui_args}
+                                  env={provider.conn.env}
+                                  modelId={modelId}
+                                  onSelect={onSelect}
+                                />
+                              )
+                            : undefined
+                        }
+                        onUpdate={(updates) => {
+                          const updated = { ...provider, ...updates };
+                          setProviders(providers.map(p => p.id === provider.id ? updated : p));
+                          onUpdateProvider?.(provider.id, updates);
+                        }}
+                        onDelete={() => {
+                          setProviders(providers.filter(p => p.id !== provider.id));
+                          onDeleteProvider?.(provider.id);
+                        }}
+                        onTest={() => openTestPanel(provider.id)}
+                      />
+                    ))}
+                  </div>
 
-              <div className="flex justify-center">
-                <button
-                  onClick={() => setView('hall')}
-                  className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
-                >
-                  下一步：测试模型
-                  <PlayCircle className="size-3" />
-                </button>
-              </div>
+                  <div className="flex justify-center">
+                    <button
+                      onClick={() => setView('hall')}
+                      className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
+                    >
+                      下一步：测试模型
+                      <PlayCircle className="size-3" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -709,15 +789,18 @@ export function LLMSettingsTab({
             <TestPanel
               provider={selectedTestProvider}
               events={events}
-              status={testStatus}              onClose={closeTestPanel}
+              status={testStatus}
+              onClose={closeTestPanel}
               onRunTest={runSelectedTest}
-              onCancel={cancelTestRun}            />,
+              onCancel={cancelTestRun}
+            />,
             panelHost
           )
         : null}
     </div>
   );
 }
+
 
 
 

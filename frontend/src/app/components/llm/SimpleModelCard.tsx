@@ -11,7 +11,7 @@ import {
   ChevronUp,
   Terminal
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   PROVIDER_LABELS,
   STATUS_BADGES,
@@ -28,6 +28,7 @@ interface SimpleModelCardProps {
   onUpdate: (updates: Partial<SimpleProvider>) => void;
   onDelete: () => void;
   onTest: () => void;
+  renderModelBrowser?: (props: { modelId: string; onSelect: (modelId: string) => void }) => ReactNode;
   onOpenTuiBrowser?: () => void;
   onViewTestReport?: () => void;
 }
@@ -71,6 +72,7 @@ export function SimpleModelCard({
   onUpdate,
   onDelete,
   onTest,
+  renderModelBrowser,
   onOpenTuiBrowser,
   onViewTestReport
 }: SimpleModelCardProps) {
@@ -483,13 +485,21 @@ export function SimpleModelCard({
 
         <div>
           <label className="block text-xs text-text-muted mb-1">Model ID</label>
-          <input
-            type="text"
-            value={editForm.modelId}
-            onChange={(e) => setEditForm(prev => ({ ...prev, modelId: e.target.value }))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-            placeholder="gpt-4, claude-3-5-sonnet, etc."
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={editForm.modelId}
+              onChange={(e) => setEditForm(prev => ({ ...prev, modelId: e.target.value }))}
+              className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              placeholder="gpt-4, claude-3-5-sonnet, etc."
+            />
+            {renderModelBrowser
+              ? renderModelBrowser({
+                  modelId: editForm.modelId,
+                  onSelect: (value) => setEditForm((prev) => ({ ...prev, modelId: value })),
+                })
+              : null}
+          </div>
         </div>
       </div>
 

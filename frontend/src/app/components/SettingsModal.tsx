@@ -1442,6 +1442,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 llmSaving={llmSaving}
                 llmError={llmError}
                 onSaveConfig={saveLlmConfig}
+                onUpdateConfig={(next) => setLlmConfig(next)}
                 onRunInterview={runInterview}
                 onRunReadiness={runReadiness}
                 onTestProvider={runProviderTest}
