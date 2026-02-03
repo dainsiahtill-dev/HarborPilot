@@ -1,5 +1,5 @@
 import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InterviewHall } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
@@ -94,7 +94,7 @@ interface EnhancedLLMSettingsTabProps {
   llmError: string | null;
   deletingProviders?: Record<string, boolean>;
   onSaveConfig: () => void;
-  onRunInterview: (role: RoleId) => Promise<Record<string, unknown> | null>;
+  onRunInterview: (role: RoleId, onEvent?: (event: TestEvent) => void) => Promise<Record<string, unknown> | null>;
   onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
@@ -102,6 +102,7 @@ interface EnhancedLLMSettingsTabProps {
   onUpdateConfig?: (config: LlmConfig) => void;
   onTestProvider?: (provider: SimpleProvider, onEvent?: (event: TestEvent) => void) => Promise<TestResult | null>;
   onCancelTestProvider?: () => void;
+  onCancelInterview?: () => void;
 }
 
 type ConnectivityStatus = 'unknown' | 'running' | 'success' | 'failed';
@@ -167,7 +168,8 @@ export function EnhancedLLMSettingsTab({
   onDeleteProvider,
   onUpdateConfig,
   onTestProvider,
-  onCancelTestProvider
+  onCancelTestProvider,
+  onCancelInterview
 }: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
   const [activeTab, setActiveTab] = useState<'config' | 'deepTest'>('config');
@@ -183,7 +185,15 @@ export function EnhancedLLMSettingsTab({
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testCancelled, setTestCancelled] = useState(false);
   const [providerTestStatus, setProviderTestStatus] = useState<Record<string, ConnectivityStatus>>({});
+  const [interviewPanelOpen, setInterviewPanelOpen] = useState(false);
+  const [interviewPanelStatus, setInterviewPanelStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
+  const interviewCancelledRef = useRef(false);
   const { events, addEvent, resetEvents } = useTestEvents();
+  const {
+    events: interviewEvents,
+    addEvent: addInterviewEvent,
+    resetEvents: resetInterviewEvents
+  } = useTestEvents();
   const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
 
   const {
@@ -324,6 +334,14 @@ export function EnhancedLLMSettingsTab({
     }
   }, [activeTab, selectedTestProviderId]);
 
+  useEffect(() => {
+    if (activeTab !== 'deepTest' && interviewPanelOpen) {
+      setInterviewPanelOpen(false);
+      setInterviewPanelStatus('idle');
+      resetInterviewEvents();
+    }
+  }, [activeTab, interviewPanelOpen, resetInterviewEvents]);
+
   const selectedTestProvider = useMemo(() => {
     if (!selectedTestProviderId || !llmConfig) return null;
     const cfg = llmConfig.providers?.[selectedTestProviderId];
@@ -359,6 +377,31 @@ export function EnhancedLLMSettingsTab({
       content: 'Test cancelled by user'
     });
     setTestStatus('failed');
+  };
+
+  const cancelInterviewRun = () => {
+    if (onCancelInterview) {
+      onCancelInterview();
+    }
+    interviewCancelledRef.current = true;
+    setInterviewPanelStatus('failed');
+    addInterviewEvent({
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      content: '面试已取消'
+    });
+  };
+
+  const openInterviewPanel = () => {
+    setInterviewPanelOpen(true);
+    setInterviewPanelStatus('idle');
+    resetInterviewEvents();
+  };
+
+  const closeInterviewPanel = () => {
+    setInterviewPanelOpen(false);
+    setInterviewPanelStatus('idle');
+    resetInterviewEvents();
   };
 
   const shouldSkipErrorEvent = (err: unknown): boolean => {
@@ -530,13 +573,31 @@ export function EnhancedLLMSettingsTab({
 
   const handleStartInterview = async () => {
     if (!selectedMeta) return;
+    openInterviewPanel();
     setInterviewError(null);
     setInterviewReport(null);
     setInterviewRunning(true);
+    interviewCancelledRef.current = false;
+    setInterviewPanelStatus('running');
     setActiveTab('deepTest');
     setDeepView('session');
     try {
-      const report = await onRunInterview(selectedMeta.id);
+      addInterviewEvent({
+        type: 'command',
+        timestamp: new Date().toISOString(),
+        content: `Starting interview for ${selectedMeta.label}`
+      });
+      const report = await onRunInterview(selectedMeta.id, (event) => addInterviewEvent(event));
+      if (!report) {
+        const cancelledMessage = interviewCancelledRef.current ? '面试已取消' : '面试未返回结果';
+        setInterviewPanelStatus('failed');
+        addInterviewEvent({
+          type: 'error',
+          timestamp: new Date().toISOString(),
+          content: cancelledMessage
+        });
+        return;
+      }
       const suiteReport = (report?.suites as Record<string, unknown> | undefined)?.interview;
       if (suiteReport && typeof suiteReport === 'object') {
         setInterviewReport(suiteReport as InterviewSuiteReport);
@@ -545,8 +606,26 @@ export function EnhancedLLMSettingsTab({
       } else {
         setInterviewReport(null);
       }
+      const suiteOk =
+        suiteReport && typeof (suiteReport as { ok?: boolean }).ok === 'boolean'
+          ? Boolean((suiteReport as { ok?: boolean }).ok)
+          : report?.final && typeof (report.final as { ready?: boolean }).ready === 'boolean'
+            ? Boolean((report.final as { ready?: boolean }).ready)
+            : false;
+      setInterviewPanelStatus(suiteOk ? 'success' : 'failed');
+      addInterviewEvent({
+        type: suiteOk ? 'result' : 'error',
+        timestamp: new Date().toISOString(),
+        content: suiteOk ? '面试完成' : '面试未通过'
+      });
     } catch (error) {
       setInterviewError(error instanceof Error ? error.message : 'Interview failed');
+      setInterviewPanelStatus('failed');
+      addInterviewEvent({
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        content: error instanceof Error ? error.message : 'Interview failed'
+      });
     } finally {
       setInterviewRunning(false);
     }
@@ -725,6 +804,30 @@ export function EnhancedLLMSettingsTab({
       </div>
     );
   };
+
+  const interviewProvider = useMemo(() => {
+    const providerId = selectedMeta?.candidate?.providerId;
+    if (!providerId || !llmConfig?.providers?.[providerId]) return null;
+    const providerCfg = llmConfig.providers[providerId];
+    const baseProvider = buildSimpleProvider(providerId, providerCfg, llmConfig.roles);
+    const roleModel = selectedMeta?.candidate?.model || '';
+    const providerModel =
+      typeof providerCfg.model === 'string'
+        ? providerCfg.model
+        : typeof providerCfg.model_id === 'string'
+          ? providerCfg.model_id
+          : typeof providerCfg.default_model === 'string'
+            ? providerCfg.default_model
+            : '';
+    const modelId = providerModel && roleModel && providerModel !== roleModel
+      ? providerModel
+      : roleModel || providerModel || baseProvider.modelId;
+    return {
+      ...baseProvider,
+      name: `Interview · ${selectedMeta?.label || providerId}`,
+      modelId
+    };
+  }, [buildSimpleProvider, llmConfig, selectedMeta]);
 
   if (llmLoading || providersLoading) {
     return (
@@ -946,6 +1049,20 @@ export function EnhancedLLMSettingsTab({
               onClose={closeTestPanel}
               onRunTest={runSelectedTest}
               onCancel={cancelTestRun}
+            />,
+            panelHost
+          )
+        : null}
+
+      {panelHost && interviewPanelOpen && interviewProvider && activeTab === 'deepTest'
+        ? createPortal(
+            <TestPanel
+              provider={interviewProvider}
+              events={interviewEvents}
+              status={interviewPanelStatus}
+              onClose={closeInterviewPanel}
+              onRunTest={handleStartInterview}
+              onCancel={cancelInterviewRun}
             />,
             panelHost
           )

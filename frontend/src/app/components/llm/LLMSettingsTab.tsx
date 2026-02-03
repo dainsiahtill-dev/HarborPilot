@@ -111,7 +111,7 @@ interface LLMSettingsTabProps {
   llmSaving: boolean;
   llmError: string | null;
   onSaveConfig: () => void;
-  onRunInterview: (role: RoleId) => Promise<Record<string, unknown> | null>;
+  onRunInterview: (role: RoleId, onEvent?: (event: TestEvent) => void) => Promise<Record<string, unknown> | null>;
   onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
   onAddProvider?: (provider: SimpleProvider) => void;
   onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;

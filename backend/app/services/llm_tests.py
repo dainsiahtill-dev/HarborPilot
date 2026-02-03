@@ -1017,12 +1017,21 @@ def _update_index(settings: Settings, cache_root: str, role: str, report: Dict[s
     target = report.get("target") if isinstance(report.get("target"), dict) else {}
     provider_id = target.get("provider_id") if isinstance(target, dict) else None
     if provider_id:
-        providers[str(provider_id)] = {
+        provider_key = str(provider_id)
+        existing = providers.get(provider_key) if isinstance(providers.get(provider_key), dict) else {}
+        new_suites = report.get("suites")
+        merged_suites = new_suites
+        if isinstance(new_suites, dict) and isinstance(existing.get("suites"), dict):
+            if "connectivity" not in new_suites and "connectivity" in existing["suites"]:
+                merged_suites = {**new_suites, "connectivity": existing["suites"]["connectivity"]}
+        elif not new_suites and isinstance(existing.get("suites"), dict):
+            merged_suites = existing["suites"]
+        providers[provider_key] = {
             "last_run_id": report.get("test_run_id"),
             "ready": report.get("final", {}).get("ready"),
             "grade": report.get("final", {}).get("grade"),
             "timestamp": report.get("timestamp"),
-            "suites": report.get("suites"),
+            "suites": merged_suites,
             "model": target.get("model") if isinstance(target, dict) else None,
             "role": target.get("role") if isinstance(target, dict) else None,
         }

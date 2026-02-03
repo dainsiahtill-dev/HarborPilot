@@ -208,6 +208,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [tuiModelDraft, setTuiModelDraft] = useState('');
   const [tuiError, setTuiError] = useState<string | null>(null);
   const testAbortRef = useRef<AbortController | null>(null);
+  const interviewAbortRef = useRef<AbortController | null>(null);
   const llmConfigRef = useRef<LlmConfig | null>(null);
   const lastSavedConfigRef = useRef<LlmConfig | null>(null);
   const llmSavePendingRef = useRef<LlmConfig | null>(null);
@@ -547,16 +548,51 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   const updateProviderAndPersist = async (providerId: string, updates: Partial<LlmProviderConfig>) => {
-    await applyLlmConfigMutation((current) => ({
-      ...current,
-      providers: {
-        ...(current.providers || {}),
-        [providerId]: {
-          ...(current.providers?.[providerId] || {}),
-          ...updates,
+    await applyLlmConfigMutation((current) => {
+      const prevProvider = current.providers?.[providerId] || {};
+      const prevModel =
+        typeof prevProvider.model === 'string'
+          ? prevProvider.model
+          : typeof prevProvider.model_id === 'string'
+            ? prevProvider.model_id
+            : typeof prevProvider.default_model === 'string'
+              ? prevProvider.default_model
+              : '';
+      const nextProvider = {
+        ...prevProvider,
+        ...updates,
+      };
+      const nextModel =
+        typeof nextProvider.model === 'string'
+          ? nextProvider.model
+          : typeof nextProvider.model_id === 'string'
+            ? nextProvider.model_id
+            : typeof nextProvider.default_model === 'string'
+              ? nextProvider.default_model
+              : '';
+
+      let nextRoles = current.roles || {};
+      if (nextModel && nextModel !== prevModel) {
+        nextRoles = { ...(current.roles || {}) };
+        Object.entries(nextRoles).forEach(([roleId, roleCfg]) => {
+          if (!roleCfg || typeof roleCfg !== 'object') return;
+          if (roleCfg.provider_id !== providerId) return;
+          const roleModel = typeof roleCfg.model === 'string' ? roleCfg.model : '';
+          if (!roleModel || roleModel === prevModel) {
+            nextRoles[roleId] = { ...roleCfg, model: nextModel };
+          }
+        });
+      }
+
+      return {
+        ...current,
+        providers: {
+          ...(current.providers || {}),
+          [providerId]: nextProvider,
         },
-      },
-    }));
+        roles: nextRoles,
+      };
+    });
   };
 
   const deleteProviderAndPersist = async (providerId: string) => {
@@ -970,6 +1006,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     testAbortRef.current?.abort();
   };
 
+  const cancelInterview = () => {
+    interviewAbortRef.current?.abort();
+  };
+
   const runLlmTest = async (
     role: string,
     level: 'quick' | 'full' = 'quick',
@@ -1015,9 +1055,127 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const runInterview = async (role: string): Promise<Record<string, unknown> | null> => {
-    const result = await runLlmTest(role, 'full', ['thinking', 'interview'], false);
-    return result || null;
+  const runInterview = async (
+    role: string,
+    onEvent?: (event: TestEvent) => void
+  ): Promise<Record<string, unknown> | null> => {
+    if (!llmConfig) return null;
+    const roleCfg = llmConfig.roles?.[role];
+    const providerId = roleCfg?.provider_id;
+    const roleModel = roleCfg?.model;
+    const emitEvent = (type: TestEvent['type'], content: string, details?: unknown) => {
+      if (!onEvent) return;
+      onEvent({
+        type,
+        timestamp: new Date().toISOString(),
+        content,
+        details
+      });
+    };
+    emitEvent('command', `Starting interview for ${role}`);
+    if (!providerId) {
+      emitEvent('error', '缺少角色提供商或模型，无法开始面试');
+      return null;
+    }
+    const providerCfg = llmConfig.providers?.[providerId];
+    const providerModel =
+      typeof providerCfg?.model === 'string'
+        ? providerCfg.model
+        : typeof providerCfg?.model_id === 'string'
+          ? providerCfg.model_id
+          : typeof providerCfg?.default_model === 'string'
+            ? providerCfg.default_model
+            : '';
+    const shouldSyncRoleModel = Boolean(providerModel) && roleModel !== providerModel;
+    let model = roleModel || providerModel;
+    if (providerModel && roleModel && providerModel !== roleModel) {
+      emitEvent(
+        'stderr',
+        `角色模型(${roleModel}) 与提供商模型(${providerModel})不一致，面试将使用提供商模型`
+      );
+      model = providerModel;
+    }
+    if (shouldSyncRoleModel && providerModel) {
+      emitEvent('stdout', `自动同步角色模型为 ${providerModel}`);
+      await applyLlmConfigMutation((current) => {
+        const currentRole = current.roles?.[role];
+        if (!currentRole || currentRole.provider_id !== providerId) {
+          return current;
+        }
+        return {
+          ...current,
+          roles: {
+            ...current.roles,
+            [role]: {
+              ...currentRole,
+              model: providerModel
+            }
+          }
+        };
+      });
+    }
+    if (!model) {
+      emitEvent('error', '缺少角色模型，无法开始面试');
+      return null;
+    }
+    const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    const suites = ['thinking', 'interview'];
+    const payload = {
+      role,
+      provider_id: providerId,
+      model,
+      suites,
+      test_level: 'full',
+      api_key: apiKey ? '***' : null
+    };
+    emitEvent('command', `POST /llm/test ${JSON.stringify(payload)}`);
+    emitEvent('stdout', '发送面试请求...');
+    if (interviewAbortRef.current) {
+      interviewAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    interviewAbortRef.current = controller;
+    try {
+      const res = await apiFetch('/llm/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          provider_id: providerId,
+          model,
+          suites,
+          test_level: 'full',
+          api_key: apiKey
+        }),
+        signal: controller.signal
+      });
+      emitEvent('stdout', '响应已返回，解析结果...');
+      if (!res.ok) {
+        const detail = await res.text().catch(() => res.statusText);
+        emitEvent('error', `面试请求失败: ${detail || res.statusText}`);
+        return null;
+      }
+      const report = (await res.json()) as Record<string, unknown>;
+      emitEvent('response', JSON.stringify(report, null, 2));
+      const final = report.final as Record<string, unknown> | undefined;
+      const ready = typeof final?.ready === 'boolean' ? final.ready : undefined;
+      emitEvent(ready ? 'result' : 'error', ready ? '面试完成' : '面试未通过');
+      await loadLlmStatus();
+      return report;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        emitEvent('error', '面试已取消');
+        return null;
+      }
+      const message = err instanceof Error ? err.message : '面试请求失败';
+      emitEvent('error', message);
+      setLlmError(message);
+      return null;
+    } finally {
+      if (interviewAbortRef.current === controller) {
+        interviewAbortRef.current = null;
+      }
+    }
   };
 
   const runReadiness = async (role: string): Promise<Record<string, unknown> | null> => {
@@ -1578,6 +1736,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onUpdateConfig={updateLlmConfigDraft}
                 onTestProvider={runProviderTest}
                 onCancelTestProvider={cancelProviderTest}
+                onCancelInterview={cancelInterview}
                 onAddProvider={async (providerId, provider) => {
                   const payload: LlmProviderConfig = {
                     type: provider.type as LlmProviderType,

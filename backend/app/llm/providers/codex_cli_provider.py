@@ -233,6 +233,17 @@ def _set_codex_config_override(args: List[str], key: str, value: str) -> List[st
     return updated
 
 
+def _extract_cli_error_message(output: str) -> Optional[str]:
+    """Extract error text from parsed Codex CLI JSON output."""
+    if not output:
+        return None
+    first_line = output.strip().splitlines()[0].strip()
+    lowered = first_line.lower()
+    if lowered.startswith("error:") or lowered.startswith("turn failed:"):
+        return first_line
+    return None
+
+
 def _run_cli(
     command: str,
     args: List[str],
@@ -732,9 +743,11 @@ class CodexCLIProvider(BaseProvider):
 
         try:
             code, output, stdout_raw, stderr_raw, latency_ms = run_once(rendered_args, send_prompt)
-            if code != 0:
-                message = (stderr_raw or stdout_raw or "Codex CLI invoke failed").strip()
-                fallback_effort = _pick_reasoning_effort_fallback(message)
+            cli_error = _extract_cli_error_message(output)
+            if code != 0 or cli_error:
+                message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
+                fallback_source = stderr_raw or stdout_raw or output or message
+                fallback_effort = _pick_reasoning_effort_fallback(fallback_source)
                 if fallback_effort:
                     retry_args = _set_codex_config_override(
                         args,
@@ -745,10 +758,11 @@ class CodexCLIProvider(BaseProvider):
                     code, output, stdout_raw, stderr_raw, latency_ms = run_once(
                         rendered_retry_args, send_prompt_retry
                     )
-                    if code == 0:
+                    cli_error = _extract_cli_error_message(output)
+                    if code == 0 and not cli_error:
                         usage = estimate_usage(prompt, output)
                         return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage)
-                    message = (stderr_raw or stdout_raw or "Codex CLI invoke failed").strip()
+                    message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
                     if message:
                         message = f"{message}\n(auto-fallback reasoning.effort={fallback_effort} failed)"
 
