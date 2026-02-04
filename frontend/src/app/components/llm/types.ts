@@ -12,6 +12,7 @@ export type ProviderCategory = typeof PROVIDER_CATEGORIES[keyof typeof PROVIDER_
 // Provider Kinds (specific provider types)
 export const PROVIDER_KINDS = {
   CODEX_CLI: 'codex_cli' as const,
+  CODEX_SDK: 'codex_sdk' as const,
   GEMINI_CLI: 'gemini_cli' as const,
   OLLAMA: 'ollama' as const,
   OPENAI_COMPAT: 'openai_compat' as const,
@@ -110,11 +111,17 @@ export interface ProviderConfig {
   output_path?: string;
   timeout?: number;
   retries?: number;
+  max_retries?: number;
   api_path?: string;
   models_path?: string;
   headers?: Record<string, string>;
   temperature?: number;
   max_tokens?: number;
+  default_model?: string;
+  thinking_mode?: boolean;
+  streaming?: boolean;
+  sdk_params?: Record<string, any>;
+  request_overrides?: Record<string, any>;
   cli_mode?: CLIMode;
   thinking_extraction?: {
     enabled: boolean;
@@ -281,6 +288,7 @@ export const requiresApiKeyForType = (providerType?: string): boolean => {
 
 export const usesBaseUrlForType = (providerType?: string): boolean => {
   return (
+    providerType === PROVIDER_KINDS.CODEX_SDK ||
     providerType === PROVIDER_KINDS.OPENAI_COMPAT ||
     providerType === PROVIDER_KINDS.ANTHROPIC_COMPAT ||
     providerType === PROVIDER_KINDS.MAXMINI ||
@@ -344,6 +352,7 @@ export const isHTTPConnection = (conn: ProviderConnection): conn is HTTPConnecti
 // Provider Classification Constants
 export const PROVIDER_LABELS: ProviderLabels = {
   [PROVIDER_KINDS.CODEX_CLI]: 'Codex CLI',
+  [PROVIDER_KINDS.CODEX_SDK]: 'Codex SDK',
   [PROVIDER_KINDS.GEMINI_CLI]: 'Gemini CLI',
   [PROVIDER_KINDS.OLLAMA]: 'Ollama',
   [PROVIDER_KINDS.OPENAI_COMPAT]: 'OpenAI',

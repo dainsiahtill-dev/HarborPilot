@@ -6,6 +6,29 @@ import { PtyDrawer } from '@/app/components/PtyDrawer';
 import { EnhancedLLMSettingsTab } from '@/app/components/llm/EnhancedLLMSettingsTab';
 import { TurboSettingsTab } from './turbo/TurboSettingsTab';
 import { ArsenalPanel } from './arsenal/ArsenalPanel';
+
+// 安全的JSON序列化函数，处理循环引用
+const safeJsonStringify = (obj: any, space?: number): string => {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (key, val) => {
+    if (val != null && typeof val === 'object') {
+      if (seen.has(val)) {
+        return '[Circular Reference]';
+      }
+      seen.add(val);
+    }
+    // 过滤掉React Fiber节点和其他不可序列化的对象
+    if (val && typeof val === 'object') {
+      if (val.constructor?.name === 'HTMLButtonElement' ||
+          val.constructor?.name === 'FiberNode' ||
+          val.constructor?.name === 'Object' && val.$$typeof) {
+        return '[React Element]';
+      }
+    }
+    return val;
+  }, space);
+};
+
 import type { 
   SimpleProvider, 
   ProviderConfig, 
@@ -198,8 +221,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       const next: Record<string, { env: string; headers: string }> = {};
       Object.entries(providers).forEach(([id, cfg]) => {
         next[id] = {
-          env: JSON.stringify(cfg.env || {}, null, 2),
-          headers: JSON.stringify(cfg.headers || {}, null, 2),
+          env: safeJsonStringify(cfg.env || {}, 2),
+          headers: safeJsonStringify(cfg.headers || {}, 2),
         };
       });
       return next;
@@ -246,7 +269,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
     const status: Record<string, string> = {};
     for (const [providerId, cfg] of Object.entries(providers)) {
-      if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat') continue;
+      if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat' && cfg.type !== 'codex_sdk') continue;
       const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
       const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;
       try {
@@ -264,7 +287,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   const resolveApiKey = async (providerId: string, cfg: ProviderConfig) => {
-    if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat') return null;
+    if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat' && cfg.type !== 'codex_sdk') return null;
     if (!window.harborpilot?.secrets?.get) return null;
     const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
     const keyName = keyRef.startsWith('keychain:') ? keyRef.slice('keychain:'.length) : keyRef;
@@ -812,7 +835,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       emitEvent('stdout', '验证配置');
       const warnings: string[] = [];
       const providerType = String(providerCfg.type || '').toLowerCase();
-      if ((providerType === 'openai_compat' || providerType === 'anthropic_compat') && !providerCfg.base_url) {
+      if ((providerType === 'openai_compat' || providerType === 'anthropic_compat' || providerType === 'codex_sdk') && !providerCfg.base_url) {
         warnings.push('缺少 Base URL');
       }
       if ((providerType === 'codex_cli' || providerType === 'gemini_cli' || providerType === 'cli') && !providerCfg.command) {
@@ -909,7 +932,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         emitCodexGuidanceOnce(suiteErrors);
       }
       const result = buildTestResult(report);
-      emitEvent('response', JSON.stringify(report, null, 2));
+      emitEvent('response', safeJsonStringify(report, 2));
       emitEvent(
         result.ready ? 'result' : 'error',
         result.ready ? 'Test completed successfully' : 'Test failed'
@@ -1101,7 +1124,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         return null;
       }
       const report = (await res.json()) as Record<string, unknown>;
-      emitEvent('response', JSON.stringify(report, null, 2));
+      emitEvent('response', safeJsonStringify(report, 2));
       const final = report.final as Record<string, unknown> | undefined;
       const ready = typeof final?.ready === 'boolean' ? final.ready : undefined;
       emitEvent(ready ? 'result' : 'error', ready ? '面试完成' : '面试未通过');
@@ -1121,6 +1144,105 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         interviewAbortRef.current = null;
       }
     }
+  };
+
+  const askInteractiveInterview = async (payload: {
+    roleId: string;
+    providerId: string;
+    model: string;
+    question: string;
+    expectedCriteria?: string[];
+    expectsThinking?: boolean;
+    sessionId?: string | null;
+    context?: Array<{ question: string; answer: string }>;
+    debug?: boolean;
+  }): Promise<{
+    sessionId: string;
+    answer: string;
+    output?: string;
+    thinking?: string;
+    latencyMs?: number;
+    ok?: boolean;
+    error?: string | null;
+      debug?: {
+        prompt?: string;
+        cli_args?: string[] | null;
+        cli_send_prompt?: boolean | null;
+        stdin_prompt?: string | null;
+        cli_command?: string | null;
+      };
+  } | null> => {
+    if (!llmConfig) return null;
+    const providerCfg = llmConfig.providers?.[payload.providerId];
+    if (!providerCfg) {
+      throw new Error('提供商未配置');
+    }
+    const apiKey = await resolveApiKey(payload.providerId, providerCfg);
+    const res = await apiFetch('/llm/interview/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: payload.roleId,
+        provider_id: payload.providerId,
+        model: payload.model,
+        question: payload.question,
+        context: payload.context,
+        expects_thinking: payload.expectsThinking,
+        criteria: payload.expectedCriteria,
+        session_id: payload.sessionId,
+        api_key: apiKey,
+        debug: payload.debug
+      })
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(detail || '发送问题失败');
+    }
+    const data = (await res.json()) as Record<string, unknown>;
+    return {
+      sessionId: String(data.session_id || data.sessionId || payload.sessionId || ''),
+      answer: String(data.answer || data.output || ''),
+      output: typeof data.output === 'string' ? data.output : undefined,
+      thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
+      latencyMs: typeof data.latency_ms === 'number' ? data.latency_ms : undefined,
+      ok: typeof data.ok === 'boolean' ? data.ok : undefined,
+      error: typeof data.error === 'string' ? data.error : null,
+      debug:
+        typeof data.debug === 'object'
+          ? (data.debug as {
+              prompt?: string;
+              cli_args?: string[] | null;
+              cli_send_prompt?: boolean | null;
+              stdin_prompt?: string | null;
+              cli_command?: string | null;
+            })
+          : undefined
+    };
+  };
+
+  const saveInteractiveInterview = async (payload: {
+    roleId: string;
+    providerId: string;
+    model: string;
+    report: Record<string, unknown>;
+  }): Promise<{ saved: boolean; report_path?: string } | null> => {
+    const res = await apiFetch('/llm/interview/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: payload.roleId,
+        provider_id: payload.providerId,
+        model: payload.model,
+        report: payload.report
+      })
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(detail || '保存面试报告失败');
+    }
+    const data = (await res.json()) as { saved: boolean; report_path?: string };
+    await loadLLMStatus();
+    return data;
   };
 
   const runConnectivityTest = async (
@@ -1684,6 +1806,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onSaveConfig={saveLLMConfig}
                 onRunInterview={runInterview}
                 onRunConnectivityTest={runConnectivityTest}
+                onAskInteractiveInterview={askInteractiveInterview}
+                onSaveInteractiveInterview={saveInteractiveInterview}
                 onUpdateConfig={updateLLMConfigDraft}
                 onTestProvider={runProviderTest}
                 onCancelTestProvider={cancelProviderTest}
@@ -1733,7 +1857,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 </button>
               </div>
               <pre className="text-[11px] text-text-muted whitespace-pre-wrap font-mono max-h-64 overflow-auto">
-                {JSON.stringify(reportDrawer.data, null, 2)}
+                {safeJsonStringify(reportDrawer.data, 2)}
               </pre>
             </div>
           ) : null}

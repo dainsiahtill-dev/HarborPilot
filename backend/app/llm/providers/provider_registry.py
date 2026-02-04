@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .base_provider import BaseProvider, ProviderInfo
 from .codex_cli_provider import CodexCLIProvider
+from .codex_sdk_provider import CodexSDKProvider
 from .ollama_provider import OllamaProvider
 from .openai_compat_provider import OpenAICompatProvider
 from .anthropic_compat_provider import AnthropicCompatProvider
@@ -26,6 +27,7 @@ class ProviderManager:
     def _register_default_providers(self) -> None:
         """Register all default providers"""
         # Register enhanced providers
+        self.register_provider("codex_sdk", CodexSDKProvider)
         self.register_provider("codex_cli", CodexCLIProvider)  # Use proper Codex CLI provider
         self.register_provider("gemini_cli", GeminiCLIProvider)
         self.register_provider("maxmini", MaxminiProvider)

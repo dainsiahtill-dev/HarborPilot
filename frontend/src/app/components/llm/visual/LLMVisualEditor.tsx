@@ -84,7 +84,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           {onSave ? (
             <button
               type="button"
-              onClick={onSave}
+              onClick={() => onSave?.()}
               className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors"
             >
               保存配置

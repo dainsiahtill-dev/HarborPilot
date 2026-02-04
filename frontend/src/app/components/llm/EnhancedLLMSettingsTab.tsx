@@ -7,6 +7,11 @@ import {
   type InterviewProviderSummary
 } from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
+import {
+  InteractiveInterviewHall,
+  type InteractiveInterviewAnswer,
+  type InteractiveInterviewReport
+} from './interview/InteractiveInterviewHall';
 import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
 import { LLMVisualEditor } from './visual/LLMVisualEditor';
@@ -73,6 +78,20 @@ interface LlmStatus {
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
 
+type ConnectionMethodId = 'sdk' | 'api' | 'cli';
+
+interface ConnectionMethodMeta {
+  id: ConnectionMethodId;
+  label: string;
+  description: string;
+  pros: string[];
+  cons: string[];
+  recommended?: boolean;
+  accent: string;
+  accentText: string;
+  accentBorder: string;
+}
+
 interface InterviewSuiteReport {
   status?: string;
   final_score?: number;
@@ -109,6 +128,23 @@ interface EnhancedLLMSettingsTabProps {
     providerId: string,
     model: string
   ) => Promise<Record<string, unknown> | null>;
+  onAskInteractiveInterview: (payload: {
+    roleId: RoleId;
+    providerId: string;
+    model: string;
+    question: string;
+    expectedCriteria?: string[];
+    expectsThinking?: boolean;
+    sessionId?: string | null;
+    context?: Array<{ question: string; answer: string }>;
+    debug?: boolean;
+  }) => Promise<InteractiveInterviewAnswer | null>;
+  onSaveInteractiveInterview: (payload: {
+    roleId: RoleId;
+    providerId: string;
+    model: string;
+    report: InteractiveInterviewReport;
+  }) => Promise<{ saved: boolean; report_path?: string } | null>;
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
   onDeleteProvider?: (providerId: string) => void | Promise<void>;
@@ -166,6 +202,53 @@ const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
   }
 };
 
+const CONNECTION_METHODS: ConnectionMethodMeta[] = [
+  {
+    id: 'sdk',
+    label: 'SDK 方式',
+    description: '官方 SDK 集成，功能完整且稳定',
+    pros: ['官方支持', '原生 thinking / streaming', '更好的错误处理', '更完整的功能'],
+    cons: ['需要安装 SDK 依赖', '配置项稍多'],
+    recommended: true,
+    accent: 'bg-emerald-500/15',
+    accentText: 'text-emerald-200',
+    accentBorder: 'border-emerald-400/40'
+  },
+  {
+    id: 'api',
+    label: 'HTTP API 方式',
+    description: 'REST API 访问，兼容性最好',
+    pros: ['无需 SDK 依赖', '兼容多种服务', '部署简单'],
+    cons: ['部分高级功能受限', '流式支持取决于服务端'],
+    recommended: false,
+    accent: 'bg-cyan-500/15',
+    accentText: 'text-cyan-200',
+    accentBorder: 'border-cyan-400/40'
+  },
+  {
+    id: 'cli',
+    label: '命令行方式',
+    description: '使用 CLI 工具，适合本地开发',
+    pros: ['本地工具链', '参数灵活', '适合快速试用'],
+    cons: ['输出解析复杂', '依赖 CLI 安装'],
+    recommended: false,
+    accent: 'bg-fuchsia-500/15',
+    accentText: 'text-fuchsia-200',
+    accentBorder: 'border-fuchsia-400/40'
+  }
+];
+
+const PROVIDER_FAMILY_ORDER = [
+  'Codex',
+  'OpenAI',
+  'Anthropic',
+  'Gemini',
+  'MiniMax',
+  'Ollama',
+  'Custom',
+  'Other'
+];
+
 const CONNECTIVITY_STORAGE_KEY = 'harborpilot:interview:connectivity';
 
 const parseTimestamp = (value?: string): number => {
@@ -205,6 +288,26 @@ const extractSuiteError = (suites?: Record<string, unknown>): string | undefined
     return modelAvailable.error;
   }
   return undefined;
+};
+
+const resolveConnectionMethod = (providerType?: string): ConnectionMethodId => {
+  const normalized = String(providerType || '').toLowerCase();
+  if (normalized.includes('sdk')) return 'sdk';
+  if (normalized.includes('cli')) return 'cli';
+  return 'api';
+};
+
+const resolveProviderFamily = (providerType: string, providerName: string): string => {
+  const type = providerType.toLowerCase();
+  const name = providerName.toLowerCase();
+  if (type.includes('codex') || name.includes('codex')) return 'Codex';
+  if (type.includes('openai') || name.includes('openai')) return 'OpenAI';
+  if (type.includes('anthropic') || name.includes('anthropic')) return 'Anthropic';
+  if (type.includes('gemini') || name.includes('gemini')) return 'Gemini';
+  if (type.includes('maxmini') || name.includes('minimax')) return 'MiniMax';
+  if (type.includes('ollama') || name.includes('ollama')) return 'Ollama';
+  if (type.includes('custom')) return 'Custom';
+  return 'Other';
 };
 
 const extractThinkingMeta = (suites?: Record<string, unknown>): ConnectivityResult['thinking'] => {
@@ -312,6 +415,8 @@ export function EnhancedLLMSettingsTab({
   onSaveConfig,
   onRunInterview,
   onRunConnectivityTest,
+  onAskInteractiveInterview,
+  onSaveInteractiveInterview,
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
@@ -324,7 +429,9 @@ export function EnhancedLLMSettingsTab({
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'config' | 'deepTest'>('config');
   const [configView, setConfigView] = useState<'list' | 'visual'>('list');
+  const [selectedMethod, setSelectedMethod] = useState<ConnectionMethodId>('sdk');
   const [deepView, setDeepView] = useState<'hall' | 'session'>('hall');
+  const [interviewMode, setInterviewMode] = useState<'interactive' | 'auto'>('interactive');
   const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [interviewRunning, setInterviewRunning] = useState(false);
@@ -342,6 +449,7 @@ export function EnhancedLLMSettingsTab({
   const [interviewPanelOpen, setInterviewPanelOpen] = useState(false);
   const [interviewPanelStatus, setInterviewPanelStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const interviewCancelledRef = useRef(false);
+  const methodInitRef = useRef(false);
   const { events, addEvent, resetEvents } = useTestEvents();
   const {
     events: interviewEvents,
@@ -370,6 +478,71 @@ export function EnhancedLLMSettingsTab({
       docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
     };
   }, [llmConfig]);
+
+  const availableMethods = useMemo(() => {
+    const methodSet = new Set<ConnectionMethodId>();
+    providers.forEach((provider) => {
+      methodSet.add(resolveConnectionMethod(provider.info.type));
+    });
+    return Array.from(methodSet);
+  }, [providers]);
+
+  const recommendedMethod = useMemo<ConnectionMethodId>(() => {
+    if (availableMethods.includes('sdk')) return 'sdk';
+    if (availableMethods.includes('api')) return 'api';
+    return 'cli';
+  }, [availableMethods]);
+
+  const recommendedProvider = useMemo(() => {
+    const primaryType =
+      recommendedMethod === 'sdk'
+        ? 'codex_sdk'
+        : recommendedMethod === 'cli'
+          ? 'codex_cli'
+          : 'openai_compat';
+    const preferred = providers.find((provider) => provider.info.type === primaryType);
+    if (preferred) return preferred;
+    return providers.find((provider) => resolveConnectionMethod(provider.info.type) === recommendedMethod) || null;
+  }, [providers, recommendedMethod]);
+
+  const filteredProviderEntries = useMemo(() => {
+    return providers.filter((provider) => {
+      return resolveConnectionMethod(provider.info.type) === selectedMethod;
+    });
+  }, [providers, selectedMethod]);
+
+  const providerGroups = useMemo(() => {
+    const groups = new Map<string, typeof providers>();
+    filteredProviderEntries.forEach((provider) => {
+      const family = resolveProviderFamily(provider.info.type, provider.info.name);
+      const existing = groups.get(family) || [];
+      groups.set(family, [...existing, provider]);
+    });
+    const ordered: Array<[string, typeof providers]> = [];
+    PROVIDER_FAMILY_ORDER.forEach((family) => {
+      const entries = groups.get(family);
+      if (entries && entries.length > 0) {
+        ordered.push([family, entries]);
+      }
+    });
+    groups.forEach((entries, family) => {
+      if (!PROVIDER_FAMILY_ORDER.includes(family)) {
+        ordered.push([family, entries]);
+      }
+    });
+    return ordered;
+  }, [filteredProviderEntries]);
+
+  useEffect(() => {
+    if (!methodInitRef.current && availableMethods.length > 0) {
+      setSelectedMethod(recommendedMethod);
+      methodInitRef.current = true;
+      return;
+    }
+    if (!availableMethods.includes(selectedMethod) && availableMethods.length > 0) {
+      setSelectedMethod(recommendedMethod);
+    }
+  }, [availableMethods, recommendedMethod, selectedMethod]);
 
   const resolveProviderModel = (
     providerId: string,
@@ -932,6 +1105,50 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
+  const handleInteractiveAsk = async (payload: {
+    roleId: RoleId;
+    providerId: string;
+    question: string;
+    expectedCriteria?: string[];
+    expectsThinking?: boolean;
+    sessionId?: string | null;
+    context?: Array<{ question: string; answer: string }>;
+    debug?: boolean;
+  }): Promise<InteractiveInterviewAnswer | null> => {
+    const model = resolveModelForSelection(payload.roleId, payload.providerId);
+    if (!model) {
+      throw new Error('缺少模型配置，无法发送问题');
+    }
+    return onAskInteractiveInterview({
+      roleId: payload.roleId,
+      providerId: payload.providerId,
+      model,
+      question: payload.question,
+      expectedCriteria: payload.expectedCriteria,
+      expectsThinking: payload.expectsThinking,
+      sessionId: payload.sessionId,
+      context: payload.context,
+      debug: payload.debug
+    });
+  };
+
+  const handleInteractiveSave = async (payload: {
+    roleId: RoleId;
+    providerId: string;
+    report: InteractiveInterviewReport;
+  }): Promise<{ saved: boolean; report_path?: string } | null> => {
+    const model = resolveModelForSelection(payload.roleId, payload.providerId);
+    if (!model) {
+      throw new Error('缺少模型配置，无法保存面试报告');
+    }
+    return onSaveInteractiveInterview({
+      roleId: payload.roleId,
+      providerId: payload.providerId,
+      model,
+      report: payload.report
+    });
+  };
+
   const handleRunConnectivity = async (roleId: RoleId, providerId: string) => {
     if (!onRunConnectivityTest) return;
     const model = resolveModelForSelection(roleId, providerId);
@@ -1167,6 +1384,11 @@ export function EnhancedLLMSettingsTab({
     };
   }, [buildSimpleProvider, llmConfig, selectedMeta, selectedProviderId, selectedRole]);
 
+  const selectedInterviewModel = useMemo(() => {
+    if (!selectedRole || !selectedProviderId) return '';
+    return resolveModelForSelection(selectedRole, selectedProviderId);
+  }, [llmConfig, selectedProviderId, selectedRole]);
+
   if (llmLoading || providersLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1267,31 +1489,6 @@ export function EnhancedLLMSettingsTab({
                   视觉视图
                 </button>
               </div>
-
-              {configView === 'list' ? (
-                <>
-                  <select
-                    value={selectedProviderType}
-                    onChange={(e) => setSelectedProviderType(e.target.value)}
-                    className="bg-black/40 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-                  >
-                    <option value="">选择提供商类型</option>
-                    {providers.map((provider) => (
-                      <option key={provider.info.type} value={provider.info.type}>
-                        {provider.info.name} ({provider.info.cost_class})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => selectedProviderType && handleAddProvider(selectedProviderType)}
-                    disabled={!selectedProviderType || llmSaving}
-                    className="px-3 py-1.5 text-[10px] font-semibold bg-cyan-500/80 hover:bg-cyan-500 text-white rounded transition-colors flex items-center gap-1 disabled:opacity-60"
-                  >
-                    <Plus className="size-3" />
-                    添加提供商
-                  </button>
-                </>
-              ) : null}
             </div>
           </div>
 
@@ -1302,42 +1499,200 @@ export function EnhancedLLMSettingsTab({
               onConfigChange={handleVisualConfigChange}
               onSave={onSaveConfig}
             />
-          ) : Object.keys(llmConfig?.providers || {}).length === 0 ? (
-            <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
-              <Settings className="size-8 text-text-dim mx-auto mb-3" />
-              <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
-              <p className="text-xs text-text-dim mb-4">
-                选择一个提供商类型并添加配置，然后进行模型测试
-              </p>
-              <div className="text-xs text-text-dim">
-                <p>支持的提供商类型：</p>
-                <div className="flex flex-wrap gap-2 justify-center mt-2">
-                  {providers.slice(0, 6).map((provider) => (
-                    <span key={provider.info.type} className="bg-black/30 px-2 py-1 rounded text-[9px]">
-                      {provider.info.name}
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-black/40 p-4 shadow-[0_0_22px_rgba(34,211,238,0.12)]">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-text-main">连接方式选择</div>
+                    <div className="text-[10px] text-text-dim">先选连接方式，再选具体提供商。</div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-text-dim">
+                    <span>推荐优先：</span>
+                    <span className="px-2 py-1 rounded border border-emerald-400/40 bg-emerald-500/10 text-emerald-200">
+                      {CONNECTION_METHODS.find((item) => item.id === recommendedMethod)?.label}
                     </span>
-                  ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {CONNECTION_METHODS.map((method) => {
+                    const selected = selectedMethod === method.id;
+                    return (
+                      <button
+                        key={method.id}
+                        type="button"
+                        onClick={() => setSelectedMethod(method.id)}
+                        className={`text-left rounded-xl border p-3 transition-all ${
+                          selected
+                            ? `${method.accentBorder} ${method.accent} shadow-[0_0_18px_rgba(34,211,238,0.15)]`
+                            : 'border-white/10 bg-black/20 hover:border-white/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-semibold ${selected ? method.accentText : 'text-text-main'}`}>
+                            {method.label}
+                          </span>
+                          {method.recommended ? (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
+                              推荐
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 text-[10px] text-text-dim">{method.description}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-text-dim">
+                          <div className="space-y-1">
+                            <div className="text-[9px] uppercase tracking-wider text-text-dim">优势</div>
+                            <div className="flex flex-wrap gap-1">
+                              {method.pros.slice(0, 2).map((item) => (
+                                <span key={item} className="px-2 py-0.5 rounded bg-white/5 text-text-dim">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[9px] uppercase tracking-wider text-text-dim">限制</div>
+                            <div className="flex flex-wrap gap-1">
+                              {method.cons.slice(0, 2).map((item) => (
+                                <span key={item} className="px-2 py-0.5 rounded bg-white/5 text-text-dim">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {recommendedProvider ? (
+                  <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-[10px] text-emerald-100 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      推荐提供商：<span className="font-semibold">{recommendedProvider.info.name}</span>
+                      <span className="text-emerald-200/70"> · {recommendedProvider.info.description}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddProvider(recommendedProvider.info.type)}
+                      className="px-3 py-1.5 rounded bg-emerald-500/80 text-white text-[10px] font-semibold hover:bg-emerald-500 transition-colors"
+                    >
+                      一键添加
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <div className="text-xs font-semibold text-text-main">支持的提供商</div>
+                    <div className="text-[10px] text-text-dim">
+                      当前显示：{CONNECTION_METHODS.find((item) => item.id === selectedMethod)?.label}
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-text-dim">
+                    选择后将自动创建配置并进入编辑模式。
+                  </div>
+                </div>
+
+                {providerGroups.length === 0 ? (
+                  <div className="text-xs text-text-dim">暂无可用提供商</div>
+                ) : (
+                  <div className="space-y-4">
+                    {providerGroups.map(([family, entries]) => (
+                      <div key={family} className="space-y-2">
+                        <div className="text-[11px] uppercase tracking-wider text-text-dim">{family}</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                          {entries.map((provider) => {
+                            const selected = selectedProviderType === provider.info.type;
+                            return (
+                              <button
+                                key={provider.info.type}
+                                type="button"
+                                onClick={() => handleAddProvider(provider.info.type)}
+                                disabled={llmSaving}
+                                className={`text-left rounded-xl border p-3 transition-all ${
+                                  selected
+                                    ? 'border-cyan-400/50 bg-cyan-500/10'
+                                    : 'border-white/10 bg-black/20 hover:border-white/30'
+                                } disabled:opacity-60`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-xs font-semibold text-text-main">{provider.info.name}</div>
+                                    <div className="text-[10px] text-text-dim">{provider.info.type}</div>
+                                  </div>
+                                  <span className="text-[9px] px-2 py-0.5 rounded border border-white/10 bg-black/40">
+                                    {provider.info.cost_class}
+                                  </span>
+                                </div>
+                                <div className="mt-2 text-[10px] text-text-dim line-clamp-2">
+                                  {provider.info.description}
+                                </div>
+                                {provider.info.supported_features?.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {provider.info.supported_features.slice(0, 3).map((feature) => (
+                                      <span key={feature} className="text-[9px] px-2 py-0.5 rounded bg-white/5 text-text-dim">
+                                        {feature}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                <div className="mt-2 flex items-center justify-between text-[10px] text-text-dim">
+                                  <span>点击添加并配置</span>
+                                  <Plus className="size-3" />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {Object.keys(llmConfig?.providers || {}).length === 0 ? (
+              <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
+                <Settings className="size-8 text-text-dim mx-auto mb-3" />
+                <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
+                <p className="text-xs text-text-dim mb-4">
+                  选择一个提供商类型并添加配置，然后进行模型测试
+                </p>
+                <div className="text-xs text-text-dim">
+                  <p>支持的提供商类型：</p>
+                  <div className="flex flex-wrap gap-2 justify-center mt-2">
+                    {providers.slice(0, 6).map((provider) => (
+                      <span key={provider.info.type} className="bg-black/30 px-2 py-1 rounded text-[9px]">
+                        {provider.info.name}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
-                renderProviderCard(providerId, provider)
-              )}
-              <div className="flex justify-center">
-                <button
-                  onClick={() => {
-                    setActiveTab('deepTest');
-                    setDeepView('hall');
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2"
-                >
-                  进入深度测试
-                  <PlayCircle className="size-3" />
-                </button>
+            ) : (
+              <div className="space-y-3">
+                {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
+                  renderProviderCard(providerId, provider)
+                )}
+                <div className="flex justify-center">
+                  <button
+                    onClick={() => {
+                      setActiveTab('deepTest');
+                      setDeepView('hall');
+                    }}
+                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2"
+                  >
+                    进入深度测试
+                    <PlayCircle className="size-3" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+          </div>
           )}
         </div>
       )}
@@ -1346,14 +1701,55 @@ export function EnhancedLLMSettingsTab({
       {activeTab === 'deepTest' && (
         <div className="space-y-4 w-full max-w-5xl mx-auto min-h-[60vh]">
           <div className="rounded-2xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(16,185,129,0.18)]">
-            <div className="text-xs uppercase tracking-widest text-emerald-200">Deep Test Chamber</div>
-            <div className="text-[10px] text-text-dim mt-1">
-              深度测试用于验证角色与模型适配度，输出详细能力报告。
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-emerald-200">Deep Test Chamber</div>
+                <div className="text-[10px] text-text-dim mt-1">
+                  深度测试用于验证角色与模型适配度，输出详细能力报告。
+                </div>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/40 p-1">
+                <button
+                  onClick={() => setInterviewMode('interactive')}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    interviewMode === 'interactive'
+                      ? 'bg-emerald-500/20 text-emerald-200'
+                      : 'text-text-dim hover:text-emerald-100'
+                  }`}
+                >
+                  INTERACTIVE
+                </button>
+                <button
+                  onClick={() => {
+                    setInterviewMode('auto');
+                    setDeepView('hall');
+                  }}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    interviewMode === 'auto'
+                      ? 'bg-cyan-500/20 text-cyan-200'
+                      : 'text-text-dim hover:text-cyan-100'
+                  }`}
+                >
+                  AUTO
+                </button>
+              </div>
             </div>
           </div>
 
           <div className="w-full">
-            {deepView === 'hall' ? (
+            {interviewMode === 'interactive' ? (
+              <InteractiveInterviewHall
+                roles={roles}
+                providers={interviewProviders}
+                selectedRole={selectedRole}
+                selectedProvider={selectedProviderId}
+                selectedModel={selectedInterviewModel}
+                onSelectRole={setSelectedRole}
+                onSelectProvider={setSelectedProviderId}
+                onAskQuestion={handleInteractiveAsk}
+                onSaveReport={handleInteractiveSave}
+              />
+            ) : deepView === 'hall' ? (
               <InterviewHall
                 roles={roles}
                 selectedRole={selectedRole}

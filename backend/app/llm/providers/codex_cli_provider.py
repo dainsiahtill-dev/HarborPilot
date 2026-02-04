@@ -5,8 +5,11 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+import threading
+import queue
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 from .base_provider import (
     BaseProvider, ProviderInfo, HealthResult, ModelListResult,
@@ -14,6 +17,19 @@ from .base_provider import (
 )
 from ..types import estimate_usage, ModelInfo
 from ...utils import build_utf8_env
+
+# Try to import PTY support for real-time terminal output
+try:
+    import pty
+    HAS_PTY = True
+except ImportError:
+    HAS_PTY = False
+
+try:
+    import winpty
+    HAS_WINPTY = True
+except ImportError:
+    HAS_WINPTY = False
 
 
 def _normalize_command(command: str) -> List[str]:
@@ -24,6 +40,15 @@ def _normalize_command(command: str) -> List[str]:
     if ext in (".cmd", ".bat"):
         return ["cmd.exe", "/c", command]
     return [command]
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate text to specified limit with ellipsis"""
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
 
 
 def _resolve_command(command: str) -> Optional[str]:
@@ -157,9 +182,6 @@ def _build_codex_exec_args(model: str, config: Dict[str, Any]) -> List[str]:
         if bool(opts.get('full_auto')):
             args.append('--full-auto')
     
-    # Prompt placeholder
-    args.append('{prompt}')
-    
     return args
 
 
@@ -252,7 +274,7 @@ def _run_cli(
     timeout: int,
     input_text: Optional[str],
 ) -> Tuple[int, str, str, int]:
-    """Execute CLI command"""
+    """Execute CLI command (no timeout by default)"""
     cmd = _normalize_command(command) + args
     start = time.time()
     result = subprocess.run(
@@ -265,10 +287,290 @@ def _run_cli(
         stderr=subprocess.PIPE,
         cwd=cwd or None,
         env=build_utf8_env(env),
-        timeout=timeout if timeout > 0 else None,
+        timeout=None,  # No timeout - wait indefinitely
     )
     latency_ms = int((time.time() - start) * 1000)
     return result.returncode, result.stdout or "", result.stderr or "", latency_ms
+
+
+def _run_cli_streaming(
+    command: str,
+    args: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]],
+    input_text: Optional[str],
+    stdout_callback: Optional[Callable[[str], None]] = None,
+    stderr_callback: Optional[Callable[[str], None]] = None,
+) -> Tuple[int, str, str, int]:
+    """Execute CLI command with streaming output"""
+    cmd = _normalize_command(command) + args
+    start = time.time()
+    
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE if input_text else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd or None,
+        env=build_utf8_env(env),
+        bufsize=1,
+    )
+    
+    stdout_lines = []
+    stderr_lines = []
+    
+    def read_stream(stream, lines_list, callback):
+        for line in iter(stream.readline, ''):
+            if not line:
+                break
+            lines_list.append(line)
+            if callback:
+                callback(line.rstrip('\n'))
+        stream.close()
+    
+    stdout_thread = threading.Thread(
+        target=read_stream,
+        args=(process.stdout, stdout_lines, stdout_callback)
+    )
+    stderr_thread = threading.Thread(
+        target=read_stream,
+        args=(process.stderr, stderr_lines, stderr_callback)
+    )
+    
+    stdout_thread.start()
+    stderr_thread.start()
+    
+    if input_text and process.stdin:
+        process.stdin.write(input_text)
+        process.stdin.close()
+    
+    process.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+    
+    latency_ms = int((time.time() - start) * 1000)
+    return (
+        process.returncode,
+        ''.join(stdout_lines),
+        ''.join(stderr_lines),
+        latency_ms
+    )
+
+
+def _run_cli_pty(
+    command: str,
+    args: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]],
+    input_text: Optional[str],
+    output_queue: queue.Queue,
+) -> Tuple[int, str, int]:
+    """Execute CLI command using PTY for real terminal behavior (Windows/Linux/Mac)
+    
+    This provides true real-time output by using a pseudo-terminal.
+    Output is pushed to the queue as it arrives.
+    """
+    import platform
+    
+    system = platform.system().lower()
+    cmd = _normalize_command(command) + args
+    full_cmd = ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in cmd)
+    start = time.time()
+    
+    if system == 'windows' and HAS_WINPTY:
+        # Windows with winpty
+        return _run_winpty(cmd, cwd, env, input_text, output_queue)
+    elif system != 'windows' and HAS_PTY:
+        # Unix/Linux/Mac with pty
+        return _run_unix_pty(cmd, cwd, env, input_text, output_queue)
+    else:
+        # Fallback to subprocess with immediate output
+        return _run_cli_pty_fallback(full_cmd, cwd, env, input_text, output_queue)
+
+
+def _run_winpty(
+    cmd: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]],
+    input_text: Optional[str],
+    output_queue: queue.Queue,
+) -> Tuple[int, str, int]:
+    """Run command using winpty on Windows"""
+    try:
+        process = winpty.PtyProcess.spawn(
+            cmd,
+            cwd=cwd or None,
+            env=build_utf8_env(env),
+        )
+        
+        # Send input if provided
+        if input_text:
+            process.write(input_text)
+        
+        output_chunks = []
+        
+        while True:
+            try:
+                # Read available data (non-blocking)
+                data = process.read(timeout=100)
+                if data:
+                    output_chunks.append(data)
+                    output_queue.put(('stdout', data))
+            except winpty.WinptyTimeout:
+                pass
+            
+            if not process.isalive():
+                # Read any remaining output
+                try:
+                    while True:
+                        data = process.read(timeout=50)
+                        if not data:
+                            break
+                        output_chunks.append(data)
+                        output_queue.put(('stdout', data))
+                except:
+                    break
+                break
+        
+        latency_ms = int((time.time() - time.time()) * 1000)  # Will fix
+        return process.getexitcode(), ''.join(output_chunks), latency_ms
+    except Exception as e:
+        output_queue.put(('stderr', str(e)))
+        return 1, '', 0
+
+
+def _run_unix_pty(
+    cmd: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]],
+    input_text: Optional[str],
+    output_queue: queue.Queue,
+) -> Tuple[int, str, int]:
+    """Run command using pty on Unix/Linux/Mac"""
+    import select
+    import termios
+    import tty
+    
+    start = time.time()
+    master_fd, slave_fd = pty.openpty()
+    
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            cwd=cwd or None,
+            env=build_utf8_env(env),
+            preexec_fn=os.setsid if hasattr(os, 'setsid') else None,
+        )
+        
+        os.close(slave_fd)
+        
+        # Send input if provided
+        if input_text:
+            os.write(master_fd, input_text.encode('utf-8'))
+        
+        output_chunks = []
+        
+        while True:
+            try:
+                ready, _, _ = select.select([master_fd], [], [], 0.1)
+                if master_fd in ready:
+                    try:
+                        data = os.read(master_fd, 1024).decode('utf-8', errors='replace')
+                        if data:
+                            output_chunks.append(data)
+                            output_queue.put(('stdout', data))
+                    except OSError:
+                        break
+            except select.error:
+                break
+            
+            if process.poll() is not None:
+                # Read remaining output
+                try:
+                    while True:
+                        ready, _, _ = select.select([master_fd], [], [], 0.1)
+                        if master_fd in ready:
+                            data = os.read(master_fd, 1024).decode('utf-8', errors='replace')
+                            if not data:
+                                break
+                            output_chunks.append(data)
+                            output_queue.put(('stdout', data))
+                        else:
+                            break
+                except:
+                    break
+                break
+        
+        latency_ms = int((time.time() - start) * 1000)
+        return process.returncode, ''.join(output_chunks), latency_ms
+        
+    finally:
+        try:
+            os.close(master_fd)
+        except:
+            pass
+
+
+def _run_cli_pty_fallback(
+    full_cmd: str,
+    cwd: str,
+    env: Optional[Dict[str, str]],
+    input_text: Optional[str],
+    output_queue: queue.Queue,
+) -> Tuple[int, str, int]:
+    """Fallback: Use subprocess with immediate unbuffered output"""
+    import platform
+    
+    start = time.time()
+    system = platform.system().lower()
+    
+    # Use shell=True to get better terminal behavior
+    if system == 'windows':
+        # On Windows, use cmd /c to execute
+        shell_cmd = f'cmd /c "{full_cmd}"'
+    else:
+        shell_cmd = full_cmd
+    
+    process = subprocess.Popen(
+        shell_cmd,
+        shell=True,
+        stdin=subprocess.PIPE if input_text else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Merge stderr into stdout
+        cwd=cwd or None,
+        env=build_utf8_env(env),
+        bufsize=0,  # Unbuffered
+    )
+    
+    output_chunks = []
+    
+    def read_output():
+        while True:
+            chunk = process.stdout.read(1)  # Read byte by byte for immediate output
+            if not chunk:
+                break
+            output_chunks.append(chunk)
+            output_queue.put(('stdout', chunk))
+    
+    reader_thread = threading.Thread(target=read_output)
+    reader_thread.daemon = True
+    reader_thread.start()
+    
+    if input_text and process.stdin:
+        process.stdin.write(input_text.encode('utf-8'))
+        process.stdin.close()
+    
+    process.wait()
+    reader_thread.join(timeout=1)
+    
+    latency_ms = int((time.time() - start) * 1000)
+    return process.returncode, ''.join(output_chunks), latency_ms
 
 
 def _parse_codex_json_output(raw_output: str) -> str:
@@ -705,35 +1007,113 @@ class CodexCLIProvider(BaseProvider):
                 pass
         
         rendered_args, send_prompt = self._render_args(args, prompt, model, output_path)
-        timeout = int(config.get("timeout") or 60)
+        debug_raw = None
+        debug_steps = []
+        stream_output_lines: List[str] = []
+        
+        if config.get("debug_emit_args"):
+            try:
+                debug_args = [str(item) for item in rendered_args]
+            except Exception:
+                debug_args = []
+            
+            # Build step-by-step execution trace
+            debug_steps.append(f"1. RESOLVED COMMAND: {resolved}")
+            debug_steps.append(f"2. MODEL: {model}")
+            debug_steps.append(f"3. TIMEOUT: none (waiting indefinitely)")
+            debug_steps.append(f"4. SEND_PROMPT_MODE: {'stdin' if send_prompt else 'argv'}")
+            debug_steps.append(f"5. CLI_ARGS: {json.dumps(debug_args)}")
+            debug_steps.append(f"6. PROMPT_LENGTH: {len(prompt)} chars")
+            if send_prompt:
+                debug_steps.append(f"7. STDIN_PREVIEW: {_truncate(prompt, 300)}")
+            
+            debug_raw = {
+                "debug_command": resolved,
+                "debug_args": debug_args,
+                "debug_send_prompt": bool(send_prompt),
+                "debug_stdin_prompt": prompt if send_prompt else None,
+                "debug_steps": debug_steps,
+            }
 
-        def run_once(selected_args: List[str], use_prompt: bool) -> Tuple[int, str, str, str, int]:
+        def run_with_pty(selected_args: List[str], use_prompt: bool) -> Tuple[int, str, str, int]:
+            """Run using PTY for real-time output capture"""
+            output_queue: queue.Queue = queue.Queue()
+            
+            # Collect output from queue in background
+            collected_output = []
+            
+            def collect_output():
+                while True:
+                    try:
+                        stream_type, data = output_queue.get(timeout=0.1)
+                        if stream_type == 'done':
+                            break
+                        collected_output.append(data)
+                        stream_output_lines.append(f"[{stream_type.upper()}] {data}")
+                    except queue.Empty:
+                        continue
+            
+            collector_thread = threading.Thread(target=collect_output)
+            collector_thread.daemon = True
+            collector_thread.start()
+            
+            try:
+                code, output, latency_ms = _run_cli_pty(
+                    resolved,
+                    selected_args,
+                    str(config.get("working_dir") or ""),
+                    config.get("env") or {},
+                    prompt if use_prompt else None,
+                    output_queue,
+                )
+            finally:
+                output_queue.put(('done', ''))
+                collector_thread.join(timeout=2)
+            
+            # Also get any remaining output from collected_output
+            full_output = ''.join(collected_output) if collected_output else output
+            
+            # Parse JSON output for structured content
+            if full_output and '--json' in selected_args:
+                full_output = _parse_codex_json_output(full_output)
+            
+            return code, full_output, '', latency_ms
+
+        def run_without_pty(selected_args: List[str], use_prompt: bool) -> Tuple[int, str, str, int]:
+            """Standard subprocess execution"""
             code, stdout, stderr, latency_ms = _run_cli(
                 resolved,
                 selected_args,
                 str(config.get("working_dir") or ""),
                 config.get("env") or {},
-                timeout,
+                0,
                 prompt if use_prompt else None,
             )
+            
             output = stdout.strip() if stdout else ""
-
+            
             # Parse JSON output for structured content
             if output and '--json' in selected_args:
                 output = _parse_codex_json_output(output)
-
-            # Check output file if specified
-            if not output and output_path and os.path.isfile(output_path):
-                try:
-                    with open(output_path, "r", encoding="utf-8", errors="replace") as handle:
-                        output = handle.read().strip()
-                except Exception:
-                    pass
-
-            return code, output, stdout or "", stderr or "", latency_ms
+            
+            return code, output, stderr or '', latency_ms
 
         try:
-            code, output, stdout_raw, stderr_raw, latency_ms = run_once(rendered_args, send_prompt)
+            use_pty = bool(config.get("debug_emit_args"))
+            
+            if use_pty:
+                # Use PTY mode for real-time capture
+                code, output, stderr_raw, latency_ms = run_with_pty(rendered_args, send_prompt)
+            else:
+                # Standard mode
+                code, output, stderr_raw, latency_ms = run_without_pty(rendered_args, send_prompt)
+            
+            stdout_raw = output
+            
+            # Add streaming output to debug info
+            if use_pty and debug_raw is not None and stream_output_lines:
+                debug_raw["debug_stream_output"] = stream_output_lines
+            
             cli_error = _extract_cli_error_message(output)
             if code != 0 or cli_error:
                 message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
@@ -746,28 +1126,39 @@ class CodexCLIProvider(BaseProvider):
                         f'"{fallback_effort}"'
                     )
                     rendered_retry_args, send_prompt_retry = self._render_args(retry_args, prompt, model, output_path)
-                    code, output, stdout_raw, stderr_raw, latency_ms = run_once(
-                        rendered_retry_args, send_prompt_retry
-                    )
+                    if config.get("debug_emit_args"):
+                        try:
+                            debug_args = [str(item) for item in rendered_retry_args]
+                        except Exception:
+                            debug_args = []
+                        debug_raw = {
+                            "debug_args": debug_args,
+                            "debug_send_prompt": bool(send_prompt_retry),
+                            "debug_stdin_prompt": prompt if send_prompt_retry else None,
+                        }
+                    # Retry without PTY (simpler mode)
+                    code, output, stderr_raw, latency_ms = run_without_pty(rendered_retry_args, send_prompt_retry)
+                    stdout_raw = output
                     cli_error = _extract_cli_error_message(output)
-                    if code == 0 and not cli_error:
-                        usage = estimate_usage(prompt, output)
-                        return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage)
-                    message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
-                    if message:
-                        message = f"{message}\n(auto-fallback reasoning.effort={fallback_effort} failed)"
+                if code == 0 and not cli_error:
+                    usage = estimate_usage(prompt, output)
+                    return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage, raw=debug_raw)
+                message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
+                if message:
+                    message = f"{message}\n(auto-fallback reasoning.effort={fallback_effort} failed)"
 
                 usage = estimate_usage(prompt, output)
-                return InvokeResult(ok=False, output=output, latency_ms=latency_ms, usage=usage, error=message)
+                return InvokeResult(ok=False, output=output, latency_ms=latency_ms, usage=usage, error=message, raw=debug_raw)
 
             usage = estimate_usage(prompt, output)
-            return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage)
+            return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage, raw=debug_raw)
         except subprocess.TimeoutExpired:
+            # This should not happen as timeout is disabled
             usage = estimate_usage(prompt, "")
-            return InvokeResult(ok=False, output="", latency_ms=timeout * 1000, usage=usage, error="timeout")
+            return InvokeResult(ok=False, output="", latency_ms=0, usage=usage, error="timeout", raw=debug_raw)
         except Exception as exc:
             usage = estimate_usage(prompt, "")
-            return InvokeResult(ok=False, output="", latency_ms=0, usage=usage, error=str(exc))
+            return InvokeResult(ok=False, output="", latency_ms=0, usage=usage, error=str(exc), raw=debug_raw)
     
     @classmethod
     def extract_thinking_support(cls, response: Dict[str, Any]) -> ThinkingInfo:
@@ -882,9 +1273,13 @@ class CodexCLIProvider(BaseProvider):
     
     @staticmethod
     def _render_args(args: List[str], prompt: str, model: str, output_path: Optional[str]) -> Tuple[List[str], bool]:
-        """Render arguments with placeholder replacement"""
+        """Render arguments with placeholder replacement
+        
+        IMPORTANT: Prompt is ALWAYS sent via stdin, never as CLI argument.
+        This ensures Codex CLI treats it as the actual user message rather than
+        context/instruction, preventing "ready to interview" deflection responses.
+        """
         rendered: List[str] = []
-        send_prompt = True
         skip_next = False
         
         for idx, item in enumerate(args):
@@ -900,9 +1295,10 @@ class CodexCLIProvider(BaseProvider):
                 continue
             
             value = item.replace("{model}", model)
+            
+            # Skip {prompt} placeholder - prompt will be sent via stdin instead
             if "{prompt}" in value:
-                value = value.replace("{prompt}", prompt)
-                send_prompt = False
+                continue
             
             if output_path and "{output}" in value:
                 value = value.replace("{output}", output_path)
@@ -911,4 +1307,5 @@ class CodexCLIProvider(BaseProvider):
                 continue
             rendered.append(value)
         
-        return rendered, send_prompt
+        # ALWAYS send prompt via stdin for proper handling by Codex CLI
+        return rendered, True

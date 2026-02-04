@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..config import Settings
 from ..state import AppState, Auth
 from ..utils import build_cache_root, resolve_artifact_path
 from ..services.llm_tests import run_llm_tests, load_llm_test_index, reset_llm_test_index
+from ..services.interactive_interview import (
+    run_interactive_interview_question,
+    save_interactive_interview_report,
+)
+from ..services.interactive_interview_streaming import (
+    run_interactive_interview_streaming,
+)
 from ..llm import config as llm_config
 from ..llm.providers import (
     ollama_health,
@@ -53,6 +62,28 @@ class LlmTestPayload(BaseModel):
 class ProviderActionPayload(BaseModel):
     api_key: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
+
+
+class InterviewAskPayload(BaseModel):
+    role: str
+    provider_id: str
+    model: str
+    question: str
+    context: Optional[list[Dict[str, Any]]] = None
+    expects_thinking: Optional[bool] = None
+    criteria: Optional[list[str]] = None
+    session_id: Optional[str] = None
+    api_key: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    debug: Optional[bool] = None
+
+
+class InterviewSavePayload(BaseModel):
+    role: str
+    provider_id: str
+    model: str
+    report: Dict[str, Any]
+    session_id: Optional[str] = None
 
 
 @router.get("/llm/config", dependencies=[Depends(require_auth)])
@@ -164,6 +195,112 @@ def llm_test(request: Request, payload: LlmTestPayload) -> Dict[str, Any]:
         prompt_override=payload.prompt_override,
     )
     return report
+
+
+@router.post("/llm/interview/ask", dependencies=[Depends(require_auth)])
+def llm_interview_ask(request: Request, payload: InterviewAskPayload) -> Dict[str, Any]:
+    state = get_state(request)
+    return run_interactive_interview_question(
+        state.settings,
+        payload.role,
+        payload.provider_id,
+        payload.model,
+        payload.question,
+        session_id=payload.session_id,
+        context=payload.context,
+        expects_thinking=payload.expects_thinking,
+        criteria=payload.criteria,
+        api_key=payload.api_key,
+        extra_headers=payload.headers,
+        debug=payload.debug,
+    )
+
+
+@router.post("/llm/interview/save", dependencies=[Depends(require_auth)])
+def llm_interview_save(request: Request, payload: InterviewSavePayload) -> Dict[str, Any]:
+    state = get_state(request)
+    return save_interactive_interview_report(
+        state.settings,
+        payload.role,
+        payload.provider_id,
+        payload.model,
+        payload.report,
+        session_id=payload.session_id,
+    )
+
+
+@router.post("/llm/interview/stream", dependencies=[Depends(require_auth)])
+async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
+    """Stream interview responses using Server-Sent Events (SSE)
+    
+    This endpoint provides real-time output from the LLM as it executes,
+    allowing the client to see progress before the final result is ready.
+    """
+    state = get_state(request)
+    
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+        
+        # Start the interview in a background task
+        async def run_interview():
+            try:
+                result = await run_interactive_interview_streaming(
+                    state.settings,
+                    payload.role,
+                    payload.provider_id,
+                    payload.model,
+                    payload.question,
+                    session_id=payload.session_id,
+                    context=payload.context,
+                    expects_thinking=payload.expects_thinking,
+                    criteria=payload.criteria,
+                    api_key=payload.api_key,
+                    extra_headers=payload.headers,
+                    output_queue=queue,
+                )
+                await queue.put({"type": "complete", "data": result})
+            except Exception as exc:
+                await queue.put({"type": "error", "data": {"error": str(exc)}})
+        
+        # Start the interview task
+        task = asyncio.create_task(run_interview())
+        
+        # Stream events as they arrive
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=60.0)
+                    
+                    if event.get("type") == "complete":
+                        yield f"event: complete\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                        break
+                    elif event.get("type") == "error":
+                        yield f"event: error\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                        break
+                    else:
+                        # Regular progress event
+                        yield f"event: {event.get('type', 'message')}\ndata: {json.dumps(event.get('data', {}), ensure_ascii=False)}\n\n"
+                        
+                except asyncio.TimeoutError:
+                    yield f"event: ping\ndata: {{}}\n\n"
+                    
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 @router.get("/llm/test/{test_run_id}", dependencies=[Depends(require_auth)])
@@ -280,7 +417,7 @@ def _sync_settings_from_llm(settings: Settings, config: Dict[str, Any]) -> None:
         command = str(provider_cfg.get("command") or "").lower()
         if provider_type == "ollama":
             settings.pm_backend = "ollama"
-        elif provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
+        elif provider_type in ("cli", "codex_cli", "codex_sdk") and ("codex" in command or provider_id == "codex_cli" or provider_type == "codex_sdk"):
             settings.pm_backend = "codex"
         if pm_role.get("model"):
             settings.pm_model = pm_role.get("model")
@@ -301,7 +438,7 @@ def _sync_settings_from_llm(settings: Settings, config: Dict[str, Any]) -> None:
         command = str(provider_cfg.get("command") or "").lower()
         if provider_type == "ollama":
             settings.docs_init_provider = "ollama"
-        elif provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
+        elif provider_type in ("cli", "codex_cli", "codex_sdk") and ("codex" in command or provider_id == "codex_cli" or provider_type == "codex_sdk"):
             settings.docs_init_provider = "codex"
         elif provider_type == "openai_compat":
             settings.docs_init_provider = "custom"
@@ -423,6 +560,8 @@ def _runtime_supported(role: str, provider_id: Optional[str], provider_cfg: Dict
     role = role.strip().lower()
     if role == "pm":
         if provider_type == "ollama":
+            return True
+        if provider_type == "codex_sdk":
             return True
         if provider_type in ("cli", "codex_cli") and ("codex" in command or provider_id == "codex_cli"):
             return True

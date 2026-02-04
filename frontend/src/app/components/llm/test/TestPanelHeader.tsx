@@ -1,4 +1,4 @@
-﻿import { X, Loader2 } from 'lucide-react';
+﻿import { X, Loader2, ChevronDown, ChevronUp, Copy, Download } from 'lucide-react';
 import type { SimpleProvider } from '../types';
 
 interface TestPanelHeaderProps {
@@ -6,6 +6,10 @@ interface TestPanelHeaderProps {
   status: 'idle' | 'running' | 'success' | 'failed';
   onClose: () => void;
   running?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  onCopyLogs?: () => void;
+  onExportLogs?: () => void;
 }
 
 const STATUS_TEXT: Record<TestPanelHeaderProps['status'], string> = {
@@ -26,7 +30,11 @@ export function TestPanelHeader({
   provider,
   status,
   onClose,
-  running
+  running,
+  collapsed,
+  onToggleCollapse,
+  onCopyLogs,
+  onExportLogs
 }: TestPanelHeaderProps) {
   return (
     <div className="flex items-start justify-between gap-4 p-4 border-b border-cyan-500/20 bg-black/40">
@@ -42,6 +50,36 @@ export function TestPanelHeader({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {onCopyLogs ? (
+          <button
+            type="button"
+            onClick={onCopyLogs}
+            className="p-1.5 rounded border border-white/10 hover:border-accent/40 text-text-dim"
+            title="复制日志"
+          >
+            <Copy className="size-3" />
+          </button>
+        ) : null}
+        {onExportLogs ? (
+          <button
+            type="button"
+            onClick={onExportLogs}
+            className="p-1.5 rounded border border-white/10 hover:border-accent/40 text-text-dim"
+            title="导出会话"
+          >
+            <Download className="size-3" />
+          </button>
+        ) : null}
+        {onToggleCollapse ? (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="p-1.5 rounded border border-white/10 hover:border-accent/40 text-text-dim"
+            title={collapsed ? '展开' : '折叠'}
+          >
+            {collapsed ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onClose}
@@ -54,5 +92,3 @@ export function TestPanelHeader({
     </div>
   );
 }
-
-

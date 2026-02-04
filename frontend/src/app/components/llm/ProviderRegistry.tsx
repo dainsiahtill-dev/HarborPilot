@@ -74,6 +74,9 @@ class ProviderRegistryClass {
       case 'codex_cli':
         const { CodexCLIProviderSettings } = await import('./providers/CodexCLIProviderSettings');
         return CodexCLIProviderSettings;
+      case 'codex_sdk':
+        const { CodexSDKProviderSettings } = await import('./providers/CodexSDKProviderSettings');
+        return CodexSDKProviderSettings;
       case 'gemini_cli':
         const { GeminiCLIProviderSettings } = await import('./providers/GeminiCLIProviderSettings');
         return GeminiCLIProviderSettings;

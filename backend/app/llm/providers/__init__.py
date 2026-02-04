@@ -15,6 +15,7 @@ from .anthropic_compat_provider import AnthropicCompatProvider
 
 # New enhanced providers
 from .codex_cli_provider import CodexCLIProvider
+from .codex_sdk_provider import CodexSDKProvider
 from .gemini_cli_provider import GeminiCLIProvider
 from .maxmini_provider import MaxminiProvider
 from .gemini_api_provider import GeminiAPIProvider
@@ -40,6 +41,7 @@ __all__ = [
     
     # Enhanced provider classes
     "CodexCLIProvider",
+    "CodexSDKProvider",
     "GeminiCLIProvider", 
     "MaxminiProvider",
     "GeminiAPIProvider",
