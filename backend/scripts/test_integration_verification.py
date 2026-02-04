@@ -1,7 +1,6 @@
 
 import os
 import sys
-import shutil
 import tempfile
 import json
 from datetime import datetime
@@ -10,10 +9,11 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(SCRIPT_DIR) # backend/
 CORE_DIR = os.path.join(BACKEND_DIR, "core", "harborpilot_loop")
-sys.path.insert(0, CORE_DIR)
-
-from anthropomorphic.integration import get_anthropomorphic_context, init_anthropomorphic_modules, _MEMORY_STORE
-from anthropomorphic.schema import MemoryItem
+def _load_anthro_modules(core_dir: str):
+    if core_dir not in sys.path:
+        sys.path.insert(0, core_dir)
+    from anthropomorphic.integration import get_anthropomorphic_context, init_anthropomorphic_modules
+    return get_anthropomorphic_context, init_anthropomorphic_modules
 
 def test_integration():
     with tempfile.TemporaryDirectory() as temp_root:
@@ -55,6 +55,7 @@ roles:
 
         # Run Test
         print("Initializing modules...")
+        get_anthropomorphic_context, init_anthropomorphic_modules = _load_anthro_modules(CORE_DIR)
         init_anthropomorphic_modules(temp_root)
         
         # manually reload memory store to pick up the file (if init was cached globally)

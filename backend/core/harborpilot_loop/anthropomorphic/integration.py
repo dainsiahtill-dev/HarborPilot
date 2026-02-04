@@ -3,7 +3,7 @@ import yaml
 from typing import Dict, Any, List, Optional
 from functools import lru_cache
 
-from .schema import PromptContext, MemoryItem
+from .schema import PromptContext
 from .memory_store import MemoryStore
 from .reflection import ReflectionStore, ReflectionScheduler, ReflectionGenerator
 from io_utils import emit_event

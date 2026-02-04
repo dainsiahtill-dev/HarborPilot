@@ -1,14 +1,17 @@
 from .ollama_provider import health as ollama_health, list_models as ollama_list_models, invoke as ollama_invoke
+from .ollama_provider import OllamaProvider
 from .openai_compat_provider import (
     health as openai_health,
     list_models as openai_list_models,
     invoke as openai_invoke,
 )
+from .openai_compat_provider import OpenAICompatProvider
 from .anthropic_compat_provider import (
     health as anthropic_health,
     list_models as anthropic_list_models,
     invoke as anthropic_invoke,
 )
+from .anthropic_compat_provider import AnthropicCompatProvider
 
 # New enhanced providers
 from .codex_cli_provider import CodexCLIProvider
@@ -31,6 +34,9 @@ __all__ = [
     "anthropic_health",
     "anthropic_list_models",
     "anthropic_invoke",
+    "OllamaProvider",
+    "OpenAICompatProvider",
+    "AnthropicCompatProvider",
     
     # Enhanced provider classes
     "CodexCLIProvider",

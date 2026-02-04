@@ -2,7 +2,7 @@
 import re
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, List
 
 ANSI_RESET = "\x1b[0m"
 ANSI_COLORS = {

@@ -122,7 +122,6 @@ def repo_map(args: List[str], cwd: str, timeout: int) -> Result:
         "stderr": "",
         "duration": time.time() - start,
         "duration_ms": int((time.time() - start) * 1000),
-        "truncated": bool(output_payload["truncated"]),
         "artifacts": [],
         "command": ["repo_map"],
     }

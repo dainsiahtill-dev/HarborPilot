@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 import requests
-import json
 import re
 
 from ..types import HealthResult, InvokeResult, ModelInfo, ModelListResult, Usage, estimate_usage

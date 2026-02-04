@@ -96,6 +96,7 @@ try:
         ensure_codex_available,
         ensure_ollama_available,
         emit_dialogue,
+        emit_event,
         flush_jsonl_buffers,
         read_file_safe,
         resolve_artifact_path,
@@ -1565,10 +1566,8 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
     write_json_atomic(run_pm_tasks, director_payload)
 
     run_id = f"pm-{iteration:05d}"
-    primary_task = None
     tasks_for_dialogue = normalized.get("tasks") if isinstance(normalized, dict) else []
     if isinstance(tasks_for_dialogue, list) and tasks_for_dialogue:
-        primary_task = tasks_for_dialogue[0] if isinstance(tasks_for_dialogue[0], dict) else None
         for task in tasks_for_dialogue:
             if not isinstance(task, dict):
                 continue

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from ..types import HealthResult, InvokeResult, ModelInfo, ModelListResult
+from ..types import HealthResult, InvokeResult, ModelListResult
 
 
 @dataclass

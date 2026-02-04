@@ -4,7 +4,6 @@ import fnmatch
 import re
 import json
 from typing import List, Dict, Any, Iterable
-from collections import deque
 from .utils import (
     find_repo_root, ensure_within_root, relpath, error_result, Result,
     SKIP_DIRS, MAX_RG_RESULTS_DEFAULT, MAX_RG_RESULTS_LIMIT,
@@ -105,7 +104,6 @@ def repo_tree(args: List[str], cwd: str, timeout: int) -> Result:
         "stderr": "",
         "duration": time.time() - start,
         "duration_ms": int((time.time() - start) * 1000),
-        "truncated": truncated,
         "artifacts": [],
         "command": ["repo_tree"],
     }
@@ -220,7 +218,6 @@ def repo_rg(args: List[str], cwd: str, timeout: int) -> Result:
         "stderr": "",
         "duration": time.time() - start,
         "duration_ms": int((time.time() - start) * 1000),
-        "truncated": truncated,
         "artifacts": [],
         "command": ["repo_rg"],
     }
@@ -303,7 +300,6 @@ def repo_symbols_index(args: List[str], cwd: str, timeout: int) -> Result:
         "stderr": "",
         "duration": time.time() - start,
         "duration_ms": int((time.time() - start) * 1000),
-        "truncated": truncated,
         "artifacts": [],
         "command": ["repo_symbols_index"],
     }

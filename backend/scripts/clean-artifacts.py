@@ -1,6 +1,5 @@
 import os
 import shutil
-import sys
 import argparse
 
 def get_project_root():

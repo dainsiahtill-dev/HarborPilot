@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from ..state import AppState, Auth
 from ..config import SettingsUpdate, DEFAULT_WORKSPACE

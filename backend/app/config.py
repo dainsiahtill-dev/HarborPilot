@@ -1,6 +1,5 @@
 import os
-import sys
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

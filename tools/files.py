@@ -174,7 +174,6 @@ def repo_read_slice(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         "stderr": "",
         "duration": 0.0,
         "duration_ms": 0,
-        "truncated": truncated,
         "artifacts": [],
         "command": ["repo_read_slice"],
     }
@@ -350,7 +349,6 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
             "stderr": "",
             "duration": 0.0,
             "duration_ms": 0,
-            "truncated": truncated,
             "artifacts": [],
             "command": ["repo_read_tail"],
         }
@@ -386,7 +384,6 @@ def repo_read_tail(args: List[str], cwd: str, timeout: int) -> Dict[str, Any]:
         "stderr": "",
         "duration": 0.0,
         "duration_ms": 0,
-        "truncated": truncated,
         "artifacts": [],
         "command": ["repo_read_tail"],
     }

@@ -1,7 +1,7 @@
 import json
 import os
-from datetime import datetime
-from typing import List, Optional
+from typing import List
+
 from pydantic import ValidationError
 
 from .schema import ReflectionNode, MemoryItem
@@ -34,7 +34,8 @@ class ReflectionStore:
             
         with open(self.reflection_file, 'r', encoding='utf-8') as f:
             for line in f:
-                if not line.strip(): continue
+                if not line.strip():
+                    continue
                 try:
                     data = json.loads(line)
                     self.reflections.append(ReflectionNode(**data))
@@ -91,7 +92,6 @@ class ReflectionGenerator:
         mem_text = "\n".join([f"- [{m.kind.upper()}] {m.text}" for m in memories])
         
         try:
-            template = get_template("reflection_prompt")
             # Usually strict JSON templates are stored under "templates" key in JSON file
             # prompt_loader logic handles simple strings or dicts. 
             # If get_template returns the full dict, we might need to drill down. 
@@ -129,7 +129,8 @@ class ReflectionGenerator:
         
         reflections = []
         for item in data:
-            if not isinstance(item, dict): continue
+            if not isinstance(item, dict):
+                continue
             try:
                 reflections.append(ReflectionNode(
                     created_step=current_step,

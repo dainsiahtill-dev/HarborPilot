@@ -1,6 +1,6 @@
 import time
 import subprocess
-from typing import List, Dict, Any
+from typing import List
 from .utils import build_utf8_env, Result
 
 def run_command(cmd: List[str], cwd: str, timeout: int) -> Result:

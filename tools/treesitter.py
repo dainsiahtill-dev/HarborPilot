@@ -2,7 +2,7 @@ import os
 import time
 import json
 import re
-from typing import List, Dict, Any, Generator
+from typing import List, Dict, Any
 from .utils import (
     find_repo_root, ensure_within_root, error_result, Result, read_text_file
 )
@@ -217,7 +217,6 @@ def treesitter_find_symbol(args: List[str], cwd: str, timeout: int) -> Result:
             "stderr": "",
             "duration": time.time() - start,
             "duration_ms": int((time.time() - start) * 1000),
-            "truncated": truncated,
             "artifacts": [],
             "command": ["treesitter_find_symbol"] + args,
         }

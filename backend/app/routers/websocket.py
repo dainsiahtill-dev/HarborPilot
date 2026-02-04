@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from typing import Dict, Any, Optional, Set, List
+from typing import Dict, Any, Optional, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..state import AppState, Auth
 from ..config import CHANNEL_FILES, DEFAULT_WORKSPACE

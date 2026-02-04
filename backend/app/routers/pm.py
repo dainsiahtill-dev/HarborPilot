@@ -1,13 +1,11 @@
 from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
-from ..state import AppState, Auth, ProcessHandle
+from fastapi import APIRouter, Depends, HTTPException, Request
+from ..state import AppState, Auth
 from ..config import DEFAULT_PM_SUBPROCESS_LOG
 from ..utils import check_backend_available, resolve_artifact_path, build_cache_root
 from ..llm import config as llm_config
 from ..services.llm_tests import load_llm_test_index
 from ..services.process import pm_command, spawn_process, terminate_process, clear_stop_flag, build_invariants_env
-import os
-import time
 
 router = APIRouter()
 

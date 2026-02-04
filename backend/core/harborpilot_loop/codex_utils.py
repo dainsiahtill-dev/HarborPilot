@@ -10,7 +10,7 @@ try:
 except ImportError:
     from usage import UsageContext, TokenUsage, track_usage
 
-from io_utils import ensure_codex_available, ensure_parent_dir, read_file_safe
+from io_utils import ensure_codex_available, read_file_safe
 
 
 

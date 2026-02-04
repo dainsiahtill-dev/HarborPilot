@@ -2,13 +2,12 @@ import json
 import math
 import os
 from datetime import datetime
-from typing import List, Dict, Optional, Set, Any
+from typing import List, Dict, Optional, Any
 from pydantic import ValidationError
 
 from .schema import MemoryItem
 try:
     import lancedb
-    import common
     LANCEDB_AVAILABLE = True
 except ImportError:
     LANCEDB_AVAILABLE = False
@@ -66,7 +65,6 @@ class MemoryStore:
                     if isinstance(data.get('timestamp'), str):
                         data['timestamp'] = datetime.fromisoformat(data['timestamp'])
                         
-                    self.memories.append(MemoryItem(**data))
                     self.memories.append(MemoryItem(**data))
                 except (json.JSONDecodeError, ValidationError):
                     # In a real system, we might log this as a warning

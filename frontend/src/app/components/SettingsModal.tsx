@@ -167,7 +167,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [pmTimeout, setPmTimeout] = useState(0);
   const [pmRunsDirector, setPmRunsDirector] = useState(true);
   const [pmDirectorShowOutput, setPmDirectorShowOutput] = useState(true);
-  const [pmDirectorTimeout, setPmDirectorTimeout] = useState(60);
+  const [pmDirectorTimeout, setPmDirectorTimeout] = useState(600);
   const [pmDirectorIterations, setPmDirectorIterations] = useState(1);
   const [pmDirectorMatchMode, setPmDirectorMatchMode] = useState('latest');
   const [pmShowOutput, setPmShowOutput] = useState(true);
@@ -253,6 +253,17 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   useEffect(() => {
     llmConfigRef.current = llmConfig;
   }, [llmConfig]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      testAbortRef.current?.abort();
+      interviewAbortRef.current?.abort();
+    }
+    return () => {
+      testAbortRef.current?.abort();
+      interviewAbortRef.current?.abort();
+    };
+  }, [isOpen]);
 
   const syncProviderDraftsFromConfig = (config: LlmConfig) => {
     const providers = config.providers || {};

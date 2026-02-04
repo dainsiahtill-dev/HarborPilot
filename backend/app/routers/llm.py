@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from ..config import Settings
 from ..state import AppState, Auth
 from ..utils import build_cache_root, resolve_artifact_path
 from ..services.llm_tests import run_llm_tests, load_llm_test_index, reset_llm_test_index
@@ -87,6 +88,8 @@ def provider_health(request: Request, provider_id: str, payload: ProviderActionP
     if headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **headers}}
     api_key = payload.api_key or provider_cfg.get("api_key")
+    if api_key:
+        provider_cfg = {**provider_cfg, "api_key": api_key}
     
     # Try enhanced providers first
     provider_instance = provider_manager.get_provider_instance(provider_type)
@@ -115,6 +118,8 @@ def provider_models(request: Request, provider_id: str, payload: ProviderActionP
     if headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **headers}}
     api_key = payload.api_key or provider_cfg.get("api_key")
+    if api_key:
+        provider_cfg = {**provider_cfg, "api_key": api_key}
     
     # Try enhanced providers first
     provider_instance = provider_manager.get_provider_instance(provider_type)

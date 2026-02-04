@@ -7,9 +7,9 @@ from pathlib import Path
 
 from .base_provider import BaseProvider, ProviderInfo
 from .codex_cli_provider import CodexCLIProvider
-from .ollama_provider import health as ollama_health, list_models as ollama_list_models, invoke as ollama_invoke
-from .openai_compat_provider import health as openai_health, list_models as openai_list_models, invoke as openai_invoke
-from .anthropic_compat_provider import health as anthropic_health, list_models as anthropic_list_models, invoke as anthropic_invoke
+from .ollama_provider import OllamaProvider
+from .openai_compat_provider import OpenAICompatProvider
+from .anthropic_compat_provider import AnthropicCompatProvider
 from .gemini_cli_provider import GeminiCLIProvider
 from .maxmini_provider import MaxminiProvider
 from .gemini_api_provider import GeminiAPIProvider
@@ -30,12 +30,11 @@ class ProviderManager:
         self.register_provider("gemini_cli", GeminiCLIProvider)
         self.register_provider("maxmini", MaxminiProvider)
         self.register_provider("gemini_api", GeminiAPIProvider)
+        self.register_provider("ollama", OllamaProvider)
+        self.register_provider("openai_compat", OpenAICompatProvider)
+        self.register_provider("anthropic_compat", AnthropicCompatProvider)
         
-        # Legacy function-based providers (for backward compatibility)
-        # These will be migrated to enhanced versions later
-        # self.register_provider("ollama", EnhancedOllamaProvider)
-        # self.register_provider("openai_compat", EnhancedOpenAICompatProvider)
-        # self.register_provider("anthropic_compat", EnhancedAnthropicCompatProvider)
+        # Legacy function-based providers remain available for backward compatibility.
     
     def register_provider(self, provider_type: str, provider_class: Type[BaseProvider]) -> None:
         """Register a provider class"""

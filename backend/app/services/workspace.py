@@ -1,14 +1,11 @@
 import os
 import json
 import datetime
-import time
 from datetime import timezone
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
-from ..config import WORKSPACE_STATUS_REL
 from ..utils import (
-    workspace_status_path, read_readme_title, _split_items, _format_list, normalize_rel_path,
-    write_text_atomic
+    workspace_status_path, read_readme_title, _split_items, _format_list, normalize_rel_path
 )
 
 def workspace_has_docs(workspace: str) -> bool:

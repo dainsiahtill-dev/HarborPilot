@@ -9,10 +9,10 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .base_provider import (
-    BaseProvider, ProviderInfo, ModelInfo, HealthResult, ModelListResult, 
+    BaseProvider, ProviderInfo, HealthResult, ModelListResult,
     InvokeResult, ValidationResult, ThinkingInfo, WorkingDirConfig
 )
-from ..types import estimate_usage
+from ..types import estimate_usage, ModelInfo
 from ...utils import build_utf8_env
 
 
@@ -332,7 +332,6 @@ def _parse_codex_json_output(raw_output: str) -> str:
             item = payload.get('item')
             if isinstance(item, dict):
                 item_type = str(item.get('type') or '')
-                item_id = str(item.get('id') or '')
                 # Could track item start if needed
             continue
             
@@ -342,9 +341,7 @@ def _parse_codex_json_output(raw_output: str) -> str:
                 continue
                 
             item_type = str(item.get('type') or '')
-            item_id = str(item.get('id') or '')
             text = item.get('text')
-            status = item.get('status')
             
             # Extract content based on item type
             if item_type in ('reasoning', 'thinking', 'analysis'):
@@ -492,9 +489,6 @@ class CodexCLIProvider(BaseProvider):
         """Get hint about checking session status in TUI mode"""
         return "For detailed session status, run 'codex' and type '/status' in the TUI"
     
-    def __init__(self):
-        pass
-    
     def _build_codex_exec_args(self, model: str, config: Dict[str, Any]) -> List[str]:
         """Build Codex CLI exec arguments based on actual CLI usage"""
         return _build_codex_exec_args(model, config)
@@ -617,9 +611,6 @@ class CodexCLIProvider(BaseProvider):
             normalized_config=normalized
         )
 
-    def __init__(self):
-        pass
-    
     def health(self, config: Dict[str, Any]) -> HealthResult:
         command = str(config.get("command", "codex")).strip()
         resolved = _resolve_command(command)

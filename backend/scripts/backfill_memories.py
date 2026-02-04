@@ -12,8 +12,12 @@ BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
 CORE_DIR = os.path.join(BACKEND_DIR, "core", "harborpilot_loop")
 sys.path.insert(0, CORE_DIR)
 
-from anthropomorphic.integration import init_anthropomorphic_modules, _MEMORY_STORE
-from anthropomorphic.schema import MemoryItem
+def _load_anthro_modules(core_dir: str):
+    if core_dir not in sys.path:
+        sys.path.insert(0, core_dir)
+    from anthropomorphic.integration import init_anthropomorphic_modules, _MEMORY_STORE
+    from anthropomorphic.schema import MemoryItem
+    return init_anthropomorphic_modules, _MEMORY_STORE, MemoryItem
 
 def generate_memory_from_event(event: dict) -> dict:
     """
@@ -55,7 +59,7 @@ def generate_memory_from_event(event: dict) -> dict:
     elif isinstance(ts, str):
         try:
             ts = datetime.fromisoformat(ts)
-        except:
+        except (TypeError, ValueError):
             ts = datetime.now()
             
     return {
@@ -89,12 +93,13 @@ def main():
         return 1
         
     print(f"Initializing modules in {workspace}...")
+    init_anthropomorphic_modules, memory_store, MemoryItem = _load_anthro_modules(CORE_DIR)
     init_anthropomorphic_modules(workspace)
     
     # Load existing source IDs
     existing_ids = set()
-    if _MEMORY_STORE.memories:
-        for m in _MEMORY_STORE.memories:
+    if memory_store.memories:
+        for m in memory_store.memories:
             if m.source_event_id:
                 existing_ids.add(m.source_event_id)
     
@@ -104,7 +109,8 @@ def main():
     with open(events_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line: continue
+            if not line:
+                continue
             try:
                 event = json.loads(line)
                 evt_id = str(event.get("id") or "")
@@ -120,13 +126,13 @@ def main():
                 if mem_data:
                     item = MemoryItem(**mem_data)
                     if not args.dry_run:
-                        _MEMORY_STORE.append(item)
+                        memory_store.append(item)
                     new_count += 1
                     # Update local set to prevent duplicate within same file run
                     existing_ids.add(evt_id)
                     
-            except Exception as e:
-                print(f"Skipping line due to error: {e}")
+            except Exception as exc:
+                print(f"Skipping line due to error: {exc}")
                 continue
                 
     if args.dry_run:

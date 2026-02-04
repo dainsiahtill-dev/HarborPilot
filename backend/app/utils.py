@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import hashlib
-import time
 import shutil
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
@@ -15,7 +14,6 @@ from .config import (
     LEGACY_ARTIFACT_NAMESPACE,
     STATE_TO_RAMDISK_ENV,
     LOOP_MODULE_DIR,
-    DEFAULT_DIRECTOR_STATUS,
     WORKSPACE_STATUS_REL
 )
 
@@ -740,19 +738,24 @@ def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> st
     paths_to_check = []
     try:
         p1 = resolve_artifact_path(workspace, cache_root, rel_path)
-        if p1: paths_to_check.append(p1)
-    except Exception: pass
+        if p1:
+            paths_to_check.append(p1)
+    except Exception:
+        pass
     
     norm = normalize_artifact_rel_path(rel_path)
     legacy = legacy_artifact_rel_path(norm)
     if legacy:
         try:
             p2 = resolve_artifact_path(workspace, cache_root, legacy)
-            if p2: paths_to_check.append(p2)
-        except Exception: pass
+            if p2:
+                paths_to_check.append(p2)
+        except Exception:
+            pass
 
     dc = _cache_join_double(cache_root, norm)
-    if dc: paths_to_check.append(dc)
+    if dc:
+        paths_to_check.append(dc)
     
     unique = set()
     for p in paths_to_check:
@@ -770,7 +773,8 @@ def select_latest_artifact(workspace: str, cache_root: str, rel_path: str) -> st
             if mtime > best_mtime:
                 best_mtime = mtime
                 best = p
-        except Exception: pass
+        except Exception:
+            pass
     return best
 
 def workspace_has_docs(workspace: str) -> bool:

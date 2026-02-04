@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -526,9 +525,10 @@ def _run_interview_suite(
 def _provider_health(provider_type: str, provider_cfg: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
     from ..llm.providers.provider_registry import provider_manager
     
+    merged_cfg = {**provider_cfg, "api_key": api_key} if api_key else provider_cfg
     provider_instance = provider_manager.get_provider_instance(provider_type)
     if provider_instance:
-        return provider_instance.health(provider_cfg).to_dict()
+        return provider_instance.health(merged_cfg).to_dict()
     
     # Fallback to function-based providers
     if provider_type == "ollama":
@@ -544,9 +544,10 @@ def _provider_health(provider_type: str, provider_cfg: Dict[str, Any], api_key: 
 def _provider_list_models(provider_type: str, provider_cfg: Dict[str, Any], api_key: Optional[str]) -> ModelListResult:
     from ..llm.providers.provider_registry import provider_manager
     
+    merged_cfg = {**provider_cfg, "api_key": api_key} if api_key else provider_cfg
     provider_instance = provider_manager.get_provider_instance(provider_type)
     if provider_instance:
-        return provider_instance.list_models(provider_cfg)
+        return provider_instance.list_models(merged_cfg)
     
     # Fallback to function-based providers
     if provider_type == "ollama":
@@ -573,9 +574,10 @@ def _provider_invoke(
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
     from ..llm.providers.provider_registry import provider_manager
     
+    merged_cfg = {**provider_cfg, "api_key": api_key} if api_key else provider_cfg
     provider_instance = provider_manager.get_provider_instance(provider_type)
     if provider_instance:
-        return provider_instance.invoke(prompt, model, provider_cfg)
+        return provider_instance.invoke(prompt, model, merged_cfg)
     
     # Fallback to function-based providers
     if provider_type == "ollama":

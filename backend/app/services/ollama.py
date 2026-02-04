@@ -1,7 +1,7 @@
 import os
 import shutil
 import subprocess
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from fastapi import HTTPException
 from ..config import PROJECT_ROOT
 from ..utils import build_utf8_env

@@ -422,11 +422,6 @@ def clear_stop_flag(workspace: str) -> None:
         paths.add(stop_flag_path(workspace))
     except Exception:
         pass
-
-
-def _fsync_enabled() -> bool:
-    value = os.environ.get(_IO_FSYNC_ENV, "strict").strip().lower()
-    return value not in ("0", "false", "no", "off", "relaxed", "skip", "disabled")
     paths.add(os.path.join(workspace, ARTIFACT_ROOT, ARTIFACT_NAMESPACE, "PM_STOP.flag"))
     paths.add(os.path.join(workspace, ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
     paths.add(os.path.join(workspace, LEGACY_ARTIFACT_ROOT, LEGACY_ARTIFACT_NAMESPACE, "PM_STOP.flag"))
@@ -438,6 +433,11 @@ def _fsync_enabled() -> bool:
                 os.remove(path)
         except Exception:
             pass
+
+
+def _fsync_enabled() -> bool:
+    value = os.environ.get(_IO_FSYNC_ENV, "strict").strip().lower()
+    return value not in ("0", "false", "no", "off", "relaxed", "skip", "disabled")
 
 
 def director_stop_flag_path(workspace: str) -> str:

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from ..state import AppState, Auth
-from ..config import DEFAULT_WORKSPACE, ARTIFACT_ROOT, AGENTS_DRAFT_REL, AGENTS_FEEDBACK_REL, AgentsApplyPayload, AgentsFeedbackPayload
+from ..config import DEFAULT_WORKSPACE, AGENTS_DRAFT_REL, AGENTS_FEEDBACK_REL, AgentsApplyPayload, AgentsFeedbackPayload
 from ..utils import build_cache_root, resolve_artifact_path, resolve_safe_path, format_mtime
 
 router = APIRouter()

@@ -8,6 +8,9 @@ from app.llm.providers.codex_cli_provider import CodexCLIProvider
 from app.llm.providers.gemini_cli_provider import GeminiCLIProvider
 from app.llm.providers.maxmini_provider import MaxminiProvider
 from app.llm.providers.gemini_api_provider import GeminiAPIProvider
+from app.llm.providers.openai_compat_provider import OpenAICompatProvider
+from app.llm.providers.anthropic_compat_provider import AnthropicCompatProvider
+from app.llm.providers.ollama_provider import OllamaProvider
 from app.llm.providers.provider_registry import provider_manager
 
 
@@ -198,6 +201,85 @@ class TestGeminiAPIProvider:
         assert thinking.confidence >= 0.4
 
 
+class TestOpenAICompatProvider:
+    """Test OpenAI-compatible provider"""
+
+    def test_provider_info(self):
+        info = OpenAICompatProvider.get_provider_info()
+        assert info.type == "openai_compat"
+        assert info.provider_category == "LLM"
+        assert "chat_completions" in info.supported_features
+
+    def test_default_config(self):
+        config = OpenAICompatProvider.get_default_config()
+        assert "base_url" in config
+        assert "api_path" in config
+        assert "models_path" in config
+
+    def test_validate_config(self):
+        valid_config = {
+            "base_url": "https://api.example.com/v1",
+            "api_path": "/v1/chat/completions",
+            "models_path": "/v1/models",
+            "timeout": 30,
+            "retries": 1,
+        }
+        result = OpenAICompatProvider.validate_config(valid_config)
+        assert result.valid is True
+
+        invalid_config = {"base_url": "https://api.example.com/v1"}
+        result = OpenAICompatProvider.validate_config(invalid_config)
+        assert result.valid is False
+
+
+class TestAnthropicCompatProvider:
+    """Test Anthropic-compatible provider"""
+
+    def test_provider_info(self):
+        info = AnthropicCompatProvider.get_provider_info()
+        assert info.type == "anthropic_compat"
+        assert info.provider_category == "LLM"
+        assert "messages_api" in info.supported_features
+
+    def test_default_config(self):
+        config = AnthropicCompatProvider.get_default_config()
+        assert "api_path" in config
+        assert "anthropic_version" in config
+
+    def test_validate_config(self):
+        valid_config = {
+            "api_path": "/v1/messages",
+            "models_path": "/v1/models",
+            "timeout": 30,
+            "retries": 1,
+        }
+        result = AnthropicCompatProvider.validate_config(valid_config)
+        assert result.valid is True
+
+        invalid_config = {"timeout": 30}
+        result = AnthropicCompatProvider.validate_config(invalid_config)
+        assert result.valid is False
+
+
+class TestOllamaProvider:
+    """Test Ollama provider"""
+
+    def test_provider_info(self):
+        info = OllamaProvider.get_provider_info()
+        assert info.type == "ollama"
+        assert info.cost_class == "LOCAL"
+
+    def test_default_config(self):
+        config = OllamaProvider.get_default_config()
+        assert "base_url" in config
+        assert config["use_chat"] is False
+
+    def test_validate_config(self):
+        valid_config = {"base_url": "http://127.0.0.1:11434", "timeout": 10}
+        result = OllamaProvider.validate_config(valid_config)
+        assert result.valid is True
+
+
 class TestProviderRegistry:
     """Test provider registry functionality"""
     
@@ -209,6 +291,9 @@ class TestProviderRegistry:
         assert "gemini_cli" in provider_types
         assert "maxmini" in provider_types
         assert "gemini_api" in provider_types
+        assert "ollama" in provider_types
+        assert "openai_compat" in provider_types
+        assert "anthropic_compat" in provider_types
     
     def test_provider_info_listing(self):
         """Test provider info listing"""
@@ -234,6 +319,16 @@ class TestProviderRegistry:
         # Test invalid CLI config
         invalid_cli_config = {"command": "definitely_not_a_real_command_12345"}
         assert provider_manager.validate_provider_config("codex_cli", invalid_cli_config) is False
+
+        valid_openai_config = {
+            "base_url": "https://api.example.com/v1",
+            "api_path": "/v1/chat/completions",
+            "models_path": "/v1/models",
+        }
+        assert provider_manager.validate_provider_config("openai_compat", valid_openai_config) is True
+
+        invalid_openai_config = {"base_url": "https://api.example.com/v1"}
+        assert provider_manager.validate_provider_config("openai_compat", invalid_openai_config) is False
     
     def test_feature_support_check(self):
         """Test feature support checking"""

@@ -1,6 +1,6 @@
 import hashlib
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field

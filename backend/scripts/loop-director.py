@@ -2,7 +2,6 @@ import argparse
 import datetime
 import json
 import os
-import re
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -279,9 +278,9 @@ def aggregate_usage(events_path: str) -> Dict[str, Any]:
                     
                     by_mode[mode]["total_tokens"] += t
                     by_mode[mode]["calls"] += 1
-                except:
+                except Exception:
                     pass
-    except:
+    except Exception:
         pass
         
     return {
