@@ -1,11 +1,25 @@
 import { X, Save, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { apiFetch } from '@/api';
 import { PtyDrawer } from '@/app/components/PtyDrawer';
 import { EnhancedLLMSettingsTab } from '@/app/components/llm/EnhancedLLMSettingsTab';
 import { TurboSettingsTab } from './turbo/TurboSettingsTab';
 import { ArsenalPanel } from './arsenal/ArsenalPanel';
+
+import type { 
+  SimpleProvider, 
+  ProviderConfig, 
+  LLMConfig, 
+  LLMStatus,
+  RoleConfig,
+  ProviderKind
+} from '@/app/components/llm/types';
+import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
+
+const SETTINGS_MODAL_SIZE_KEY = 'harborpilot:ui:settings_modal:size';
+const clampNumber = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 // 安全的JSON序列化函数，处理循环引用
 const safeJsonStringify = (obj: any, space?: number): string => {
@@ -28,16 +42,6 @@ const safeJsonStringify = (obj: any, space?: number): string => {
     return val;
   }, space);
 };
-
-import type { 
-  SimpleProvider, 
-  ProviderConfig, 
-  LLMConfig, 
-  LLMStatus,
-  RoleConfig,
-  ProviderKind
-} from '@/app/components/llm/types';
-import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -166,7 +170,118 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const llmSaveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const [deletingProviders, setDeletingProviders] = useState<Record<string, boolean>>({});
 
-  
+  const clampSettingsModalSize = (size: { width: number; height: number }) => {
+    if (typeof window === 'undefined') return size;
+
+    const margin = 48;
+    const maxWidth = Math.max(320, window.innerWidth - margin);
+    const maxHeight = Math.max(240, window.innerHeight - margin);
+
+    const minWidth = Math.min(860, maxWidth);
+    const minHeight = Math.min(560, maxHeight);
+
+    return {
+      width: clampNumber(Math.round(size.width), minWidth, maxWidth),
+      height: clampNumber(Math.round(size.height), minHeight, maxHeight),
+    };
+  };
+
+  const [settingsModalSize, setSettingsModalSize] = useState<{ width: number; height: number }>(() => {
+    if (typeof window === 'undefined') return { width: 1200, height: 800 };
+
+    const defaults = clampSettingsModalSize({
+      width: window.innerWidth * 0.92,
+      height: window.innerHeight * 0.86,
+    });
+
+    try {
+      const raw = localStorage.getItem(SETTINGS_MODAL_SIZE_KEY);
+      if (!raw) return defaults;
+      const parsed = JSON.parse(raw) as { width?: unknown; height?: unknown } | null;
+      const width = Number(parsed?.width);
+      const height = Number(parsed?.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return defaults;
+      return clampSettingsModalSize({ width, height });
+    } catch {
+      return defaults;
+    }
+  });
+
+  const [settingsModalResizing, setSettingsModalResizing] = useState(false);
+  const resizeStateRef = useRef<null | { startX: number; startY: number; startWidth: number; startHeight: number }>(null);
+
+  const handleResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    resizeStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: settingsModalSize.width,
+      startHeight: settingsModalSize.height,
+    };
+
+    setSettingsModalResizing(true);
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Best-effort; pointer capture can fail in some environments.
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSettingsModalSize((prev) => clampSettingsModalSize(prev));
+
+    const onResize = () => setSettingsModalSize((prev) => clampSettingsModalSize(prev));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (settingsModalResizing) return;
+
+    try {
+      localStorage.setItem(SETTINGS_MODAL_SIZE_KEY, JSON.stringify(settingsModalSize));
+    } catch {
+      // ignore
+    }
+  }, [isOpen, settingsModalResizing, settingsModalSize]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!settingsModalResizing) return;
+
+    const onPointerMove = (e: PointerEvent) => {
+      const state = resizeStateRef.current;
+      if (!state) return;
+
+      const nextWidth = state.startWidth + (e.clientX - state.startX);
+      const nextHeight = state.startHeight + (e.clientY - state.startY);
+      setSettingsModalSize(clampSettingsModalSize({ width: nextWidth, height: nextHeight }));
+    };
+
+    const stop = () => {
+      resizeStateRef.current = null;
+      setSettingsModalResizing(false);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, settingsModalResizing]);
+
   useEffect(() => {
     if (!settings) return;
     setPromptProfile(settings.prompt_profile || defaultProfile);
@@ -1404,7 +1519,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       <div className="relative">
         <div
           data-settings-modal
-          className="bg-bg-panel/95 border border-white/10 rounded-xl w-full flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl max-w-none w-[92vw] min-w-[1200px] h-[86vh] max-h-none"
+          className="bg-bg-panel/95 border border-white/10 rounded-xl w-full flex flex-col shadow-2xl shadow-purple-900/20 backdrop-filter backdrop-blur-xl max-w-none max-h-none relative overflow-hidden"
+          style={{
+            width: settingsModalSize.width,
+            height: settingsModalSize.height,
+            userSelect: settingsModalResizing ? 'none' : undefined,
+          }}
         >
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -1421,22 +1541,22 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         </div>
 
         {/* 内容 */}
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        <div className="flex-1 min-h-0 p-4 flex flex-col">
           {error ? (
             <div className="text-xs text-status-error bg-status-error/10 border border-status-error/20 rounded p-2 mb-4">
               {error}
             </div>
           ) : null}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
-            <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg flex-wrap">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4 flex flex-col flex-1 min-h-0">
+            <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg flex-wrap shrink-0">
               <TabsTrigger value="general" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">通用设置</TabsTrigger>
               <TabsTrigger value="llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">LLM 设置</TabsTrigger>
               <TabsTrigger value="turbo" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Turbo 模式</TabsTrigger>
               <TabsTrigger value="arsenal" className="text-cyan-400 data-[state=active]:text-cyan-300">Arsenal</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="general" className="mt-6 space-y-6">
+            <TabsContent value="general" className="mt-6 space-y-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               {/* Prompt 模板 */}
               <div className="bg-white/5 rounded-xl p-4 border border-white/5">
                 <h3 className="text-sm font-semibold text-text-main mb-3 flex items-center gap-2">
@@ -1795,7 +1915,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
               </div>
             </TabsContent>
 
-            <TabsContent value="llm" className="mt-6">
+            <TabsContent value="llm" className="mt-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               <EnhancedLLMSettingsTab
                 llmConfig={llmConfig}
                 llmStatus={llmStatus}
@@ -1833,34 +1953,34 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   await deleteProviderAndPersist(providerId);
                 }}
               />
+              {reportDrawer.open ? (
+                <div className="mt-4 rounded-lg border border-white/10 bg-black/40 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-text-main">LLM Test Report</span>
+                    <button
+                      type="button"
+                      onClick={() => setReportDrawer({ open: false, data: null })}
+                      className="text-[10px] text-text-dim hover:text-text-main"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <pre className="text-[11px] text-text-muted whitespace-pre-wrap font-mono max-h-64 overflow-auto">
+                    {safeJsonStringify(reportDrawer.data, 2)}
+                  </pre>
+                </div>
+              ) : null}
             </TabsContent>
 
-            <TabsContent value="turbo" className="mt-6">
+            <TabsContent value="turbo" className="mt-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               <TurboSettingsTab />
             </TabsContent>
             
-            <TabsContent value="arsenal" className="mt-6 h-full">
+            <TabsContent value="arsenal" className="mt-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               <ArsenalPanel />
             </TabsContent>
 
           </Tabs>
-          {reportDrawer.open ? (
-            <div className="mt-4 rounded-lg border border-white/10 bg-black/40 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-text-main">LLM Test Report</span>
-                <button
-                  type="button"
-                  onClick={() => setReportDrawer({ open: false, data: null })}
-                  className="text-[10px] text-text-dim hover:text-text-main"
-                >
-                  Close
-                </button>
-              </div>
-              <pre className="text-[11px] text-text-muted whitespace-pre-wrap font-mono max-h-64 overflow-auto">
-                {safeJsonStringify(reportDrawer.data, 2)}
-              </pre>
-            </div>
-          ) : null}
           <PtyDrawer
             open={tuiDrawer.open}
             onOpenChange={(open) => {
@@ -1900,6 +2020,14 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             <Save className="size-4" />
             {saving ? '保存中...' : '保存配置'}
           </button>
+        </div>
+
+        <div
+          aria-label="Resize settings panel"
+          onPointerDown={handleResizePointerDown}
+          className="absolute bottom-0 right-0 z-10 size-5 cursor-se-resize touch-none"
+        >
+          <div className="absolute bottom-1 right-1 size-3 border-b-2 border-r-2 border-white/30" />
         </div>
         </div>
         <div

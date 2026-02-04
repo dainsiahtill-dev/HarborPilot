@@ -276,6 +276,11 @@ export function InteractiveInterviewHall({
     onEvent: (event) => {
       pushSessionEvent(event);
     },
+    onStart: (streamSessionId) => {
+      if (!sessionId) {
+        setSessionId(streamSessionId);
+      }
+    },
     onComplete: (result) => {
       if (result.sessionId && !sessionId) {
         setSessionId(result.sessionId);
@@ -345,6 +350,8 @@ export function InteractiveInterviewHall({
   const canFinalize = answerMessages.length > 0 && !hasPendingEvaluation && !responding;
 
   useEffect(() => {
+    void stopStream();
+    setResponding(false);
     setMessages([]);
     setSessionId(null);
     setReport(null);
@@ -357,8 +364,14 @@ export function InteractiveInterviewHall({
     setSessionStatus('idle');
     resetSessionEvents();
     setDebugMode(false);
-    setUseStreamingMode(true); // Reset to default
-  }, [selectedRole, selectedProvider]);
+    setUseStreamingMode(true);
+  }, [resetSessionEvents, selectedRole, selectedProvider, stopStream]);
+
+  useEffect(() => {
+    return () => {
+      void stopStream();
+    };
+  }, [stopStream]);
 
   const buildContext = (): Array<{ question: string; answer: string }> => {
     return answerMessages.slice(-3).map((message) => ({
@@ -438,6 +451,11 @@ export function InteractiveInterviewHall({
         content: 'Using streaming mode for real-time output...'
       });
       
+      const streamSessionId = sessionId || `interactive-${createMessageId()}`;
+      if (!sessionId) {
+        setSessionId(streamSessionId);
+      }
+
       await startStream({
         roleId: selectedRole,
         providerId: selectedProvider,
@@ -445,7 +463,7 @@ export function InteractiveInterviewHall({
         question,
         expectedCriteria: template?.expectedCriteria,
         expectsThinking: template ? template.difficulty !== 'basic' : undefined,
-        sessionId,
+        sessionId: streamSessionId,
         context: buildContext(),
       });
       return;
@@ -723,7 +741,10 @@ export function InteractiveInterviewHall({
   };
 
   const resetInterview = () => {
+    const runId = sessionId;
+    void stopStream(runId);
     setMessages([]);
+    setResponding(false);
     setSessionId(null);
     setReport(null);
     setReportSavedPath(null);
@@ -818,7 +839,8 @@ export function InteractiveInterviewHall({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 h-full min-h-0">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs text-text-dim uppercase tracking-wide">Interactive Interview</div>
@@ -830,44 +852,48 @@ export function InteractiveInterviewHall({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.2fr_1.5fr_1fr] gap-6">
-        <div className="space-y-4">
+      {/* Main content area - 响应式布局 */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.2fr_1.5fr_1fr] gap-6 flex-1 min-h-0">
+        {/* Left Panel - Role Selection */}
+        <div className="grid grid-rows-[auto_1fr_auto_1fr] gap-4 min-h-0">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🎯 面试岗位</div>
-          {roles.map((role) => {
-            const isActive = role.id === selectedRole;
-            const badge = ROLE_BADGES[role.id] || 'bg-white/10 text-text-main border-white/20';
-            return (
-              <button
-                key={role.id}
-                onClick={() => onSelectRole(role.id)}
-                className={`w-full text-left rounded-xl border p-4 transition-all ${
-                  isActive
-                    ? 'border-cyan-400/60 bg-cyan-500/10'
-                    : 'border-white/10 bg-white/5 hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 text-[10px] uppercase font-semibold rounded border ${badge}`}>
-                      {role.label}
-                    </span>
-                    {role.readiness?.ready ? (
-                      <CheckCircle2 className="size-4 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="size-4 text-amber-300" />
-                    )}
+          <div className="space-y-2 min-h-0 overflow-auto pr-1">
+            {roles.map((role) => {
+              const isActive = role.id === selectedRole;
+              const badge = ROLE_BADGES[role.id] || 'bg-white/10 text-text-main border-white/20';
+              return (
+                <button
+                  key={role.id}
+                  onClick={() => onSelectRole(role.id)}
+                  className={`w-full text-left rounded-xl border p-4 transition-all ${
+                    isActive
+                      ? 'border-cyan-400/60 bg-cyan-500/10'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 text-[10px] uppercase font-semibold rounded border ${badge}`}>
+                        {role.label}
+                      </span>
+                      {role.readiness?.ready ? (
+                        <CheckCircle2 className="size-4 text-emerald-400" />
+                      ) : (
+                        <AlertTriangle className="size-4 text-amber-300" />
+                      )}
+                    </div>
+                    <div className="text-[10px] text-text-dim uppercase tracking-wide">
+                      {role.requiresThinking ? 'Thinking Required' : 'Thinking Optional'}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-text-dim uppercase tracking-wide">
-                    {role.requiresThinking ? 'Thinking Required' : 'Thinking Optional'}
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-text-dim">{role.description}</div>
-              </button>
-            );
-          })}
+                  <div className="mt-2 text-xs text-text-dim">{role.description}</div>
+                </button>
+              );
+            })}
+          </div>
 
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🤖 模型选择</div>
-          <div className="space-y-2">
+          <div className="space-y-2 min-h-0 overflow-auto pr-1">
             {providers.map((provider) => {
               const isActive = provider.id === selectedProvider;
               const styles = STATUS_STYLES[provider.status] || STATUS_STYLES.untested;
@@ -896,9 +922,10 @@ export function InteractiveInterviewHall({
           </div>
         </div>
 
-        <div className="space-y-4">
+        {/* Second Panel - Question Templates */}
+        <div className="flex flex-col gap-4 min-h-0">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">📋 问题模板库</div>
-          <div className="space-y-3">
+          <div className="space-y-3 flex-1 min-h-0 overflow-auto pr-1">
             {templatesByCategory.length === 0 ? (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-text-dim">
                 请选择岗位以显示对应问题模板。
@@ -931,7 +958,7 @@ export function InteractiveInterviewHall({
               value={customQuestion}
               onChange={(event) => setCustomQuestion(event.target.value)}
               placeholder="输入自定义面试问题..."
-              rows={4}
+              rows={3}
               className="w-full rounded-lg border border-white/10 bg-black/40 p-2 text-xs text-text-main"
             />
             <button
@@ -945,22 +972,23 @@ export function InteractiveInterviewHall({
           </div>
         </div>
 
-        <div className="space-y-4">
+        {/* Center Panel - Real-time Conversation */}
+        <div className="flex flex-col gap-4 min-h-0">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">💬 实时对话区</div>
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3 min-h-[420px]">
-            <div className="text-[11px] text-text-dim">
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3 flex-1 min-h-0 flex flex-col">
+            <div className="text-[11px] text-text-dim flex-shrink-0">
               当前组合：{activeRole?.label || '未选择'} / {activeProvider?.name || '未选择'}{' '}
               {selectedModel ? `• ${selectedModel}` : ''}
             </div>
 
             {messages.length === 0 ? (
-              <div className="text-xs text-text-dim">暂无对话记录，请从左侧选择问题。</div>
+              <div className="text-xs text-text-dim flex-1 flex items-center justify-center">暂无对话记录，请从左侧选择问题。</div>
             ) : (
-              <div className="space-y-3 max-h-[420px] overflow-auto pr-2">
+              <div className="space-y-3 flex-1 min-h-0 overflow-auto pr-2">
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`rounded-lg border p-3 text-xs ${
+                    className={`rounded-lg border p-3 text-xs flex-shrink-0 ${
                       message.type === 'question'
                         ? 'border-cyan-500/20 bg-cyan-500/5'
                         : 'border-emerald-500/20 bg-emerald-500/5'
@@ -1043,12 +1071,12 @@ export function InteractiveInterviewHall({
             )}
 
             {error ? (
-              <div className="text-[11px] text-red-200 bg-red-500/10 border border-red-500/20 rounded p-2">
+              <div className="text-[11px] text-red-200 bg-red-500/10 border border-red-500/20 rounded p-2 flex-shrink-0">
                 {error}
               </div>
             ) : null}
 
-            <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2">
+            <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2 flex-shrink-0">
               <div className="text-[10px] uppercase tracking-wide text-text-dim">继续追问</div>
               <textarea
                 value={quickQuestion}
@@ -1068,7 +1096,7 @@ export function InteractiveInterviewHall({
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3 flex-shrink-0">
             <div className="text-xs font-semibold text-text-main uppercase tracking-wide">面试控制</div>
             <textarea
               value={userNotes}
@@ -1105,11 +1133,12 @@ export function InteractiveInterviewHall({
           </div>
         </div>
 
-        <div className="space-y-4">
+        {/* Right Panel - Testing Panel */}
+        <div className="flex flex-col gap-4 min-h-0">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🖥️ 测试面板</div>
-          <div className="relative bg-black/30 bg-gradient-to-br from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-xl border border-cyan-400/30 shadow-[0_0_20px_rgba(34,211,238,0.18),0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-xl overflow-hidden">
+          <div className="relative bg-black/30 bg-gradient-to-br from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-xl border border-cyan-400/30 shadow-[0_0_20px_rgba(34,211,238,0.18),0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-xl overflow-hidden flex-1 min-h-0 flex flex-col">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-cyan-400/60 via-fuchsia-400/50 to-pink-400/60" />
-            <div className="flex items-start justify-between gap-3 p-4 border-b border-cyan-500/20 bg-black/40">
+            <div className="flex items-start justify-between gap-3 p-4 border-b border-cyan-500/20 bg-black/40 flex-shrink-0">
               <div>
                 <div className="text-sm font-semibold text-text-main flex items-center gap-2">
                   🖥️ Testing: Interactive Interview
@@ -1153,7 +1182,7 @@ export function InteractiveInterviewHall({
                 </button>
               </div>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 flex-1 overflow-auto">
               <TerminalOutput
                 events={sessionEvents}
                 placeholder='$ 尚未发送面试问题...'

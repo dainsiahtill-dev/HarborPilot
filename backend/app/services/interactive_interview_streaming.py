@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import subprocess
 import threading
 import queue as threading_queue
@@ -44,6 +45,85 @@ from .interactive_interview import (
     _new_test_run_id,
     _utc_now,
 )
+
+_ACTIVE_PROCESS_LOCK = threading.Lock()
+_ACTIVE_CODEX_PROCESSES: Dict[str, subprocess.Popen] = {}
+
+
+def _register_codex_process(run_id: str, process: subprocess.Popen) -> None:
+    if not run_id:
+        return
+    with _ACTIVE_PROCESS_LOCK:
+        _ACTIVE_CODEX_PROCESSES[run_id] = process
+
+
+def _unregister_codex_process(run_id: str, process: Optional[subprocess.Popen] = None) -> None:
+    if not run_id:
+        return
+    with _ACTIVE_PROCESS_LOCK:
+        current = _ACTIVE_CODEX_PROCESSES.get(run_id)
+        if current is None:
+            return
+        if process is not None and current is not process:
+            return
+        _ACTIVE_CODEX_PROCESSES.pop(run_id, None)
+
+
+def _terminate_process_tree(process: subprocess.Popen) -> bool:
+    try:
+        if process.poll() is not None:
+            return False
+
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+                return True
+            except Exception:
+                try:
+                    process.kill()
+                    return True
+                except Exception:
+                    return False
+
+        # POSIX: prefer killing the whole process group when available.
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            return True
+        except Exception:
+            try:
+                process.terminate()
+                return True
+            except Exception:
+                return False
+    except Exception:
+        return False
+
+
+def cancel_interactive_interview_stream(run_id: str) -> Dict[str, Any]:
+    """Best-effort cancellation for a streaming interactive interview run.
+
+    This is intentionally idempotent: it will return ok even if the run already
+    finished or was never started.
+    """
+    if not run_id:
+        return {"ok": False, "run_id": run_id, "found": False, "terminated": False}
+
+    with _ACTIVE_PROCESS_LOCK:
+        process = _ACTIVE_CODEX_PROCESSES.get(run_id)
+
+    found = process is not None
+    terminated = _terminate_process_tree(process) if process is not None else False
+
+    if terminated:
+        _unregister_codex_process(run_id, process)
+
+    return {"ok": True, "run_id": run_id, "found": found, "terminated": terminated}
 
 
 async def run_interactive_interview_streaming(
@@ -240,6 +320,13 @@ async def _run_codex_streaming(
         cmd = _normalize_command(resolved) + rendered_args
         
         try:
+            creationflags = 0
+            start_new_session = False
+            if os.name == "nt":
+                creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            else:
+                start_new_session = True
+
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE if send_prompt else None,
@@ -251,7 +338,10 @@ async def _run_codex_streaming(
                 cwd=str(provider_cfg.get("working_dir") or "") or None,
                 env=build_utf8_env(provider_cfg.get("env")),
                 bufsize=1,
+                creationflags=creationflags,
+                start_new_session=start_new_session,
             )
+            _register_codex_process(run_id, process)
             
             def read_stream(stream, stream_type: str):
                 """Read from stream line by line"""
@@ -296,6 +386,11 @@ async def _run_codex_streaming(
                 loop
             )
             return 1
+        finally:
+            try:
+                _unregister_codex_process(run_id, locals().get("process"))
+            except Exception:
+                pass
     
     # Run subprocess in thread
     loop = asyncio.get_event_loop()

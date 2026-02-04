@@ -982,6 +982,7 @@ class CodexCLIProvider(BaseProvider):
             ok=True,
             supported=True,
             models=[
+                ModelInfo(id="gpt-5.1-codex-max", label="GPT-5.1 Codex Max (Experimental)"),
                 ModelInfo(id="gpt-4-codex", label="GPT-4 Codex (Common)"),
                 ModelInfo(id="gpt-5.2-codex", label="GPT-5.2 Codex (Latest)"),
                 ModelInfo(id="gpt-3.5-turbo", label="GPT-3.5 Turbo (Legacy)"),

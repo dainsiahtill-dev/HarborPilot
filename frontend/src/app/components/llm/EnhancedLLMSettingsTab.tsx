@@ -1401,7 +1401,7 @@ export function EnhancedLLMSettingsTab({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 h-full min-h-0">
       {/* Navigation */}
       <div className="rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
         <div className="flex items-center justify-between gap-4">
@@ -1500,6 +1500,7 @@ export function EnhancedLLMSettingsTab({
               onSave={onSaveConfig}
             />
           ) : (
+            <>
             <div className="space-y-4">
               <div className="rounded-2xl border border-white/10 bg-black/40 p-4 shadow-[0_0_22px_rgba(34,211,238,0.12)]">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1654,7 +1655,6 @@ export function EnhancedLLMSettingsTab({
                 )}
               </div>
             </div>
-
             {Object.keys(llmConfig?.providers || {}).length === 0 ? (
               <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
                 <Settings className="size-8 text-text-dim mx-auto mb-3" />
@@ -1692,13 +1692,14 @@ export function EnhancedLLMSettingsTab({
                 </div>
               </div>
             )}
-          </div>
+            </>
+      )}
         </div>
       )}
 
       {/* DEEP TEST Tab */}
       {activeTab === 'deepTest' && (
-        <div className="space-y-4 w-full max-w-5xl mx-auto min-h-[60vh]">
+        <div className="flex flex-col gap-4 w-full flex-1 min-h-0">
           <div className="rounded-2xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(16,185,129,0.18)]">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1735,7 +1736,7 @@ export function EnhancedLLMSettingsTab({
             </div>
           </div>
 
-          <div className="w-full">
+          <div className="w-full flex-1 min-h-0">
             {interviewMode === 'interactive' ? (
               <InteractiveInterviewHall
                 roles={roles}

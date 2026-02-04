@@ -5,6 +5,7 @@ import json
 import os
 import re
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,7 @@ from ..services.interactive_interview import (
 )
 from ..services.interactive_interview_streaming import (
     run_interactive_interview_streaming,
+    cancel_interactive_interview_stream,
 )
 from ..llm import config as llm_config
 from ..llm.providers import (
@@ -76,6 +78,10 @@ class InterviewAskPayload(BaseModel):
     api_key: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
     debug: Optional[bool] = None
+
+
+class InterviewCancelPayload(BaseModel):
+    session_id: str
 
 
 class InterviewSavePayload(BaseModel):
@@ -229,6 +235,12 @@ def llm_interview_save(request: Request, payload: InterviewSavePayload) -> Dict[
     )
 
 
+@router.post("/llm/interview/cancel", dependencies=[Depends(require_auth)])
+def llm_interview_cancel(payload: InterviewCancelPayload) -> Dict[str, Any]:
+    # Best-effort cancellation (primarily for Codex CLI streaming subprocess).
+    return cancel_interactive_interview_stream(payload.session_id)
+
+
 @router.post("/llm/interview/stream", dependencies=[Depends(require_auth)])
 async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
     """Stream interview responses using Server-Sent Events (SSE)
@@ -237,6 +249,7 @@ async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
     allowing the client to see progress before the final result is ready.
     """
     state = get_state(request)
+    run_id = payload.session_id or f"interactive-{uuid4().hex}"
     
     async def event_generator():
         queue: asyncio.Queue = asyncio.Queue()
@@ -250,7 +263,7 @@ async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
                     payload.provider_id,
                     payload.model,
                     payload.question,
-                    session_id=payload.session_id,
+                    session_id=run_id,
                     context=payload.context,
                     expects_thinking=payload.expects_thinking,
                     criteria=payload.criteria,
@@ -291,6 +304,11 @@ async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
                     await task
                 except asyncio.CancelledError:
                     pass
+            # Ensure any Codex CLI subprocess is terminated when the client disconnects.
+            try:
+                await asyncio.to_thread(cancel_interactive_interview_stream, run_id)
+            except Exception:
+                pass
     
     return StreamingResponse(
         event_generator(),

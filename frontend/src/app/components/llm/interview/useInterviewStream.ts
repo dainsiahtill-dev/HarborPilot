@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { getBackendInfo } from '@/api';
 import type { TestEvent } from '../test/types';
 
 export interface StreamEvent {
@@ -18,15 +19,35 @@ export interface InterviewStreamResult {
 
 export interface UseInterviewStreamOptions {
   onEvent?: (event: TestEvent) => void;
+  onStart?: (sessionId: string) => void;
   onComplete?: (result: InterviewStreamResult) => void;
   onError?: (error: string) => void;
 }
 
 export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
-  const { onEvent, onComplete, onError } = options;
+  const { onEvent, onStart, onComplete, onError } = options;
   const [isStreaming, setIsStreaming] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+
+  const requestCancel = useCallback(async (sessionId: string) => {
+    try {
+      const backendInfo = await getBackendInfo();
+      if (!backendInfo.baseUrl) return;
+
+      await fetch(`${backendInfo.baseUrl}/llm/interview/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(backendInfo.token ? { Authorization: `Bearer ${backendInfo.token}` } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const startStream = useCallback(async (payload: {
     roleId: string;
@@ -41,6 +62,7 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
     if (isStreaming) return;
     
     setIsStreaming(true);
+    activeSessionIdRef.current = payload.sessionId ? String(payload.sessionId) : null;
     
     // Close any existing connection
     if (eventSourceRef.current) {
@@ -52,12 +74,15 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
     abortControllerRef.current = new AbortController();
     
     try {
-      const apiBase = window.location.origin;
-      const response = await fetch(`${apiBase}/llm/interview/stream`, {
+      const backendInfo = await getBackendInfo();
+      if (!backendInfo.baseUrl) {
+        throw new Error('Backend baseUrl missing.');
+      }
+      const response = await fetch(`${backendInfo.baseUrl}/llm/interview/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || 'default'}`,
+          ...(backendInfo.token ? { Authorization: `Bearer ${backendInfo.token}` } : {}),
         },
         body: JSON.stringify({
           role: payload.roleId,
@@ -112,10 +137,15 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
               
               switch (currentEvent) {
                 case 'start':
+                  if (typeof data.session_id === 'string' && data.session_id) {
+                    activeSessionIdRef.current = data.session_id;
+                    onStart?.(data.session_id);
+                  }
                   onEvent?.({
                     type: 'stdout',
                     timestamp: new Date().toISOString(),
                     content: `Stream started: ${data.session_id}`,
+                    details: { kind: 'start', ...data },
                   });
                   break;
                   
@@ -193,13 +223,21 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
       }
     } finally {
       setIsStreaming(false);
+      abortControllerRef.current = null;
+      eventSourceRef.current = null;
+      activeSessionIdRef.current = null;
     }
-  }, [isStreaming, onEvent, onComplete, onError]);
+  }, [isStreaming, onEvent, onStart, onComplete, onError]);
 
-  const stopStream = useCallback(() => {
+  const stopStream = useCallback((sessionIdOverride?: string | null) => {
     abortControllerRef.current?.abort();
+    const sessionId = sessionIdOverride ?? activeSessionIdRef.current;
+    activeSessionIdRef.current = null;
+    if (sessionId) {
+      void requestCancel(sessionId);
+    }
     setIsStreaming(false);
-  }, []);
+  }, [requestCancel]);
 
   return {
     isStreaming,
