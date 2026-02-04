@@ -102,6 +102,11 @@ class SettingsUpdate(BaseModel):
     docs_init_api_key: Optional[str] = None
     docs_init_api_path: Optional[str] = None
     docs_init_timeout: Optional[int] = None
+    
+    gpu_turbo_mode: Optional[bool] = None
+    gpu_auto_detect: Optional[bool] = None
+    gpu_memory_limit: Optional[int] = None
+    gpu_devices: Optional[List[str]] = None
 
 class Settings(BaseModel):
     workspace: str = Field(default_factory=lambda: DEFAULT_WORKSPACE)
@@ -138,6 +143,12 @@ class Settings(BaseModel):
     docs_init_api_key: str = ""
     docs_init_api_path: str = "/v1/chat/completions"
     docs_init_timeout: int = 300
+    
+    # Turbo Mode (GPU Acceleration)
+    gpu_turbo_mode: bool = False
+    gpu_auto_detect: bool = True
+    gpu_memory_limit: int = 40000  # 40GB default limit per GPU
+    gpu_devices: List[str] = Field(default_factory=list)
 
     def apply_update(self, update: SettingsUpdate) -> None:
         data = update.model_dump(exclude_unset=True)

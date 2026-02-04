@@ -180,16 +180,41 @@ export interface LLMConfig {
 }
 
 // LLM Status
-export interface LLMStatus {
-  roles: Record<string, LLMStatusRole>;
-  last_updated: string;
+
+
+// LLM Status Role (Rich)
+export interface LLMStatusRole {
+  provider_id?: string;
+  model?: string;
+  profile?: string;
+  ready?: boolean;
+  grade?: string;
+  last_run_id?: string | null;
+  timestamp?: string | null;
+  suites?: Record<string, unknown> | null;
+  runtime_supported?: boolean;
 }
 
-export interface LLMStatusRole {
-  status: ProviderStatus;
-  last_test?: string;
-  last_error?: string;
-  suites?: Record<string, LLMStatusSuite>;
+// LLM Status Provider (Rich)
+export interface LLMStatusProvider {
+  ready?: boolean | null;
+  grade?: string;
+  last_run_id?: string | null;
+  timestamp?: string | null;
+  suites?: Record<string, unknown> | null;
+  model?: string | null;
+  role?: string | null;
+}
+
+// LLM Status (Rich)
+export interface LLMStatus {
+  state: string;
+  required_ready_roles: string[];
+  blocked_roles: string[];
+  unsupported_roles: string[];
+  roles: Record<string, LLMStatusRole>;
+  providers?: Record<string, LLMStatusProvider>; // providers might be optional? EnhancedLLMSettingsTab has providers? Record<...>
+  last_updated: string;
 }
 
 export interface LLMStatusSuite {

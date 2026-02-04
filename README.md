@@ -119,6 +119,12 @@ HarborPilot 是一款**单人工具**：
 - **QA**：ruff / mypy / pytest / jsonschema / pydantic 校验
 - 端口策略、风险门禁、（可选）回滚与自动修复策略
 
+### Turbo Mode（GPU 加速）
+
+- NVIDIA GPU 自动检测（nvidia-smi）+ RAPIDS/cuDF 可用性检查
+- Settings 中提供 Turbo 模式开关与状态展示
+- 文本处理/正则批处理可选 GPU offload，异常自动回退 CPU
+
 ### 拟人化核心
 
 - Memory / Reflection / Persona
@@ -162,6 +168,8 @@ npm run build
 1. 选择 **Workspace**（缺少 `docs/` 会触发初始化引导）
 2. 设置 **PM / Director / QA** 模型
 3. 点击 **Start PM** → 进入闭环
+
+> 如本机具备 NVIDIA GPU 且已安装 RAPIDS/cuDF，可在 Settings → Turbo 模式启用 GPU 加速。
 
 ### 2️⃣ CLI 运行
 

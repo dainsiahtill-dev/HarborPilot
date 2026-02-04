@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck } from 'lucide-react';
+﻿import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck, Loader2, Cpu, Zap } from 'lucide-react';
 
 export interface InterviewRoleSummary {
   id: 'pm' | 'director' | 'qa' | 'docs';
@@ -29,16 +29,63 @@ export interface InterviewCandidateSummary {
   thinkingConfidence?: number | null;
 }
 
-interface InterviewHallProps {
+export interface ConnectivityResult {
+  ok: boolean;
+  timestamp: string;
+  latencyMs?: number;
+  error?: string;
+  model?: string;
+  thinking?: {
+    supportsThinking?: boolean;
+    confidence?: number;
+    format?: string;
+  };
+}
+
+export interface InterviewProviderSummary {
+  id: string;
+  name: string;
+  model: string;
+  providerType: string;
+  status: 'ready' | 'testing' | 'failed' | 'untested';
+  thinkingSupported?: boolean;
+  thinkingConfidence?: number | null;
+  lastConnectivityTest?: {
+    timestamp: string;
+    success: boolean;
+    latencyMs?: number;
+    error?: string;
+  };
+}
+
+type RoleId = 'pm' | 'director' | 'qa' | 'docs';
+
+interface InterviewHallLegacyProps {
   roles: InterviewRoleSummary[];
   candidates: InterviewCandidateSummary[];
-  selectedRole: 'pm' | 'director' | 'qa' | 'docs';
-  onSelectRole: (role: 'pm' | 'director' | 'qa' | 'docs') => void;
+  selectedRole: RoleId;
+  onSelectRole: (role: RoleId) => void;
   onStartInterview: () => void;
   onRunReadiness?: () => void;
   disabledReason?: string | null;
   running?: boolean;
 }
+
+interface InterviewHallV2Props {
+  roles: InterviewRoleSummary[];
+  providers: InterviewProviderSummary[];
+  selectedRole: RoleId | null;
+  selectedProvider: string | null;
+  onSelectRole: (role: RoleId) => void;
+  onSelectProvider: (providerId: string) => void;
+  onRunConnectivityTest: (role: RoleId, providerId: string) => void;
+  onRunInterview: (role: RoleId, providerId: string) => void;
+  connectivityResults: Map<string, ConnectivityResult>;
+  interviewRunning?: boolean;
+  connectivityRunning?: boolean;
+}
+
+type InterviewHallProps = InterviewHallLegacyProps | InterviewHallV2Props;
 
 const ROLE_BADGES: Record<string, string> = {
   pm: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30',
@@ -47,7 +94,50 @@ const ROLE_BADGES: Record<string, string> = {
   docs: 'bg-amber-500/20 text-amber-200 border-amber-500/30'
 };
 
-export function InterviewHall({
+const STATUS_STYLES: Record<string, { border: string; bg: string; dot: string; text: string }> = {
+  ready: {
+    border: 'border-emerald-500/40',
+    bg: 'bg-emerald-500/10',
+    dot: 'bg-emerald-400',
+    text: 'text-emerald-300'
+  },
+  failed: {
+    border: 'border-rose-500/40',
+    bg: 'bg-rose-500/10',
+    dot: 'bg-rose-400',
+    text: 'text-rose-300'
+  },
+  testing: {
+    border: 'border-cyan-500/40',
+    bg: 'bg-cyan-500/10',
+    dot: 'bg-cyan-300',
+    text: 'text-cyan-200'
+  },
+  untested: {
+    border: 'border-white/10',
+    bg: 'bg-white/5',
+    dot: 'bg-white/40',
+    text: 'text-text-dim'
+  }
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  ready: '连通通过',
+  failed: '连通失败',
+  testing: '测试中',
+  untested: '未测试'
+};
+
+const formatTimestamp = (timestamp?: string) => {
+  if (!timestamp) return '未测试';
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch {
+    return timestamp;
+  }
+};
+
+function InterviewHallLegacy({
   roles,
   candidates,
   selectedRole,
@@ -56,7 +146,7 @@ export function InterviewHall({
   onRunReadiness,
   disabledReason,
   running
-}: InterviewHallProps) {
+}: InterviewHallLegacyProps) {
   const activeRole = roles.find(role => role.id === selectedRole);
 
   return (
@@ -178,4 +268,258 @@ export function InterviewHall({
       </div>
     </div>
   );
+}
+
+function InterviewHallV2({
+  roles,
+  providers,
+  selectedRole,
+  selectedProvider,
+  onSelectRole,
+  onSelectProvider,
+  onRunConnectivityTest,
+  onRunInterview,
+  connectivityResults,
+  interviewRunning,
+  connectivityRunning
+}: InterviewHallV2Props) {
+  const activeRole = roles.find(role => role.id === selectedRole);
+  const activeProvider = providers.find(provider => provider.id === selectedProvider);
+  const connectivityKey = activeRole && selectedProvider ? `${activeRole.id}::${selectedProvider}` : null;
+  const directConnectivity = connectivityKey ? connectivityResults.get(connectivityKey) : undefined;
+  let fallbackConnectivity: ConnectivityResult | undefined;
+  if (!directConnectivity && selectedProvider) {
+    let latest = 0;
+    connectivityResults.forEach((value, key) => {
+      if (!key.endsWith(`::${selectedProvider}`)) return;
+      const time = Date.parse(value.timestamp);
+      const parsed = Number.isNaN(time) ? 0 : time;
+      if (parsed >= latest) {
+        latest = parsed;
+        fallbackConnectivity = value;
+      }
+    });
+  }
+  const connectivity = directConnectivity || fallbackConnectivity;
+  const connectivityNote = directConnectivity ? null : fallbackConnectivity ? '（来自其他岗位）' : null;
+  const connectivityState =
+    connectivity?.ok === true ? 'passed' : connectivity?.ok === false ? 'failed' : 'unknown';
+  const connectivityLabel =
+    connectivityState === 'passed' ? '通过' : connectivityState === 'failed' ? '未通过' : '未测试';
+  const connectivityColor =
+    connectivityState === 'passed'
+      ? 'text-emerald-300'
+      : connectivityState === 'failed'
+        ? 'text-amber-300'
+        : 'text-text-dim';
+  const connectivityOk = connectivityState === 'passed';
+  const canRunConnectivity = Boolean(activeRole && activeProvider && activeProvider.model);
+  const canRunInterview = Boolean(activeRole && activeProvider && activeProvider.model && connectivityOk);
+  const disabledReason = !activeRole
+    ? '请选择岗位'
+    : !activeProvider
+      ? '请选择 LLM 卡片'
+      : !activeProvider.model
+        ? '当前提供商未配置模型'
+        : !connectivityOk
+          ? '请先通过连通性测试'
+          : null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs text-text-dim uppercase tracking-wide">LLM Interview Center</div>
+          <h3 className="text-lg font-semibold text-text-main">面试大厅</h3>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-text-dim">
+          <ShieldCheck className="size-4 text-emerald-300" />
+          Core roles require thinking-capable models.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.3fr_1fr] gap-6">
+        <div className="space-y-4">
+          <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🎯 面试岗位</div>
+          {roles.map(role => {
+            const isActive = role.id === selectedRole;
+            const badge = ROLE_BADGES[role.id] || 'bg-white/10 text-text-main border-white/20';
+            return (
+              <button
+                key={role.id}
+                onClick={() => onSelectRole(role.id)}
+                className={`w-full text-left rounded-xl border p-4 transition-all ${
+                  isActive
+                    ? 'border-cyan-400/60 bg-cyan-500/10'
+                    : 'border-white/10 bg-white/5 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 text-[10px] uppercase font-semibold rounded border ${badge}`}>
+                      {role.label}
+                    </span>
+                    {role.readiness?.ready ? (
+                      <CheckCircle2 className="size-4 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="size-4 text-amber-300" />
+                    )}
+                  </div>
+                  <div className="text-[10px] text-text-dim uppercase tracking-wide">
+                    {role.requiresThinking ? 'Thinking Required' : 'Thinking Optional'}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-text-dim">{role.description}</div>
+                <div className="mt-3 text-[11px] text-text-main">
+                  默认人选: {role.candidate?.providerName || '未指定'} {role.candidate?.model ? `• ${role.candidate.model}` : ''}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="space-y-4">
+          <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🤖 LLM 卡片</div>
+          {providers.length === 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-xs text-text-dim">
+              暂无可用 LLM 提供商，请先在配置页添加。
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {providers.map(provider => {
+                const isActive = provider.id === selectedProvider;
+                const styles = STATUS_STYLES[provider.status] || STATUS_STYLES.untested;
+                return (
+                  <button
+                    key={provider.id}
+                    onClick={() => onSelectProvider(provider.id)}
+                    className={`w-full text-left rounded-xl border p-4 transition-all ${
+                      isActive
+                        ? 'border-emerald-400/50 bg-emerald-500/10'
+                        : `${styles.border} ${styles.bg} hover:border-white/20`
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-text-main">{provider.name}</span>
+                          <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${styles.border} ${styles.text}`}>
+                            {STATUS_LABELS[provider.status]}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-text-dim">
+                          {provider.providerType} • {provider.model || '未设置模型'}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end text-[10px] text-text-dim">
+                        <span className={`flex items-center gap-1 ${styles.text}`}>
+                          <span className={`size-2 rounded-full ${styles.dot}`} />
+                          {provider.status === 'testing' ? '运行中' : '状态'}
+                        </span>
+                        <span className="mt-1">{formatTimestamp(provider.lastConnectivityTest?.timestamp)}</span>
+                      </div>
+                    </div>
+                    {provider.lastConnectivityTest ? (
+                      <div className="mt-3 text-[10px] text-text-dim">
+                        延迟 {provider.lastConnectivityTest.latencyMs ? `${Math.round(provider.lastConnectivityTest.latencyMs)}ms` : '—'}
+                        {provider.lastConnectivityTest.error ? ` • ${provider.lastConnectivityTest.error}` : ''}
+                      </div>
+                    ) : null}
+                    {provider.thinkingConfidence !== undefined && provider.thinkingConfidence !== null ? (
+                      <div className="mt-2 text-[10px] text-text-dim">
+                        Thinking 置信度：{Math.round(provider.thinkingConfidence * 100)}%
+                        {provider.thinkingSupported === false ? ' (不支持)' : ''}
+                      </div>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🧪 测试控制区</div>
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs text-text-main font-semibold">当前组合</div>
+              <div className="text-[11px] text-text-dim">
+                岗位：{activeRole?.label || '未选择'}
+              </div>
+              <div className="text-[11px] text-text-dim">
+                模型：{activeProvider?.name || '未选择'} {activeProvider?.model ? `• ${activeProvider.model}` : ''}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-[11px] text-text-dim">
+              {activeRole?.requiresThinking
+                ? `核心岗位要求 thinking 模型（最低 ${Math.round(activeRole.minConfidence * 100)}%）。`
+                : '辅助岗位可使用高效模型，thinking 能力为加分项。'}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-text-dim">连通性测试</span>
+                {connectivityRunning ? (
+                  <span className="flex items-center gap-1 text-cyan-200"><Loader2 className="size-3 animate-spin" />运行中</span>
+                ) : (
+                  <span className={connectivityColor}>
+                    {connectivityLabel}
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-text-dim">
+                {connectivity?.timestamp
+                  ? `最近：${formatTimestamp(connectivity.timestamp)}${connectivityNote ? ` ${connectivityNote}` : ''}`
+                  : '尚无记录'}
+              </div>
+              {connectivity?.error ? (
+                <div className="text-[10px] text-red-300">{connectivity.error}</div>
+              ) : null}
+            </div>
+
+            {disabledReason ? (
+              <div className="text-[11px] text-red-200 bg-red-500/10 border border-red-500/20 rounded p-2">
+                {disabledReason}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  if (activeRole && activeProvider) {
+                    onRunConnectivityTest(activeRole.id, activeProvider.id);
+                  }
+                }}
+                disabled={!canRunConnectivity || connectivityRunning}
+                className="px-3 py-2 text-[11px] font-semibold bg-cyan-500/80 hover:bg-cyan-500 text-white rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
+              >
+                <Cpu className="size-3" />
+                {connectivityRunning ? '连通性测试中...' : '连通性测试'}
+              </button>
+              <button
+                onClick={() => {
+                  if (activeRole && activeProvider) {
+                    onRunInterview(activeRole.id, activeProvider.id);
+                  }
+                }}
+                disabled={!canRunInterview || interviewRunning}
+                className="px-3 py-2 text-[11px] font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
+              >
+                <Zap className="size-3" />
+                {interviewRunning ? '面试进行中...' : '深度面试'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function InterviewHall(props: InterviewHallProps) {
+  if ('providers' in props) {
+    return <InterviewHallV2 {...props} />;
+  }
+  return <InterviewHallLegacy {...props} />;
 }

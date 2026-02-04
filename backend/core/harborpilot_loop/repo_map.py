@@ -184,10 +184,34 @@ def _fallback_skeleton(
     per_file_lines: int,
     total_lines: int,
 ) -> Tuple[List[str], Dict[str, int]]:
+    # Try Turbo Acceleration
+    turbo_engine = None
+    try:
+        from services.turbo_engine import get_turbo_engine
+        turbo_engine = get_turbo_engine()
+    except ImportError:
+        pass
+
+    if turbo_engine and turbo_engine.is_active:
+        lines = content.splitlines()
+        skeleton: List[str] = []
+        symbols = 0
+        patterns = _fallback_patterns_str(language)
+        for kind, pattern in patterns:
+            matches = turbo_engine.find_pattern_lines(lines, pattern)
+            for line_idx, name in matches:
+                line_no = line_idx + 1
+                skeleton.append(f"{kind} {name} [{line_no}-{line_no}]")
+                symbols += 1
+                if per_file_lines > 0 and len(skeleton) >= per_file_lines:
+                    return skeleton, {"total_lines": total_lines, "symbols": symbols}
+        return skeleton, {"total_lines": total_lines, "symbols": symbols}
+
+    # CPU Fallback
     skeleton: List[str] = []
     symbols = 0
-    patterns = _fallback_patterns(language)
-    for kind, pattern in patterns:
+    patterns_re = _fallback_patterns(language)
+    for kind, pattern in patterns_re:
         for match in pattern.finditer(content):
             name = match.group(1)
             line_no = content[: match.start()].count("\n") + 1
@@ -196,6 +220,18 @@ def _fallback_skeleton(
             if per_file_lines > 0 and len(skeleton) >= per_file_lines:
                 return skeleton, {"total_lines": total_lines, "symbols": symbols}
     return skeleton, {"total_lines": total_lines, "symbols": symbols}
+
+
+def _fallback_patterns_str(language: str) -> List[Tuple[str, str]]:
+    if language == "python":
+        return [
+            ("class", r"^\\s*class\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+            ("function", r"^\\s*def\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        ]
+    return [
+        ("class", r"^\\s*class\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        ("function", r"^\\s*function\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+    ]
 
 
 def _fallback_patterns(language: str) -> List[Tuple[str, re.Pattern[str]]]:

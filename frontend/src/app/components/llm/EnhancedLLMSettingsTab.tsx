@@ -1,7 +1,11 @@
 import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { InterviewHall } from './interview/InterviewHall';
+import {
+  InterviewHall,
+  type ConnectivityResult,
+  type InterviewProviderSummary
+} from './interview/InterviewHall';
 import { InterviewSession } from './interview/InterviewSession';
 import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
@@ -94,8 +98,17 @@ interface EnhancedLLMSettingsTabProps {
   llmError: string | null;
   deletingProviders?: Record<string, boolean>;
   onSaveConfig: () => void;
-  onRunInterview: (role: RoleId, onEvent?: (event: TestEvent) => void) => Promise<Record<string, unknown> | null>;
-  onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
+  onRunInterview: (
+    role: RoleId,
+    providerId: string,
+    model: string,
+    onEvent?: (event: TestEvent) => void
+  ) => Promise<Record<string, unknown> | null>;
+  onRunConnectivityTest: (
+    role: RoleId,
+    providerId: string,
+    model: string
+  ) => Promise<Record<string, unknown> | null>;
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
   onDeleteProvider?: (providerId: string) => void | Promise<void>;
@@ -153,6 +166,141 @@ const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
   }
 };
 
+const CONNECTIVITY_STORAGE_KEY = 'harborpilot:interview:connectivity';
+
+const parseTimestamp = (value?: string): number => {
+  if (!value) return 0;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const extractSuiteOk = (suite: unknown): boolean | undefined => {
+  if (!suite || typeof suite !== 'object') return undefined;
+  return typeof (suite as { ok?: boolean }).ok === 'boolean' ? Boolean((suite as { ok?: boolean }).ok) : undefined;
+};
+
+const extractSuiteLatency = (suites?: Record<string, unknown>): number | undefined => {
+  const response = suites?.response as Record<string, unknown> | undefined;
+  const details = response?.details as Record<string, unknown> | undefined;
+  if (details && typeof details.latency_ms === 'number') {
+    return details.latency_ms;
+  }
+  return undefined;
+};
+
+const extractSuiteError = (suites?: Record<string, unknown>): string | undefined => {
+  const response = suites?.response as Record<string, unknown> | undefined;
+  const responseDetails = response?.details as Record<string, unknown> | undefined;
+  if (responseDetails && typeof responseDetails.error === 'string') {
+    return responseDetails.error;
+  }
+  const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
+  const connectivityDetails = connectivity?.details as Record<string, unknown> | undefined;
+  const healthError = connectivityDetails?.health as Record<string, unknown> | undefined;
+  if (healthError && typeof healthError.error === 'string') {
+    return healthError.error;
+  }
+  const modelAvailable = connectivityDetails?.model_available as Record<string, unknown> | undefined;
+  if (modelAvailable && typeof modelAvailable.error === 'string') {
+    return modelAvailable.error;
+  }
+  return undefined;
+};
+
+const extractThinkingMeta = (suites?: Record<string, unknown>): ConnectivityResult['thinking'] => {
+  const thinkingSuite = suites?.thinking as Record<string, unknown> | undefined;
+  const details = thinkingSuite?.details as Record<string, unknown> | undefined;
+  const thinking = (details?.thinking as Record<string, unknown>) || (thinkingSuite?.thinking as Record<string, unknown>);
+  if (!thinking) return undefined;
+  return {
+    supportsThinking: typeof thinking.supports_thinking === 'boolean' ? thinking.supports_thinking : undefined,
+    confidence: typeof thinking.confidence === 'number' ? thinking.confidence : undefined,
+    format: typeof thinking.format === 'string' ? thinking.format : undefined
+  };
+};
+
+const buildConnectivityResultFromSuites = (
+  suites: Record<string, unknown> | undefined,
+  timestamp?: string,
+  model?: string
+): ConnectivityResult | null => {
+  if (!suites) return null;
+  const connectivityOk = extractSuiteOk(suites.connectivity);
+  const responseOk = extractSuiteOk(suites.response);
+  let ok: boolean | undefined;
+  if (connectivityOk !== undefined && responseOk !== undefined) {
+    ok = connectivityOk && responseOk;
+  } else if (connectivityOk !== undefined) {
+    ok = connectivityOk;
+  } else if (responseOk !== undefined) {
+    ok = responseOk;
+  }
+  if (ok === undefined) return null;
+  return {
+    ok,
+    timestamp: timestamp || new Date().toISOString(),
+    latencyMs: extractSuiteLatency(suites),
+    error: extractSuiteError(suites),
+    model,
+    thinking: extractThinkingMeta(suites)
+  };
+};
+
+const normalizeConnectivityResult = (value: unknown): ConnectivityResult | null => {
+  if (!value || typeof value !== 'object') return null;
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.ok !== 'boolean' || typeof payload.timestamp !== 'string') {
+    return null;
+  }
+  const thinking = payload.thinking as Record<string, unknown> | undefined;
+  return {
+    ok: payload.ok,
+    timestamp: payload.timestamp,
+    latencyMs: typeof payload.latencyMs === 'number' ? payload.latencyMs : undefined,
+    error: typeof payload.error === 'string' ? payload.error : undefined,
+    model: typeof payload.model === 'string' ? payload.model : undefined,
+    thinking: thinking
+      ? {
+          supportsThinking: typeof thinking.supportsThinking === 'boolean' ? thinking.supportsThinking : undefined,
+          confidence: typeof thinking.confidence === 'number' ? thinking.confidence : undefined,
+          format: typeof thinking.format === 'string' ? thinking.format : undefined
+        }
+      : undefined
+  };
+};
+
+const loadConnectivityCache = (): Map<string, ConnectivityResult> => {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(CONNECTIVITY_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const entries: Array<[string, ConnectivityResult]> = [];
+    Object.entries(parsed || {}).forEach(([key, value]) => {
+      const normalized = normalizeConnectivityResult(value);
+      if (normalized) {
+        entries.push([key, normalized]);
+      }
+    });
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+};
+
+const persistConnectivityCache = (cache: Map<string, ConnectivityResult>) => {
+  if (typeof window === 'undefined') return;
+  const data: Record<string, ConnectivityResult> = {};
+  cache.forEach((value, key) => {
+    data[key] = value;
+  });
+  try {
+    window.localStorage.setItem(CONNECTIVITY_STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // ignore storage write errors
+  }
+};
+
 export function EnhancedLLMSettingsTab({
   llmConfig,
   llmStatus,
@@ -162,7 +310,7 @@ export function EnhancedLLMSettingsTab({
   deletingProviders,
   onSaveConfig,
   onRunInterview,
-  onRunReadiness,
+  onRunConnectivityTest,
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
@@ -172,13 +320,18 @@ export function EnhancedLLMSettingsTab({
   onCancelInterview
 }: EnhancedLLMSettingsTabProps) {
   const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'config' | 'deepTest'>('config');
   const [configView, setConfigView] = useState<'list' | 'visual'>('list');
   const [deepView, setDeepView] = useState<'hall' | 'session'>('hall');
   const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [interviewRunning, setInterviewRunning] = useState(false);
-  const [readinessRunning, setReadinessRunning] = useState(false);
+  const [connectivityRunning, setConnectivityRunning] = useState(false);
+  const [connectivityRunningKey, setConnectivityRunningKey] = useState<string | null>(null);
+  const [connectivityResults, setConnectivityResults] = useState<Map<string, ConnectivityResult>>(
+    () => loadConnectivityCache()
+  );
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [selectedProviderType, setSelectedProviderType] = useState<string>('');
   const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
@@ -269,6 +422,16 @@ export function EnhancedLLMSettingsTab({
     };
   };
 
+  const getConnectivityKey = (roleId: RoleId, providerId: string) => `${roleId}::${providerId}`;
+
+  const resolveModelForSelection = (roleId: RoleId, providerId: string): string => {
+    const providerCfg = llmConfig?.providers?.[providerId];
+    const providerModel = providerCfg ? resolveProviderModel(providerId, providerCfg, llmConfig?.roles) : '';
+    const roleCfg = llmConfig?.roles?.[roleId];
+    const roleModel = roleCfg?.provider_id === providerId ? roleCfg.model || '' : '';
+    return providerModel || roleModel || '';
+  };
+
   const roles = useMemo(() => {
     const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
     return roleIds.map((roleId) => {
@@ -297,18 +460,6 @@ export function EnhancedLLMSettingsTab({
     });
   }, [llmConfig, llmStatus, roleRequirements]);
 
-  const candidates = useMemo(() => {
-    return roles
-      .filter((role) => role.candidate?.model)
-      .map((role) => ({
-        id: `${role.id}-${role.candidate?.providerId || 'unknown'}-${role.candidate?.model || 'model'}`,
-        roleLabel: role.label,
-        providerName: role.candidate?.providerName || 'Unknown',
-        model: role.candidate?.model || 'Unassigned',
-        ready: role.readiness?.ready
-      }));
-  }, [roles]);
-
   useEffect(() => {
     if (!llmConfig) return;
     if (!roles.find((role) => role.id === selectedRole)) {
@@ -317,9 +468,64 @@ export function EnhancedLLMSettingsTab({
   }, [llmConfig, roles, selectedRole]);
 
   useEffect(() => {
+    if (!llmConfig) {
+      setSelectedProviderId(null);
+      return;
+    }
+    const providerIds = Object.keys(llmConfig.providers || {});
+    if (providerIds.length === 0) {
+      setSelectedProviderId(null);
+      return;
+    }
+    if (selectedProviderId && providerIds.includes(selectedProviderId)) {
+      return;
+    }
+    const roleProvider = llmConfig.roles?.[selectedRole]?.provider_id;
+    if (roleProvider && providerIds.includes(roleProvider)) {
+      setSelectedProviderId(roleProvider);
+      return;
+    }
+    setSelectedProviderId(providerIds[0]);
+  }, [llmConfig, selectedRole, selectedProviderId]);
+
+  useEffect(() => {
     if (typeof document === 'undefined') return;
     setPanelHost(document.getElementById('llm-test-panel-slot'));
   }, []);
+
+  useEffect(() => {
+    setInterviewError(null);
+  }, [selectedRole, selectedProviderId]);
+
+  useEffect(() => {
+    persistConnectivityCache(connectivityResults);
+  }, [connectivityResults]);
+
+  useEffect(() => {
+    if (!llmStatus?.providers) return;
+    setConnectivityResults((prev) => {
+      const next = new Map(prev);
+      Object.entries(llmStatus.providers || {}).forEach(([providerId, providerStatus]) => {
+        if (!providerStatus || typeof providerStatus !== 'object') return;
+        const suites = providerStatus.suites as Record<string, unknown> | undefined;
+        if (!suites) return;
+        const result = buildConnectivityResultFromSuites(
+          suites,
+          typeof providerStatus.timestamp === 'string' ? providerStatus.timestamp : undefined,
+          typeof providerStatus.model === 'string' ? providerStatus.model : undefined
+        );
+        if (!result) return;
+        const role = typeof providerStatus.role === 'string' ? providerStatus.role : '';
+        if (!role) return;
+        const key = `${role}::${providerId}`;
+        const existing = next.get(key);
+        if (!existing || parseTimestamp(result.timestamp) >= parseTimestamp(existing.timestamp)) {
+          next.set(key, result);
+        }
+      });
+      return next;
+    });
+  }, [llmStatus]);
 
   useEffect(() => {
     if (!selectedTestProviderId) return;
@@ -497,6 +703,58 @@ export function EnhancedLLMSettingsTab({
     return status;
   }, [llmStatus]);
 
+  const interviewProviders = useMemo<InterviewProviderSummary[]>(() => {
+    if (!llmConfig) return [];
+    const providersConfig = llmConfig.providers || {};
+    const getLatestConnectivity = (providerId: string): ConnectivityResult | undefined => {
+      if (selectedRole) {
+        const direct = connectivityResults.get(`${selectedRole}::${providerId}`);
+        if (direct) return direct;
+      }
+      let best: ConnectivityResult | undefined;
+      connectivityResults.forEach((value, key) => {
+        if (!key.endsWith(`::${providerId}`)) return;
+        if (!best || parseTimestamp(value.timestamp) > parseTimestamp(best.timestamp)) {
+          best = value;
+        }
+      });
+      return best;
+    };
+
+    return Object.entries(providersConfig).map(([providerId, providerCfg]) => {
+      const providerInfo = getProviderInfo(providerCfg.type || '');
+      const model = resolveProviderModel(providerId, providerCfg, llmConfig.roles);
+      const suites = llmStatus?.providers?.[providerId]?.suites as Record<string, unknown> | undefined;
+      const thinkingMeta = extractThinkingMeta(suites);
+      const connectivity = getLatestConnectivity(providerId);
+      const isTesting = connectivityRunningKey?.endsWith(`::${providerId}`);
+      const status: InterviewProviderSummary['status'] = isTesting
+        ? 'testing'
+        : connectivity?.ok === true
+          ? 'ready'
+          : connectivity?.ok === false
+            ? 'failed'
+            : 'untested';
+      return {
+        id: providerId,
+        name: providerCfg.name || providerInfo?.name || providerId,
+        model,
+        providerType: providerCfg.type || providerInfo?.type || 'unknown',
+        status,
+        thinkingSupported: thinkingMeta?.supportsThinking,
+        thinkingConfidence: thinkingMeta?.confidence ?? null,
+        lastConnectivityTest: connectivity
+          ? {
+              timestamp: connectivity.timestamp,
+              success: connectivity.ok,
+              latencyMs: connectivity.latencyMs,
+              error: connectivity.error
+            }
+          : undefined
+      };
+    });
+  }, [connectivityResults, connectivityRunningKey, getProviderInfo, llmConfig, llmStatus, selectedRole]);
+
   const globalReadiness = useMemo(() => {
     const state = llmStatus?.state || 'UNKNOWN';
     if (state === 'READY') {
@@ -528,9 +786,6 @@ export function EnhancedLLMSettingsTab({
   };
 
   const selectedMeta = roles.find((role) => role.id === selectedRole);
-  const canRunReadiness = Boolean(
-    selectedMeta?.candidate?.providerId && selectedMeta?.candidate?.model
-  );
 
   const handleAddProvider = async (providerType: string) => {
     if (llmSaving) return;
@@ -571,8 +826,22 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
-  const handleStartInterview = async () => {
-    if (!selectedMeta) return;
+  const handleStartInterview = async (roleId: RoleId, providerId: string) => {
+    const activeMeta = roles.find((role) => role.id === roleId);
+    if (!activeMeta) return;
+    const model = resolveModelForSelection(roleId, providerId);
+    if (!model) {
+      setInterviewError('缺少模型配置，无法开始面试');
+      return;
+    }
+    const connectivityKey = getConnectivityKey(roleId, providerId);
+    const connectivity = connectivityResults.get(connectivityKey);
+    if (!connectivity?.ok) {
+      setInterviewError('请先通过连通性测试');
+      return;
+    }
+    setSelectedRole(roleId);
+    setSelectedProviderId(providerId);
     openInterviewPanel();
     setInterviewError(null);
     setInterviewReport(null);
@@ -585,9 +854,9 @@ export function EnhancedLLMSettingsTab({
       addInterviewEvent({
         type: 'command',
         timestamp: new Date().toISOString(),
-        content: `Starting interview for ${selectedMeta.label}`
+        content: `Starting interview for ${activeMeta.label}`
       });
-      const report = await onRunInterview(selectedMeta.id, (event) => addInterviewEvent(event));
+      const report = await onRunInterview(roleId, providerId, model, (event) => addInterviewEvent(event));
       if (!report) {
         const cancelledMessage = interviewCancelledRef.current ? '面试已取消' : '面试未返回结果';
         setInterviewPanelStatus('failed');
@@ -631,13 +900,58 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
-  const handleRunReadiness = async () => {
-    if (!selectedMeta) return;
-    setReadinessRunning(true);
+  const handleRunConnectivity = async (roleId: RoleId, providerId: string) => {
+    if (!onRunConnectivityTest) return;
+    const model = resolveModelForSelection(roleId, providerId);
+    const key = getConnectivityKey(roleId, providerId);
+    if (!model) {
+      const result: ConnectivityResult = {
+        ok: false,
+        timestamp: new Date().toISOString(),
+        error: '缺少模型配置，无法执行连通性测试'
+      };
+      setConnectivityResults((prev) => {
+        const next = new Map(prev);
+        next.set(key, result);
+        return next;
+      });
+      return;
+    }
+    setConnectivityRunning(true);
+    setConnectivityRunningKey(key);
     try {
-      await onRunReadiness(selectedMeta.id);
+      const report = await onRunConnectivityTest(roleId, providerId, model);
+      const suites = report?.suites as Record<string, unknown> | undefined;
+      const reportTimestamp = typeof report?.timestamp === 'string' ? report.timestamp : new Date().toISOString();
+      const result =
+        buildConnectivityResultFromSuites(suites, reportTimestamp, model) ||
+        ({
+          ok: false,
+          timestamp: reportTimestamp,
+          error: '连通性测试未返回结果',
+          model
+        } as ConnectivityResult);
+      setConnectivityResults((prev) => {
+        const next = new Map(prev);
+        next.set(key, result);
+        return next;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '连通性测试失败';
+      const result: ConnectivityResult = {
+        ok: false,
+        timestamp: new Date().toISOString(),
+        error: message,
+        model
+      };
+      setConnectivityResults((prev) => {
+        const next = new Map(prev);
+        next.set(key, result);
+        return next;
+      });
     } finally {
-      setReadinessRunning(false);
+      setConnectivityRunning(false);
+      setConnectivityRunningKey(null);
     }
   };
 
@@ -806,28 +1120,20 @@ export function EnhancedLLMSettingsTab({
   };
 
   const interviewProvider = useMemo(() => {
-    const providerId = selectedMeta?.candidate?.providerId;
-    if (!providerId || !llmConfig?.providers?.[providerId]) return null;
-    const providerCfg = llmConfig.providers[providerId];
-    const baseProvider = buildSimpleProvider(providerId, providerCfg, llmConfig.roles);
-    const roleModel = selectedMeta?.candidate?.model || '';
-    const providerModel =
-      typeof providerCfg.model === 'string'
-        ? providerCfg.model
-        : typeof providerCfg.model_id === 'string'
-          ? providerCfg.model_id
-          : typeof providerCfg.default_model === 'string'
-            ? providerCfg.default_model
-            : '';
-    const modelId = providerModel && roleModel && providerModel !== roleModel
-      ? providerModel
-      : roleModel || providerModel || baseProvider.modelId;
+    if (!selectedProviderId || !llmConfig?.providers?.[selectedProviderId]) return null;
+    const providerCfg = llmConfig.providers[selectedProviderId];
+    const baseProvider = buildSimpleProvider(selectedProviderId, providerCfg, llmConfig.roles);
+    const resolvedModel =
+      selectedRole && selectedProviderId
+        ? resolveModelForSelection(selectedRole, selectedProviderId)
+        : baseProvider.modelId;
+    const modelId = resolvedModel || baseProvider.modelId;
     return {
       ...baseProvider,
-      name: `Interview · ${selectedMeta?.label || providerId}`,
+      name: `Interview · ${selectedMeta?.label || selectedProviderId}`,
       modelId
     };
-  }, [buildSimpleProvider, llmConfig, selectedMeta]);
+  }, [buildSimpleProvider, llmConfig, selectedMeta, selectedProviderId, selectedRole]);
 
   if (llmLoading || providersLoading) {
     return (
@@ -1018,13 +1324,16 @@ export function EnhancedLLMSettingsTab({
             {deepView === 'hall' ? (
               <InterviewHall
                 roles={roles}
-                candidates={candidates}
                 selectedRole={selectedRole}
+                providers={interviewProviders}
+                selectedProvider={selectedProviderId}
                 onSelectRole={setSelectedRole}
-                onStartInterview={handleStartInterview}
-                onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
-                disabledReason={!canRunReadiness ? '请先选择LLM提供商和模型' : undefined}
-                running={interviewRunning}
+                onSelectProvider={setSelectedProviderId}
+                onRunConnectivityTest={handleRunConnectivity}
+                onRunInterview={handleStartInterview}
+                connectivityResults={connectivityResults}
+                interviewRunning={interviewRunning}
+                connectivityRunning={connectivityRunning}
               />
             ) : (
               <InterviewSession
@@ -1061,7 +1370,11 @@ export function EnhancedLLMSettingsTab({
               events={interviewEvents}
               status={interviewPanelStatus}
               onClose={closeInterviewPanel}
-              onRunTest={handleStartInterview}
+              onRunTest={() => {
+                if (selectedRole && selectedProviderId) {
+                  handleStartInterview(selectedRole, selectedProviderId);
+                }
+              }}
               onCancel={cancelInterviewRun}
             />,
             panelHost

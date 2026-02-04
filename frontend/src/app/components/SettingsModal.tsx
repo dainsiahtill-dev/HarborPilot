@@ -4,7 +4,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/ta
 import { apiFetch } from '@/api';
 import { PtyDrawer } from '@/app/components/PtyDrawer';
 import { EnhancedLLMSettingsTab } from '@/app/components/llm/EnhancedLLMSettingsTab';
-import type { SimpleProvider } from '@/app/components/llm/types';
+import { TurboSettingsTab } from './turbo/TurboSettingsTab';
+import { ArsenalPanel } from './arsenal/ArsenalPanel';
+import type { 
+  SimpleProvider, 
+  ProviderConfig, 
+  LLMConfig, 
+  LLMStatus,
+  RoleConfig,
+  ProviderKind
+} from '@/app/components/llm/types';
 import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
 
 interface SettingsModalProps {
@@ -62,88 +71,6 @@ interface SettingsModalProps {
   }) => Promise<void>;
 }
 
-type LlmProviderType =
-  | 'cli'
-  | 'codex_cli'
-  | 'gemini_cli'
-  | 'ollama'
-  | 'openai_compat'
-  | 'anthropic_compat'
-  | 'custom_https'
-  | 'maxmini'
-  | 'gemini_api';
-
-interface LlmProviderConfig {
-  type: LlmProviderType;
-  name?: string;
-  command?: string;
-  working_dir?: string;
-  env?: Record<string, string>;
-  args?: string[];
-  cli_mode?: 'tui' | 'headless';
-  codex_exec?: Record<string, unknown>;
-  list_args?: string[];
-  tui_args?: string[];
-  output_path?: string;
-  base_url?: string;
-  api_key_ref?: string;
-  api_path?: string;
-  models_path?: string;
-  headers?: Record<string, string>;
-  timeout?: number;
-  retries?: number;
-  model?: string;
-  model_id?: string;
-  default_model?: string;
-}
-
-interface LlmRoleConfig {
-  provider_id?: string;
-  model?: string;
-  profile?: string;
-}
-
-interface LlmConfig {
-  schema_version: number;
-  providers: Record<string, LlmProviderConfig>;
-  roles: Record<string, LlmRoleConfig>;
-  policies?: {
-    required_ready_roles?: string[];
-    test_required_suites?: string[];
-    role_requirements?: Record<string, { requires_thinking?: boolean; min_confidence?: number; error_message?: string }>;
-  };
-}
-
-interface LlmStatus {
-  state: string;
-  required_ready_roles: string[];
-  blocked_roles: string[];
-  unsupported_roles: string[];
-  roles: Record<
-    string,
-    {
-      ready?: boolean;
-      grade?: string;
-      last_run_id?: string | null;
-      timestamp?: string | null;
-      suites?: Record<string, unknown> | null;
-      runtime_supported?: boolean;
-    }
-  >;
-  providers?: Record<
-    string,
-    {
-      ready?: boolean | null;
-      grade?: string;
-      last_run_id?: string | null;
-      timestamp?: string | null;
-      suites?: Record<string, unknown> | null;
-      model?: string | null;
-      role?: string | null;
-    }
-  >;
-}
-
 interface ProviderValidationResult {
   valid: boolean;
   errors?: string[];
@@ -186,8 +113,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [activeTab, setActiveTab] = useState('general');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null);
-  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
+  const [llmConfig, setLLMConfig] = useState<LLMConfig | null>(null);
+  const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null);
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
@@ -209,9 +136,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [tuiError, setTuiError] = useState<string | null>(null);
   const testAbortRef = useRef<AbortController | null>(null);
   const interviewAbortRef = useRef<AbortController | null>(null);
-  const llmConfigRef = useRef<LlmConfig | null>(null);
-  const lastSavedConfigRef = useRef<LlmConfig | null>(null);
-  const llmSavePendingRef = useRef<LlmConfig | null>(null);
+  const llmConfigRef = useRef<LLMConfig | null>(null);
+  const lastSavedConfigRef = useRef<LLMConfig | null>(null);
+  const llmSavePendingRef = useRef<LLMConfig | null>(null);
   const llmSaveInFlightRef = useRef(false);
   const llmSaveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const [deletingProviders, setDeletingProviders] = useState<Record<string, boolean>>({});
@@ -265,7 +192,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     };
   }, [isOpen]);
 
-  const syncProviderDraftsFromConfig = (config: LlmConfig) => {
+  const syncProviderDraftsFromConfig = (config: LLMConfig) => {
     const providers = config.providers || {};
     setProviderJsonDrafts(() => {
       const next: Record<string, { env: string; headers: string }> = {};
@@ -279,7 +206,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     });
   };
 
-  const loadLlmConfig = async () => {
+  const loadLLMConfig = async () => {
     setLlmLoading(true);
     setLlmError(null);
     try {
@@ -287,8 +214,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       if (!res.ok) {
         throw new Error('Failed to load LLM config');
       }
-      const data = (await res.json()) as LlmConfig;
-      setLlmConfig(data);
+      const data = (await res.json()) as LLMConfig;
+      setLLMConfig(data);
       llmConfigRef.current = data;
       lastSavedConfigRef.current = data;
       syncProviderDraftsFromConfig(data);
@@ -300,20 +227,20 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const loadLlmStatus = async () => {
+  const loadLLMStatus = async () => {
     try {
       const res = await apiFetch('/llm/status');
       if (!res.ok) {
         throw new Error('Failed to load LLM status');
       }
-      const data = (await res.json()) as LlmStatus;
-      setLlmStatus(data);
+      const data = (await res.json()) as LLMStatus;
+      setLLMStatus(data);
     } catch (err) {
-      setLlmStatus(null);
+      setLLMStatus(null);
     }
   };
 
-  const refreshProviderKeyStatus = async (providers: Record<string, LlmProviderConfig>) => {
+  const refreshProviderKeyStatus = async (providers: Record<string, ProviderConfig>) => {
     if (!window.harborpilot?.secrets?.get) {
       return;
     }
@@ -336,7 +263,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     setProviderKeyStatus(status);
   };
 
-  const resolveApiKey = async (providerId: string, cfg: LlmProviderConfig) => {
+  const resolveApiKey = async (providerId: string, cfg: ProviderConfig) => {
     if (cfg.type !== 'openai_compat' && cfg.type !== 'anthropic_compat') return null;
     if (!window.harborpilot?.secrets?.get) return null;
     const keyRef = cfg.api_key_ref || `keychain:llm:${providerId}`;
@@ -354,12 +281,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   useEffect(() => {
     if (!isOpen) return;
-    loadLlmConfig().catch(() => undefined);
-    loadLlmStatus().catch(() => undefined);
+    loadLLMConfig().catch(() => undefined);
+    loadLLMStatus().catch(() => undefined);
   }, [isOpen]);
 
-  const updateRole = (role: string, updates: Partial<LlmRoleConfig>) => {
-    setLlmConfig((prev) => {
+  const updateRole = (role: string, updates: Partial<RoleConfig>) => {
+    setLLMConfig((prev) => {
       if (!prev) return prev;
       const next = {
         ...prev,
@@ -376,8 +303,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     });
   };
 
-  const updateProvider = (providerId: string, updates: Partial<LlmProviderConfig>) => {
-    setLlmConfig((prev) => {
+  const updateProvider = (providerId: string, updates: Partial<ProviderConfig>) => {
+    setLLMConfig((prev) => {
       if (!prev) return prev;
       const next = {
         ...prev,
@@ -394,8 +321,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     });
   };
 
-  const updateLlmConfigDraft = (nextConfig: LlmConfig) => {
-    setLlmConfig(nextConfig);
+  const updateLLMConfigDraft = (nextConfig: LLMConfig) => {
+    setLLMConfig(nextConfig);
     llmConfigRef.current = nextConfig;
   };
 
@@ -414,9 +341,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       .filter(Boolean);
   };
 
-  const queueLlmSave = async (nextConfig: LlmConfig, options?: { optimistic?: boolean }) => {
+  const queueLlmSave = async (nextConfig: LLMConfig, options?: { optimistic?: boolean }) => {
     if (options?.optimistic) {
-      setLlmConfig(nextConfig);
+      setLLMConfig(nextConfig);
       llmConfigRef.current = nextConfig;
     }
     llmSavePendingRef.current = nextConfig;
@@ -438,19 +365,19 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           if (!res.ok) {
             throw new Error('Failed to save LLM config');
           }
-          const data = (await res.json()) as LlmConfig;
-          setLlmConfig(data);
+          const data = (await res.json()) as LLMConfig;
+          setLLMConfig(data);
           llmConfigRef.current = data;
           lastSavedConfigRef.current = data;
           syncProviderDraftsFromConfig(data);
           await refreshProviderKeyStatus(data.providers || {});
-          await loadLlmStatus();
+          await loadLLMStatus();
         } catch (err) {
           setLlmError(err instanceof Error ? err.message : 'Failed to save LLM config');
           success = false;
           const fallback = lastSavedConfigRef.current;
           if (fallback) {
-            setLlmConfig(fallback);
+            setLLMConfig(fallback);
             llmConfigRef.current = fallback;
             syncProviderDraftsFromConfig(fallback);
             await refreshProviderKeyStatus(fallback.providers || {});
@@ -468,7 +395,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     return runPromise;
   };
 
-  const applyLlmConfigMutation = async (mutator: (current: LlmConfig) => LlmConfig) => {
+  const applyLLMConfigMutation = async (mutator: (current: LLMConfig) => LLMConfig) => {
     const current = llmConfigRef.current;
     if (!current) return null;
     const nextConfig = mutator(current);
@@ -483,7 +410,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     const keyName = ref.slice('keychain:'.length);
     const result = await window.harborpilot.secrets.set(keyName, key);
     if (result?.ok) {
-      await applyLlmConfigMutation((current) => ({
+      await applyLLMConfigMutation((current) => ({
         ...current,
         providers: {
           ...(current.providers || {}),
@@ -498,7 +425,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const saveLlmConfig = async (config?: LlmConfig) => {
+  const saveLLMConfig = async (config?: LLMConfig) => {
     const target = config || llmConfigRef.current;
     if (!target) return;
     await queueLlmSave(target);
@@ -506,10 +433,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   const mapSimpleProviderToConfig = (
     provider: SimpleProvider,
-    existing?: LlmProviderConfig
-  ): LlmProviderConfig => {
-    const base: LlmProviderConfig = { ...(existing || {}) };
-    base.type = provider.kind as LlmProviderType;
+    existing?: ProviderConfig
+  ): ProviderConfig => {
+    const base: ProviderConfig = { ...(existing || {}) };
+    base.type = (provider.kind || 'cli') as ProviderKind;
     base.name = provider.name;
     base.model = provider.modelId;
     if (provider.conn.kind === 'http') {
@@ -534,7 +461,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     const current = llmConfigRef.current;
     if (!current) return null;
     const mapped = mapSimpleProviderToConfig(provider, current.providers?.[provider.id]);
-    const nextConfig: LlmConfig = {
+    const nextConfig: LLMConfig = {
       ...current,
       providers: {
         ...(current.providers || {}),
@@ -548,8 +475,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     return lastSavedConfigRef.current;
   };
 
-  const addProviderAndPersist = async (providerId: string, provider: LlmProviderConfig) => {
-    await applyLlmConfigMutation((current) => ({
+  const addProviderAndPersist = async (providerId: string, provider: ProviderConfig) => {
+    await applyLLMConfigMutation((current) => ({
       ...current,
       providers: {
         ...(current.providers || {}),
@@ -558,8 +485,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }));
   };
 
-  const updateProviderAndPersist = async (providerId: string, updates: Partial<LlmProviderConfig>) => {
-    await applyLlmConfigMutation((current) => {
+  const updateProviderAndPersist = async (providerId: string, updates: Partial<ProviderConfig>) => {
+    await applyLLMConfigMutation((current) => {
       const prevProvider = current.providers?.[providerId] || {};
       const prevModel =
         typeof prevProvider.model === 'string'
@@ -609,7 +536,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const deleteProviderAndPersist = async (providerId: string) => {
     setDeletingProviders((prev) => ({ ...prev, [providerId]: true }));
     try {
-      await applyLlmConfigMutation((current) => {
+      await applyLLMConfigMutation((current) => {
         const nextProviders = { ...(current.providers || {}) };
         delete nextProviders[providerId];
         const nextRoles = { ...(current.roles || {}) };
@@ -795,7 +722,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   const validateProviderConfig = async (
     providerType: string,
-    config: LlmProviderConfig
+    config: ProviderConfig
   ): Promise<ProviderValidationResult | null> => {
     if (!providerType) return null;
     try {
@@ -988,7 +915,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         result.ready ? 'Test completed successfully' : 'Test failed'
       );
 
-      await loadLlmStatus();
+      await loadLLMStatus();
       return result;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -1056,7 +983,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       if (showReport) {
         setReportDrawer({ open: true, data: report });
       }
-      await loadLlmStatus();
+      await loadLLMStatus();
       return report as Record<string, unknown>;
     } catch (err) {
       setLlmError(err instanceof Error ? err.message : 'LLM test failed');
@@ -1068,11 +995,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   const runInterview = async (
     role: string,
+    providerIdOverride?: string,
+    modelOverride?: string,
     onEvent?: (event: TestEvent) => void
   ): Promise<Record<string, unknown> | null> => {
     if (!llmConfig) return null;
     const roleCfg = llmConfig.roles?.[role];
-    const providerId = roleCfg?.provider_id;
+    const providerId = providerIdOverride || roleCfg?.provider_id;
     const roleModel = roleCfg?.model;
     const emitEvent = (type: TestEvent['type'], content: string, details?: unknown) => {
       if (!onEvent) return;
@@ -1089,6 +1018,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       return null;
     }
     const providerCfg = llmConfig.providers?.[providerId];
+    if (!providerCfg) {
+      emitEvent('error', '提供商未配置，无法开始面试');
+      return null;
+    }
+    const isRoleDefaultProvider = !providerIdOverride || providerIdOverride === roleCfg?.provider_id;
     const providerModel =
       typeof providerCfg?.model === 'string'
         ? providerCfg.model
@@ -1097,9 +1031,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           : typeof providerCfg?.default_model === 'string'
             ? providerCfg.default_model
             : '';
-    const shouldSyncRoleModel = Boolean(providerModel) && roleModel !== providerModel;
-    let model = roleModel || providerModel;
-    if (providerModel && roleModel && providerModel !== roleModel) {
+    const shouldSyncRoleModel = isRoleDefaultProvider && Boolean(providerModel) && roleModel !== providerModel && !modelOverride;
+    let model = modelOverride || providerModel || roleModel;
+    if (providerModel && roleModel && providerModel !== roleModel && !modelOverride) {
       emitEvent(
         'stderr',
         `角色模型(${roleModel}) 与提供商模型(${providerModel})不一致，面试将使用提供商模型`
@@ -1108,7 +1042,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
     if (shouldSyncRoleModel && providerModel) {
       emitEvent('stdout', `自动同步角色模型为 ${providerModel}`);
-      await applyLlmConfigMutation((current) => {
+      await applyLLMConfigMutation((current) => {
         const currentRole = current.roles?.[role];
         if (!currentRole || currentRole.provider_id !== providerId) {
           return current;
@@ -1171,7 +1105,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       const final = report.final as Record<string, unknown> | undefined;
       const ready = typeof final?.ready === 'boolean' ? final.ready : undefined;
       emitEvent(ready ? 'result' : 'error', ready ? '面试完成' : '面试未通过');
-      await loadLlmStatus();
+      await loadLLMStatus();
       return report;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -1189,9 +1123,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
-  const runReadiness = async (role: string): Promise<Record<string, unknown> | null> => {
-    const result = await runLlmTest(role, 'quick', undefined, false);
-    return result || null;
+  const runConnectivityTest = async (
+    role: string,
+    providerId: string,
+    model: string
+  ): Promise<Record<string, unknown> | null> => {
+    const suites = ['connectivity', 'response'];
+    return (await runLlmTest(role, 'quick', suites, false, { providerId, model })) || null;
   };
 
   const runAllTests = async () => {
@@ -1372,6 +1310,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             <TabsList className="bg-white/5 border border-white/5 p-1 rounded-lg flex-wrap">
               <TabsTrigger value="general" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">通用设置</TabsTrigger>
               <TabsTrigger value="llm" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">LLM 设置</TabsTrigger>
+              <TabsTrigger value="turbo" className="data-[state=active]:bg-accent/20 data-[state=active]:text-accent text-text-muted hover:text-text-main">Turbo 模式</TabsTrigger>
+              <TabsTrigger value="arsenal" className="text-cyan-400 data-[state=active]:text-cyan-300">Arsenal</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="mt-6 space-y-6">
@@ -1741,16 +1681,16 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 llmSaving={llmSaving}
                 llmError={llmError}
                 deletingProviders={deletingProviders}
-                onSaveConfig={saveLlmConfig}
+                onSaveConfig={saveLLMConfig}
                 onRunInterview={runInterview}
-                onRunReadiness={runReadiness}
-                onUpdateConfig={updateLlmConfigDraft}
+                onRunConnectivityTest={runConnectivityTest}
+                onUpdateConfig={updateLLMConfigDraft}
                 onTestProvider={runProviderTest}
                 onCancelTestProvider={cancelProviderTest}
                 onCancelInterview={cancelInterview}
                 onAddProvider={async (providerId, provider) => {
-                  const payload: LlmProviderConfig = {
-                    type: provider.type as LlmProviderType,
+                  const payload: ProviderConfig = {
+                    type: (provider.type || 'cli') as ProviderKind,
                     name: provider.name,
                     command: provider.command,
                     args: provider.args,
@@ -1763,12 +1703,20 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   await addProviderAndPersist(providerId, payload);
                 }}
                 onUpdateProvider={async (providerId, updates) => {
-                  await updateProviderAndPersist(providerId, updates);
+                  await updateProviderAndPersist(providerId, updates as Partial<ProviderConfig>);
                 }}
                 onDeleteProvider={async (providerId) => {
                   await deleteProviderAndPersist(providerId);
                 }}
               />
+            </TabsContent>
+
+            <TabsContent value="turbo" className="mt-6">
+              <TurboSettingsTab />
+            </TabsContent>
+            
+            <TabsContent value="arsenal" className="mt-6 h-full">
+              <ArsenalPanel />
             </TabsContent>
 
           </Tabs>

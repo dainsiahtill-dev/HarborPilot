@@ -10,10 +10,13 @@
 harborpilot/
   backend/                       # Python 后端
     app/                         # FastAPI 应用
-      routers/                   # API 路由
+      routers/                   # API 路由（含 Turbo）
       services/                  # 业务逻辑服务
       config.py                  # 配置管理
       main.py                    # FastAPI 入口
+    services/                    # GPU/Turbo 加速服务 [NEW]
+      gpu_detector.py            # GPU 检测 (nvidia-smi + RAPIDS)
+      turbo_engine.py            # Turbo GPU 加速引擎
     core/harborpilot_loop/       # 核心循环模块
       io_utils.py                # IO / 记忆 / Dialogue
       prompts.py                 # Prompt 组装
@@ -295,6 +298,40 @@ HarborPilot 内置了 `tools.py` 统一入口。
 | `events_max_chars`           | EventsProvider 最大字符数 |
 | `snapshot_context`           | 是否强制写入 Context Snapshot（覆盖 env） |
 | `memory_refs_required`       | 记忆必须带 refs（缺失则丢弃） |
+
+---
+
+### 5.5 Turbo Mode (GPU Acceleration)
+
+Turbo Mode 提供可选 GPU 加速能力，状态与配置通过 `/turbo` API 暴露。
+
+**Settings 字段（`backend/app/config.py`）**
+
+| 字段 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `gpu_turbo_mode` | Turbo 模式开关 | `false` |
+| `gpu_auto_detect` | 自动检测 GPU | `true` |
+| `gpu_memory_limit` | GPU 内存上限（MB，当前仅持久化/展示） | `40000` |
+| `gpu_devices` | GPU 设备列表（当前仅持久化） | `[]` |
+
+**API**
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| `GET` | `/turbo/status` | 返回 `enabled/auto_detect/memory_limit/detection/active` |
+| `POST` | `/turbo/config` | 更新 `enabled`，可选 `auto_detect` / `memory_limit` |
+
+**检测返回字段（`detection`）**
+
+- `available` / `count`
+- `devices[]`: `index`, `name`, `memory_total_mb`, `driver_version`, `compute_cap`
+- `driver_version`, `cuda_version`
+- `rapids_available`, `error`, `rapids_error`（仅在 cuDF 失败时出现）
+
+**实现要点**
+
+- GPU 检测依赖 `nvidia-smi`；RAPIDS 可用性通过 `cudf` 导入判断。
+- `TurboEngine` 对大文本/批量文本操作提供 GPU 路径，失败自动回退 CPU。
 
 ---
 
