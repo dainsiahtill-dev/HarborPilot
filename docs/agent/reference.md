@@ -255,6 +255,8 @@ HarborPilot 内置了 `tools.py` 统一入口。
 | `HARBORPILOT_COST_MODEL`       | Cost model (`LOCAL` / `FIXED` / `METERED`)           |
 | `HARBORPILOT_CONTEXT_SNAPSHOT` | Context 快照开关（`1` 开 / `0` 关）              |
 
+> 说明：上述 PM/Director 相关 env 仅提供默认值，实际角色绑定以 LLM 配置与面试通过后的选择为准；Director 不再限定某一后端。
+
 ### 5.2 Codex CLI Exec (PM/Docs)
 
 这些环境变量会映射到 `codex exec` 参数，用于 CLI Provider / PM backend：

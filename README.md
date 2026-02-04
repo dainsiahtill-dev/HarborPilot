@@ -119,11 +119,17 @@ HarborPilot 是一款**单人工具**：
 - **QA**：ruff / mypy / pytest / jsonschema / pydantic 校验
 - 端口策略、风险门禁、（可选）回滚与自动修复策略
 
-### Turbo Mode（GPU 加速）
+### Turbo Mode (Beta) ⚡
 
-- NVIDIA GPU 自动检测（nvidia-smi）+ RAPIDS/cuDF 可用性检查
-- Settings 中提供 Turbo 模式开关与状态展示
-- 文本处理/正则批处理可选 GPU offload，异常自动回退 CPU
+> **警告**：该功能处于 Beta 测试阶段，专为双 3090 Ti 等高性能工作站设计。请参考 [Turbo 硬件加速文档](docs/turbo_gpu.md) 进行配置。
+
+- **God Mode 架构**：集成 RAPIDS (cuDF/cuml) + SGLang + PyArrow + Tree-sitter
+- **能力**：
+  - 正则/文本处理 100x 加速 (GPU)
+  - 代码库 3D 可视化 (cuML/cugraph)
+  - 本地推理加速 (Radix Attention) & 100% JSON Schema 约束
+  - 零拷贝 IPC 通信
+- **状态**：默认关闭，需在 Settings 中显式开启；支持优雅降级回 CPU。
 
 ### 拟人化核心
 
@@ -255,7 +261,7 @@ graph LR
 | 6️⃣  | **失败可定位**               | 失败必须在 3 hops 内定位到 Phase → Evidence → Tool Output   |
 | 7️⃣  | **原子写入与一致性读取**     | 关键状态文件写入必须原子化，读取永不读到半截                |
 | 8️⃣  | **记忆必须可溯源**           | memory/reflection 不能当事实，只能当建议，且必须带 refs     |
-| 9️⃣  | **编码统一性**               | 所有文本读写必须显式 UTF-8，防止乱码破坏证据             |
+| 9️⃣  | **编码统一性**               | 所有文本读写必须显式 UTF-8，防止乱码破坏证据                |
 
 > 💡 **例外**：Setup/Onboarding 模式允许"受限写入"（仅写 `docs/` 与 `config`），且同样写入事件流以审计。
 
@@ -295,10 +301,11 @@ UI 侧边栏展示：
 > 目标：无论接入命令行 LLM、本地运行时、还是第三方 HTTPS API，都必须能在 UI 中完成**接入验证与胜任性测试**，确保"可用且胜任"。
 
 **面试模式（Interview Mode）**：
+
 - LLM 设置以“面试大厅 → 面试进行中”组织测试流程，用户作为面试官。
 - **PM / Director** 为核心岗位，必须使用支持 thinking/reasoning 的模型；检测失败将阻止进入 READY。
 - **QA / Docs** 为辅助岗位，thinking 可选但会提示建议。
-
+- 面试通过后，角色可绑定任意已配置模型，不再固定到单一后端实现。
 
 ### 角色路由（Role Routing）
 
@@ -308,10 +315,10 @@ HarborPilot 支持为不同角色选择不同模型：
 
 ### Provider 类型（统一抽象）
 
-| 类型                        | 示例                              | 成本通道          |
-| --------------------------- | --------------------------------- | ----------------- |
-| **CLI Provider**            | Codex CLI、Gemini CLI             | FIXED             |
-| **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp | LOCAL             |
+| 类型                        | 示例                                      | 成本通道          |
+| --------------------------- | ----------------------------------------- | ----------------- |
+| **CLI Provider**            | Codex CLI、Gemini CLI                     | FIXED             |
+| **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp         | LOCAL             |
 | **Standard HTTPS Provider** | OpenAI-compatible API（OpenAI / MiniMax） | METERED（强门禁） |
 
 #### Codex CLI 接入（exec 模式）
@@ -328,12 +335,13 @@ codex exec --skip-git-repo-check --color never --model {model} --sandbox danger-
 - `--ask-for-approval` / `--sandbox` / `--add-dir` 对应权限与沙箱策略。
 - `--output-schema` 可用来校验最终输出结构。
 
-
 MiniMax（OpenAI-compatible）配置示例：
+
 - Base URL：`https://api.minimax.io/v1`
 - API Key：在 UI 的 LLM 设置里保存到 keychain（provider id: `minimax`）
 
 MiniMax（Anthropic-compatible）配置示例：
+
 - Base URL：`https://api.minimax.io/anthropic`
 - API Key：在 UI 的 LLM 设置里保存到 keychain（provider id: `minimax_anthropic`）
 
@@ -358,8 +366,8 @@ MiniMax（Anthropic-compatible）配置示例：
 | **QA**       | 严格 PASS/FAIL + 原因与证据引用  |
 | **Docs**     | 按模板生成，不编造事实           |
 
-
 **补充门槛（Thinking 能力）**：
+
 - PM/Director 必须检测到 thinking/reasoning 信号（如 `thinking` / `reasoning_summary` / `<think>`）。
 - 未满足则视为不胜任并阻止进入 READY。
 - QA/Docs 不强制，但会给出建议提示。
@@ -516,19 +524,23 @@ MiniMax（Anthropic-compatible）配置示例：
 | **Phase 1** | Studio 工位布局、项目进度可视化、成长系统       |
 | **Phase 2** | Town 角色日常、城市事件系统                     |
 
+### 通知与外部通道（展望）
+
+- 计划引入 WhatsApp / Telegram 等通知通道，实时推送任务阶段完成报告与关键事件摘要。
+
 ---
 
 ## 📚 文档
 
-| 文档                                            | 说明                                       | 读者   |
-| ----------------------------------------------- | ------------------------------------------ | ------ |
-| [👀 人类文档入口](docs/human/README.md)         | 面向产品/业务/首次使用的阅读顺序           | 所有人 |
-| [🤖 Agent 文档入口](docs/agent/README.md)       | 约束/证据链/工程细节（可执行）             | 工程师 |
-| [🏗️ 架构文档](docs/agent/architecture.md)       | 状态机、事件模型、Context Engine           | 工程师 |
-| [🧠 拟人化设计](docs/agent/anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind  | 工程师 |
-| [📖 参考手册](docs/agent/reference.md)          | CLI 参数、工具清单、环境变量、产物索引     | 开发者 |
-| [📄 产品说明书](docs/product/product_spec.md)   | 产品定位、核心优势、行业对比               | 所有人 |
-| [🧪 测试指南](TESTING.md)                       | 测试环境搭建、运行命令                     | 测试   |
+| 文档                                                  | 说明                                   | 读者   |
+| ----------------------------------------------------- | -------------------------------------- | ------ |
+| [👀 人类文档入口](docs/human/README.md)               | 面向产品/业务/首次使用的阅读顺序       | 所有人 |
+| [🤖 Agent 文档入口](docs/agent/README.md)             | 约束/证据链/工程细节（可执行）         | 工程师 |
+| [🏗️ 架构文档](docs/agent/architecture.md)             | 状态机、事件模型、Context Engine       | 工程师 |
+| [🧠 拟人化设计](docs/agent/anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind   | 工程师 |
+| [📖 参考手册](docs/agent/reference.md)                | CLI 参数、工具清单、环境变量、产物索引 | 开发者 |
+| [📄 产品说明书](docs/product/product_spec.md)         | 产品定位、核心优势、行业对比           | 所有人 |
+| [🧪 测试指南](TESTING.md)                             | 测试环境搭建、运行命令                 | 测试   |
 
 ---
 

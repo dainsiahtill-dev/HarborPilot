@@ -35,6 +35,7 @@ export interface ConnectivityResult {
   latencyMs?: number;
   error?: string;
   model?: string;
+  sourceRole?: string;
   thinking?: {
     supportsThinking?: boolean;
     confidence?: number;
@@ -301,7 +302,11 @@ function InterviewHallV2({
     });
   }
   const connectivity = directConnectivity || fallbackConnectivity;
-  const connectivityNote = directConnectivity ? null : fallbackConnectivity ? '（来自其他岗位）' : null;
+  const connectivityNote = connectivity?.sourceRole && connectivity?.sourceRole !== activeRole?.id
+    ? `（复用自 ${connectivity.sourceRole}）`
+    : !directConnectivity && fallbackConnectivity
+      ? '（来自其他岗位）'
+      : null;
   const connectivityState =
     connectivity?.ok === true ? 'passed' : connectivity?.ok === false ? 'failed' : 'unknown';
   const connectivityLabel =

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, Cpu, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Switch } from '@/app/components/ui/switch';
+import { TurboTestBench } from './TurboTestBench';
 import { apiFetch } from '@/api';
 
 interface GPUDevice {
@@ -207,6 +208,12 @@ export function TurboSettingsTab() {
             This consumes VRAM but significantly reduces CPU load and latency.
           </div>
         </div>
+      </div>
+
+      {/* Diagnostics & Test Bench */}
+      <div className="pt-4 border-t border-white/10">
+        <h3 className="text-sm font-medium mb-3 text-text-muted">Diagnostics & Test Bench</h3>
+        <TurboTestBench />
       </div>
     </div>
   );

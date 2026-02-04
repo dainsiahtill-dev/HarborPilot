@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import uuid
@@ -100,22 +101,72 @@ INTERVIEW_QUESTIONS = {
 }
 
 CRITERIA_KEYWORDS = {
-    "分析深度": ["分析", "影响", "权衡", "trade", "impact", "scope", "risk", "依赖"],
-    "计划完整性": ["计划", "步骤", "里程碑", "timeline", "阶段", "deliverable", "路线图"],
-    "风险评估": ["风险", "缓解", "mitigation", "假设", "依赖", "contingency"],
-    "思考过程": ["思考", "reasoning", "考虑", "首先", "其次", "最后", "because"],
-    "解决方案": ["方案", "解决", "建议", "approach", "fix", "实现"],
-    "沟通策略": ["沟通", "协调", "对齐", "stakeholder", "共识", "反馈"],
-    "技术分析": ["性能", "架构", "复杂度", "bug", "refactor", "测试"],
-    "问题识别": ["问题", "缺陷", "风险", "issue", "bug"],
-    "改进方案": ["改进", "优化", "方案", "refactor", "重构"],
-    "问题定位": ["定位", "复现", "log", "trace", "日志"],
-    "根因分析": ["根因", "原因", "because", "root cause"],
-    "解决建议": ["建议", "修复", "fix", "缓解", "解决"],
-    "文档完整性": ["安装", "使用", "参数", "示例", "步骤", "说明"],
-    "表达清晰度": ["步骤", "明确", "简洁", "清晰"],
-    "示例准确性": ["示例", "example", "code", "样例"],
+    "分析深度": [
+        "分析", "影响", "权衡", "trade", "impact", "scope", "risk", "依赖",
+        "评估", "背景", "现状", "目标", "约束", "范围", "取舍", "假设",
+        "限制", "成本", "收益", "优先级", "可行性", "复杂度",
+    ],
+    "计划完整性": [
+        "计划", "规划", "步骤", "里程碑", "timeline", "阶段", "deliverable", "路线图",
+        "安排", "时间表", "节点", "目标", "执行", "落地", "分工", "资源", "验收",
+        "拆解", "优先级", "排期",
+    ],
+    "风险评估": [
+        "风险", "风险点", "缓解", "mitigation", "假设", "依赖", "contingency",
+        "预案", "应对", "预防", "阻塞", "fallback", "备选", "兜底", "回滚",
+    ],
+    "思考过程": ["思考", "reasoning", "考虑", "首先", "其次", "最后", "因为", "因此", "所以", "推理", "分析"],
+    "解决方案": ["方案", "解决", "建议", "approach", "fix", "实现", "策略", "措施", "动作", "改造", "优化", "落地", "实施"],
+    "沟通策略": ["沟通", "协调", "对齐", "stakeholder", "共识", "反馈", "同步", "会议", "跟进", "汇报", "决策", "澄清", "分歧"],
+    "技术分析": ["性能", "架构", "复杂度", "bug", "refactor", "测试", "瓶颈", "兼容", "依赖", "技术债", "稳定性", "可维护", "扩展"],
+    "问题识别": ["问题", "缺陷", "风险", "issue", "bug", "异常", "不足", "痛点", "瓶颈"],
+    "改进方案": ["改进", "优化", "方案", "refactor", "重构", "改造", "提升", "治理"],
+    "问题定位": ["定位", "复现", "log", "trace", "日志", "排查", "监控", "报警", "指标"],
+    "根因分析": ["根因", "原因", "because", "root cause", "本质", "触发", "链路", "机制"],
+    "解决建议": ["建议", "修复", "fix", "缓解", "解决", "方案", "行动", "措施"],
+    "文档完整性": ["安装", "使用", "参数", "示例", "步骤", "说明", "配置", "注意事项", "FAQ", "限制", "依赖"],
+    "表达清晰度": ["步骤", "明确", "简洁", "清晰", "结构", "分点", "条理", "层次", "重点"],
+    "示例准确性": ["示例", "example", "code", "样例", "片段", "命令", "输入", "输出"],
 }
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("0", "false", "no", "off")
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+INTERVIEW_SEMANTIC_ENABLED = _env_flag("HARBORPILOT_INTERVIEW_SEMANTIC", True)
+INTERVIEW_SEMANTIC_THRESHOLD = _env_float("HARBORPILOT_INTERVIEW_SEMANTIC_THRESHOLD", 0.78)
+INTERVIEW_SEMANTIC_MIN_CHARS = _env_int("HARBORPILOT_INTERVIEW_SEMANTIC_MIN_CHARS", 80)
+INTERVIEW_SEMANTIC_MAX_CHARS = _env_int("HARBORPILOT_INTERVIEW_SEMANTIC_MAX_CHARS", 2000)
+INTERVIEW_SEMANTIC_TIMEOUT = _env_float("HARBORPILOT_INTERVIEW_SEMANTIC_TIMEOUT", 3.0)
+INTERVIEW_EMBEDDING_MODEL = os.environ.get(
+    "HARBORPILOT_INTERVIEW_EMBEDDING_MODEL",
+    os.environ.get("HARBORPILOT_EMBEDDING_MODEL", "nomic-embed-text"),
+)
+_EMBEDDING_CACHE: Dict[Tuple[str, str], List[float]] = {}
+_EMBEDDING_DISABLED = False
 
 
 def run_llm_tests(
@@ -637,17 +688,23 @@ def _track_usage_event(
 def _build_interview_prompt(role: str, question: Dict[str, Any]) -> str:
     role_label = role.strip().upper() or "ROLE"
     expects_thinking = bool(question.get("expects_thinking"))
+    criteria = question.get("evaluation_criteria") or []
+    criteria_text = " / ".join([str(item) for item in criteria if str(item).strip()])
     thinking_instruction = (
         "Include a brief reasoning summary in <thinking> tags.\n"
         if expects_thinking
         else "If helpful, include a brief <thinking> summary; otherwise answer directly.\n"
     )
     return (
-        f"You are interviewing for the {role_label} role.\n"
-        "Answer in a professional, concise tone.\n"
-        f"{thinking_instruction}"
-        "Return the final answer in <answer>...</answer>.\n"
-        f"Question: {question.get('question') or ''}"
+        f"You are a candidate interviewing for the {role_label} role.\n"
+        "IMPORTANT: You are the interviewee, not the interviewer.\n"
+        "Answer the question directly and completely. Do NOT ask follow-up questions or request more context.\n"
+        "Use clear sections or bullet points where appropriate.\n"
+        + (f"Evaluation criteria to address explicitly: {criteria_text}\n" if criteria_text else "")
+        + "Reply in the same language as the question.\n"
+        + f"{thinking_instruction}"
+        + "Return the final answer in <answer>...</answer>.\n"
+        + f"Question: {question.get('question') or ''}"
     )
 
 
@@ -657,6 +714,100 @@ def _interview_questions(role: str, test_level: str) -> List[Dict[str, Any]]:
     if test_level.strip().lower() == "quick":
         return questions[:1]
     return questions
+
+
+def _looks_like_structured_steps(answer: str) -> bool:
+    if not answer:
+        return False
+    return bool(re.search(r"(^|\n)\s*(\d+[\.\)]|[-•*]\s|一、|二、|三、|四、)", answer))
+
+
+def _looks_like_deflection(answer: str) -> bool:
+    if not answer:
+        return False
+    lowered = answer.lower()
+    hints = [
+        "would you like", "let me know", "can you", "do you want", "i can",
+        "interview prep", "need more context", "need more information",
+    ]
+    if any(hint in lowered for hint in hints):
+        return True
+    if any(token in answer for token in ["你想", "需要更多信息", "请提供", "是否需要", "要不要", "可以帮你"]):
+        return True
+    if ("?" in answer or "？" in answer) and len(answer) < 200:
+        return True
+    return False
+
+
+def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    if not vec_a or not vec_b:
+        return 0.0
+    size = min(len(vec_a), len(vec_b))
+    if size == 0:
+        return 0.0
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for idx in range(size):
+        a = float(vec_a[idx])
+        b = float(vec_b[idx])
+        dot += a * b
+        norm_a += a * a
+        norm_b += b * b
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
+
+
+def _get_embedding_vector(text: str) -> List[float]:
+    global _EMBEDDING_DISABLED
+    if not INTERVIEW_SEMANTIC_ENABLED or _EMBEDDING_DISABLED:
+        return []
+    if not text:
+        return []
+    trimmed = _truncate(text, INTERVIEW_SEMANTIC_MAX_CHARS)
+    if not trimmed:
+        return []
+    cache_key = (INTERVIEW_EMBEDDING_MODEL, trimmed)
+    if cache_key in _EMBEDDING_CACHE:
+        return _EMBEDDING_CACHE[cache_key]
+    ensure_loop_modules()
+    try:
+        from ollama_utils import get_embedding  # type: ignore
+    except Exception:
+        _EMBEDDING_DISABLED = True
+        return []
+    vec = get_embedding(trimmed, INTERVIEW_EMBEDDING_MODEL, timeout=INTERVIEW_SEMANTIC_TIMEOUT)
+    if not vec:
+        _EMBEDDING_DISABLED = True
+        return []
+    _EMBEDDING_CACHE[cache_key] = vec
+    return vec
+
+
+def _semantic_criteria_hits(answer: str, criteria: List[str], existing: List[str]) -> List[str]:
+    if not INTERVIEW_SEMANTIC_ENABLED:
+        return []
+    if not criteria:
+        return []
+    if len(answer) < INTERVIEW_SEMANTIC_MIN_CHARS:
+        return []
+    answer_vec = _get_embedding_vector(answer)
+    if not answer_vec:
+        return []
+    hits: List[str] = []
+    for criterion in criteria:
+        if criterion in existing:
+            continue
+        keywords = CRITERIA_KEYWORDS.get(criterion, [])
+        criteria_text = f"{criterion}: " + " ".join([str(item) for item in keywords if str(item).strip()])
+        criteria_vec = _get_embedding_vector(criteria_text)
+        if not criteria_vec:
+            continue
+        similarity = _cosine_similarity(answer_vec, criteria_vec)
+        if similarity >= INTERVIEW_SEMANTIC_THRESHOLD:
+            hits.append(criterion)
+    return hits
 
 
 def _evaluate_interview_answer(
@@ -675,15 +826,30 @@ def _evaluate_interview_answer(
             criteria_hits.append(criterion)
         else:
             missing.append(criterion)
+    if "计划完整性" in missing and _looks_like_structured_steps(answer):
+        criteria_hits.append("计划完整性")
+        missing = [item for item in missing if item != "计划完整性"]
+    semantic_hits = _semantic_criteria_hits(answer, criteria, criteria_hits)
+    if semantic_hits:
+        for criterion in semantic_hits:
+            if criterion not in criteria_hits:
+                criteria_hits.append(criterion)
+        missing = [item for item in missing if item not in semantic_hits]
     length_score = 0.2 if len(answer) >= 60 else 0.1 if len(answer) >= 20 else 0.0
     criteria_score = (len(criteria_hits) / len(criteria)) if criteria else 0.0
     score = 0.2 + (0.6 * criteria_score) + length_score
     if expects_thinking:
         score += 0.2 if thinking else -0.2
+    if _looks_like_deflection(answer) and len(criteria_hits) < max(1, len(criteria) // 2):
+        score -= 0.2
     score = max(0.0, min(1.0, score))
     notes = f"Matched {len(criteria_hits)}/{len(criteria)} criteria."
     if expects_thinking and not thinking:
         notes += " Missing thinking summary."
+    if _looks_like_deflection(answer):
+        notes += " Detected deflection."
+    if semantic_hits:
+        notes += f" Semantic matches: {', '.join(semantic_hits)}."
     return {
         "score": round(score, 3),
         "criteria_hits": criteria_hits,

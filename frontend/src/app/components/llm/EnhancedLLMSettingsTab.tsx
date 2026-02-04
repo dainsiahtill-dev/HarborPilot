@@ -259,6 +259,7 @@ const normalizeConnectivityResult = (value: unknown): ConnectivityResult | null 
     latencyMs: typeof payload.latencyMs === 'number' ? payload.latencyMs : undefined,
     error: typeof payload.error === 'string' ? payload.error : undefined,
     model: typeof payload.model === 'string' ? payload.model : undefined,
+    sourceRole: typeof payload.sourceRole === 'string' ? payload.sourceRole : undefined,
     thinking: thinking
       ? {
           supportsThinking: typeof thinking.supportsThinking === 'boolean' ? thinking.supportsThinking : undefined,
@@ -496,6 +497,37 @@ export function EnhancedLLMSettingsTab({
   useEffect(() => {
     setInterviewError(null);
   }, [selectedRole, selectedProviderId]);
+
+  useEffect(() => {
+    if (!selectedRole || !selectedProviderId) return;
+    const key = getConnectivityKey(selectedRole, selectedProviderId);
+    if (connectivityResults.has(key)) return;
+    let latest: { value: ConnectivityResult; role?: string } | null = null;
+    connectivityResults.forEach((value, mapKey) => {
+      if (!mapKey.endsWith(`::${selectedProviderId}`)) return;
+      const time = parseTimestamp(value.timestamp);
+      if (!latest || time >= parseTimestamp(latest.value.timestamp)) {
+        latest = { value, role: mapKey.split('::')[0] };
+      }
+    });
+    if (!latest) return;
+    const desiredModel = resolveModelForSelection(selectedRole, selectedProviderId);
+    const latestModel = latest.value.model || '';
+    if (desiredModel && latestModel && desiredModel !== latestModel) {
+      return;
+    }
+    const adopted: ConnectivityResult = {
+      ...latest.value,
+      model: desiredModel || latest.value.model,
+      sourceRole: latest.role
+    };
+    setConnectivityResults((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Map(prev);
+      next.set(key, adopted);
+      return next;
+    });
+  }, [connectivityResults, llmConfig, selectedProviderId, selectedRole]);
 
   useEffect(() => {
     persistConnectivityCache(connectivityResults);
