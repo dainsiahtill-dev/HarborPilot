@@ -1693,7 +1693,6 @@ export function EnhancedLLMSettingsTab({
               </div>
             )}
           </div>
-          )}
         </div>
       )}
 

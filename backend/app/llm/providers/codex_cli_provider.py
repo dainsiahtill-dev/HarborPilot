@@ -1309,3 +1309,13 @@ class CodexCLIProvider(BaseProvider):
         
         # ALWAYS send prompt via stdin for proper handling by Codex CLI
         return rendered, True
+
+
+def _render_args(
+    args: List[str],
+    prompt: str,
+    model: str,
+    output_path: Optional[str],
+) -> Tuple[List[str], bool]:
+    """Module-level wrapper for rendering CLI arguments."""
+    return CodexCLIProvider._render_args(args, prompt, model, output_path)
