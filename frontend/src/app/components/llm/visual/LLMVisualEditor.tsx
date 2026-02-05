@@ -62,13 +62,6 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
 
   const handleNodesChange = (changes: NodeChange[]) => {
     onNodesChange(changes);
-    // 当拖拽结束时，同步位置到 config
-    const hasPositionChange = changes.some(
-      (change) => change.type === 'position' && !change.dragging
-    );
-    if (hasPositionChange && config && onConfigChange) {
-      syncNodePositions(config);
-    }
   };
 
   if (!config) {
@@ -78,6 +71,18 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
       </div>
     );
   }
+
+  const handleSave = () => {
+    if (!config || !onConfigChange) return;
+    // 强制同步所有节点位置，确保保存前是最新的布局
+    syncNodePositions(config, nodes);
+    
+    // 使用 setTimeout 延迟调用保存，确保 React 状态更新（onConfigChange）能够传播到父组件
+    // 避免父组件在保存时读取到旧的 config
+    setTimeout(() => {
+      onSave?.();
+    }, 100);
+  };
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4 shadow-[0_0_24px_rgba(34,211,238,0.12)]">
@@ -97,13 +102,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           {onSave ? (
             <button
               type="button"
-              onClick={() => {
-                // 保存前同步位置
-                if (config && onConfigChange) {
-                  syncNodePositions(config);
-                }
-                onSave?.();
-              }}
+              onClick={handleSave}
               className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors"
             >
               保存配置

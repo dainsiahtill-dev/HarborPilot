@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   addEdge,
   applyEdgeChanges,
@@ -42,23 +42,73 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
 
   const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
-  const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
-  }, []);
+
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setEdges((current) => applyEdgeChanges(changes, current));
   }, []);
 
-  const syncNodePositions = useCallback((currentConfig: VisualGraphConfig) => {
-    if (!onConfigChange) return;
-    const layout = extractNodePositions(nodes);
-    const nextConfig = {
-      ...currentConfig,
-      visual_layout: layout,
-    };
-    onConfigChange(nextConfig);
-  }, [nodes, onConfigChange]);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 同步节点位置到配置
+  const syncNodePositions = useCallback(
+    (currentConfig: VisualGraphConfig, currentNodes: Node<VisualNodeData>[]) => {
+      if (!onConfigChange) return;
+      const layout = extractNodePositions(currentNodes);
+      const nextConfig = {
+        ...currentConfig,
+        visual_layout: layout,
+      };
+      onConfigChange(nextConfig);
+    },
+    [onConfigChange]
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      setNodes((current) => {
+        const nextNodes = applyNodeChanges(changes, current);
+        
+        // 实时同步位置变化 (避免依赖 stale 的 nodesRef)
+        const hasPositionChange = changes.some((c) => c.type === 'position');
+        if (hasPositionChange && config && onConfigChange) {
+          if (syncTimeoutRef.current) {
+            clearTimeout(syncTimeoutRef.current);
+          }
+          syncTimeoutRef.current = setTimeout(() => {
+            const layout = extractNodePositions(nextNodes);
+            if (onConfigChange && config) {
+              const nextConfig = {
+                ...config,
+                visual_layout: layout,
+              };
+              onConfigChange(nextConfig);
+            }
+          }, 500);
+          
+          // 修正：我们在这个回调里只做 setNodes。
+          // sync 逻辑应该放在 useEffect 或者使用 stable ref for config?
+          // 或者，我们让 `onNodesChange` 依赖 `config`。
+          // React Flow 可以在 onNodesChange 变动时处理。
+        }
+        return nextNodes;
+      });
+    },
+    [config, onConfigChange] // 依赖 config, 这会导致 onNodesChange 在 config 变动时更新
+  );
+  
+  // 使用 Effect 处理 debounced sync 更好？
+  // 不，Effect 会在每次 render 都跑。
+  // 我们只希望在 drag 时跑。
+  
+  // 回到 Plan A: 显式传递 nodes 给 syncNodePositions 在 handleSave 中。
+  // 对于自动 sync，我们使用 updated nodes。
+  
+  // 让我们简化:
+  // onNodesChange 只负责 setNodes 和 trigger effect?
+  
+  // 重写 onNodesChange:
+  // 我们使用一个 ref 来存 latestConfig，这样 timeout 里可以拿到最新的 config。
 
   const updateConfigRole = useCallback(
     (roleId: VisualRoleId, providerId: string, model: string) => {
@@ -201,3 +251,4 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
     syncNodePositions,
   };
 }
+

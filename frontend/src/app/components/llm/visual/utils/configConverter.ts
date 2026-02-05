@@ -43,6 +43,15 @@ export const buildVisualGraph = (
   const roleReqs = config.policies?.role_requirements || {};
   const savedLayout = config.visual_layout || {};
 
+  // Helper to safely restore position
+  const restorePosition = (nodeId: string, defaultPosition: VisualNodePosition): VisualNodePosition => {
+    const saved = savedLayout[nodeId];
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+      return saved;
+    }
+    return defaultPosition;
+  };
+
   const providerModels = new Map<string, Set<string>>();
   const addModel = (providerId: string, model: string) => {
     if (!providerId || !model) return;
@@ -83,11 +92,10 @@ export const buildVisualGraph = (
         : providerId;
     const modelList = Array.from(providerModels.get(providerId) || []);
     
-    const savedProviderPosition = savedLayout[providerNodeId(providerId)];
     const providerNode: Node<VisualProviderNodeData> = {
       id: providerNodeId(providerId),
       type: 'provider',
-      position: savedProviderPosition || { x: 40, y: providerIndex * 180 + 40 },
+      position: restorePosition(providerNodeId(providerId), { x: 40, y: providerIndex * 180 + 40 }),
       data: {
         kind: 'provider',
         providerId,
@@ -99,11 +107,10 @@ export const buildVisualGraph = (
     nodes.push(providerNode);
 
     modelList.forEach((model, modelIndex) => {
-      const savedModelPosition = savedLayout[modelNodeId(providerId, model)];
       const modelNode: Node<VisualModelNodeData> = {
         id: modelNodeId(providerId, model),
         type: 'model',
-        position: savedModelPosition || { x: 340, y: providerIndex * 180 + modelIndex * 120 + 40 },
+        position: restorePosition(modelNodeId(providerId, model), { x: 340, y: providerIndex * 180 + modelIndex * 120 + 40 }),
         data: {
           kind: 'model',
           providerId,
@@ -128,11 +135,10 @@ export const buildVisualGraph = (
     const readiness = status?.roles?.[roleId];
     const meta = ROLE_META[roleId];
     
-    const savedRolePosition = savedLayout[roleNodeId(roleId)];
     nodes.push({
       id: roleNodeId(roleId),
       type: 'role',
-      position: savedRolePosition || { x: 700, y: index * 180 + 40 },
+      position: restorePosition(roleNodeId(roleId), { x: 700, y: index * 180 + 40 }),
       data: {
         kind: 'role',
         roleId,

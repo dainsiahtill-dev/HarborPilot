@@ -1,4 +1,4 @@
-import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
+﻿import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -1109,10 +1109,19 @@ export function EnhancedLLMSettingsTab({
     return { state: 'UNKNOWN', color: 'text-gray-400' };
   }, [llmStatus]);
 
-  const visualConfig = useMemo(
-    () => (llmConfig ? (llmConfig as unknown as VisualGraphConfig) : null),
-    [llmConfig]
-  );
+  // 安全地构建 visualConfig，确保 visual_layout 字段存在
+  const visualConfig = useMemo(() => {
+    if (!llmConfig) return null;
+    const config = llmConfig as Record<string, unknown>;
+    return {
+      ...config,
+      visual_layout: (config.visual_layout as Record<string, { x: number; y: number }>) || {},
+    } as VisualGraphConfig;
+  }, [llmConfig]);
+
+
+
+
 
   const visualStatus = useMemo(() => {
     if (!llmStatus) return null;
@@ -1123,10 +1132,25 @@ export function EnhancedLLMSettingsTab({
     return { roles: rolesStatus } as VisualGraphStatus;
   }, [llmStatus]);
 
+  // 安全地处理 visual 配置变更，确保 visual_layout 不丢失
   const handleVisualConfigChange = (nextConfig: VisualGraphConfig) => {
-    if (!onUpdateConfig) return;
-    onUpdateConfig(nextConfig as LlmConfig);
+    if (!onUpdateConfig || !llmConfig) return;
+
+    const currentConfig = llmConfig as Record<string, unknown>;
+    const nextConfigData = nextConfig as Record<string, unknown>;
+
+    const mergedConfig = {
+      ...nextConfigData,
+      visual_layout: (nextConfigData.visual_layout as Record<string, { x: number; y: number }>) ||
+                     (currentConfig.visual_layout as Record<string, { x: number; y: number }>) || {},
+    };
+
+    onUpdateConfig(mergedConfig as LlmConfig);
   };
+
+
+
+
 
   const selectedMeta = roles.find((role) => role.id === selectedRole);
 
@@ -1993,3 +2017,5 @@ export function EnhancedLLMSettingsTab({
     </div>
   );
 }
+
+
