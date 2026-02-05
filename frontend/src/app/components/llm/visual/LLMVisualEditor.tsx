@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Background,
   Controls,
@@ -7,12 +7,17 @@ import {
   type Connection,
   type Node,
   type NodeChange,
+  type Edge,
+  type ReactFlowInstance,
 } from '@xyflow/react';
+import { Trash2, Unplug, Play, CheckCircle, Activity, ExternalLink, LayoutGrid, Maximize } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import { useVisualLLMConfig } from './hooks/useVisualLLMConfig';
 import { nodeTypes, edgeTypes } from './utils/nodeTypes';
 import { isValidVisualConnection } from './utils/validation';
-import type { VisualGraphConfig, VisualGraphStatus, VisualNodeData } from './types/visual';
+import { extractNodePositions, extractNodeStates } from './utils/configConverter';
+import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
+import type { VisualGraphConfig, VisualGraphStatus, VisualNodeData, VisualProviderNodeData, VisualModelNodeData, VisualRoleNodeData } from './types/visual';
 
 interface LLMVisualEditorProps {
   config: VisualGraphConfig | null;
@@ -31,13 +36,180 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     onConnect,
     addModel,
     syncNodePositions,
+    syncNodeStates,
+    deleteNode,
+    deleteEdge,
+    setNodes,
   } = useVisualLLMConfig({ config, status, onConfigChange });
 
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance<VisualNodeData, Edge> | null>(null);
   const [modelDraft, setModelDraft] = useState('');
   const [providerDraft, setProviderDraft] = useState('');
   const [showAddModel, setShowAddModel] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    type: 'node' | 'edge';
+    data: any;
+  } | null>(null);
 
   const providers = useMemo(() => Object.entries(config?.providers || {}), [config]);
+
+  const onNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault();
+      setContextMenu({
+        visible: true,
+        x: event.clientX,
+        y: event.clientY,
+        type: 'node',
+        data: node,
+      });
+    },
+    []
+  );
+
+  const onEdgeContextMenu = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.preventDefault();
+      setContextMenu({
+        visible: true,
+        x: event.clientX,
+        y: event.clientY,
+        type: 'edge',
+        data: edge,
+      });
+    },
+    []
+  );
+
+  const onPaneClick = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const handleAutoLayout = useCallback(() => {
+    const updates: Node<VisualNodeData>[] = [];
+    
+    // Group nodes by type
+    const providers = nodes.filter(n => n.type === 'provider');
+    const models = nodes.filter(n => n.type === 'model');
+    const roles = nodes.filter(n => n.type === 'role');
+    const others = nodes.filter(n => !['provider', 'model', 'role'].includes(n.type || ''));
+
+    providers.forEach((node, index) => {
+      updates.push({ ...node, position: { x: 40, y: index * 180 + 40 } });
+    });
+
+    // Group models by provider for better association
+    const modelsByProvider: Record<string, Node<VisualNodeData>[]> = {};
+    models.forEach(m => {
+      const data = m.data as VisualModelNodeData;
+      const pid = data.providerId || 'unknown';
+      if (!modelsByProvider[pid]) modelsByProvider[pid] = [];
+      modelsByProvider[pid].push(m);
+    });
+
+    // Helper to find provider index
+    const getProviderY = (pid: string) => {
+      const idx = providers.findIndex(p => (p.data as VisualProviderNodeData).providerId === pid);
+      return idx >= 0 ? idx * 180 + 40 : 0;
+    };
+
+    let flatModelIndex = 0;
+    // Iterate models by provider if possible, or just flat
+    // To minimize crossing lines, we should try to align with provider
+    // But simplistic approach: just use flat index, maybe sorted by provider?
+    
+    // Let's stick to flat layout in column 2 for now, simple and predictable
+    models.forEach((node, index) => {
+       updates.push({ ...node, position: { x: 340, y: index * 120 + 40 } });
+    });
+
+    roles.forEach((node, index) => {
+      updates.push({ ...node, position: { x: 700, y: index * 180 + 40 } });
+    });
+    
+    others.forEach((node, index) => {
+       updates.push({ ...node, position: { x: 1000, y: index * 180 + 40 } });
+    });
+
+    setNodes(updates);
+    
+    // Fit view after layout with a slight delay
+    setTimeout(() => {
+      rfInstance?.fitView({ duration: 800 });
+    }, 50);
+  }, [nodes, setNodes, rfInstance]);
+
+  // Generate menu items based on context
+  const getContextMenuItems = useCallback((): { items: ContextMenuItem[]; title?: string } => {
+    if (!contextMenu) return { items: [] };
+
+    if (contextMenu.type === 'node') {
+      const node = contextMenu.data as Node<VisualNodeData>;
+      const items: ContextMenuItem[] = [];
+      let title = '';
+
+      if (node.type === 'provider') {
+        const data = node.data as VisualProviderNodeData;
+        title = `Provider: ${data.label}`;
+        items.push({
+          label: '测试连接',
+          icon: Activity,
+          action: () => {
+             console.log('Test provider', data.providerId);
+          },
+        });
+        items.push({
+          label: '删除 Provider',
+          icon: Trash2,
+          variant: 'danger',
+          action: () => deleteNode(node.id),
+        });
+      } else if (node.type === 'model') {
+         const data = node.data as VisualModelNodeData;
+         title = `Model: ${data.model}`;
+         items.push({
+          label: '删除模型',
+          icon: Trash2,
+          variant: 'danger',
+          action: () => deleteNode(node.id),
+        });
+      } else if (node.type === 'role') {
+         const data = node.data as VisualRoleNodeData;
+         title = `Role: ${data.label}`;
+         items.push({
+           label: '清除分配',
+           icon: Unplug,
+           variant: 'warning',
+           action: () => {
+             console.warn('Clear assignment not fully wired via node menu yet');
+           }
+         });
+      }
+      return { items, title };
+    } else if (contextMenu.type === 'edge') {
+
+      const edge = contextMenu.data as Edge;
+      return {
+        title: '连接操作',
+        items: [
+          {
+            label: '删除连接',
+            icon: Unplug,
+            variant: 'danger',
+            action: () => deleteEdge(edge.id),
+          },
+        ],
+      };
+    }
+    return { items: [] };
+  }, [contextMenu, deleteNode, deleteEdge]);
 
   useEffect(() => {
     if (!providerDraft && providers.length > 0) {
@@ -52,7 +224,12 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     setModelDraft('');
   };
 
-  const isValid = (connection: Connection) => isValidVisualConnection(connection, nodes);
+  const isValid = (connection: Connection | Edge) => {
+    if ('sourceHandle' in connection) {
+      return isValidVisualConnection(connection as Connection, nodes);
+    }
+    return false;
+  };
 
   const nodeColor = (node: Node<VisualNodeData>) => {
     if (node.type === 'role') return '#22d3ee';
@@ -74,14 +251,28 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
 
   const handleSave = () => {
     if (!config || !onConfigChange) return;
-    // 强制同步所有节点位置，确保保存前是最新的布局
-    syncNodePositions(config, nodes);
     
-    // 使用 setTimeout 延迟调用保存，确保 React 状态更新（onConfigChange）能够传播到父组件
-    // 避免父组件在保存时读取到旧的 config
+    // 先同步状态到配置中
+    const updatedConfig = { ...config };
+    
+    // 手动提取位置和状态
+    const layout = extractNodePositions(nodes);
+    const states = extractNodeStates(nodes, edges);
+    
+    // 直接更新配置
+    const finalConfig = {
+      ...updatedConfig,
+      visual_layout: layout,
+      visual_node_states: states,
+    };
+    
+    // 调用配置更新
+    onConfigChange(finalConfig);
+    
+    // 等待状态更新完成后再保存
     setTimeout(() => {
       onSave?.();
-    }, 100);
+    }, 300);
   };
 
   return (
@@ -92,6 +283,23 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           <div className="text-[10px] text-text-dim">拖拽连线：Provider → Model → Role</div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleAutoLayout}
+            className="p-1.5 text-text-dim hover:text-cyan-400 transition-colors"
+            title="自动布局"
+          >
+            <LayoutGrid size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => rfInstance?.fitView({ duration: 400 })}
+            className="p-1.5 text-text-dim hover:text-cyan-400 transition-colors"
+            title="适应视图"
+          >
+            <Maximize size={14} />
+          </button>
+          <div className="w-px h-3 bg-white/10 mx-1" />
           <button
             type="button"
             onClick={() => setShowAddModel((prev) => !prev)}
@@ -155,6 +363,9 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           onEdgesChange={onEdgesChange}
           onEdgesDelete={onEdgesDelete}
           onConnect={onConnect}
+          onNodeContextMenu={onNodeContextMenu}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
@@ -170,6 +381,16 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           <Background gap={24} size={1} color="rgba(148,163,184,0.35)" />
         </ReactFlow>
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={getContextMenuItems().items}
+          title={getContextMenuItems().title}
+          onClose={closeContextMenu}
+        />
+      )}
     </div>
   );
 }

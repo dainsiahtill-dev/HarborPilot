@@ -22,5 +22,10 @@ export const isValidVisualConnection = (
     return Boolean(sourceProvider && targetProvider && sourceProvider === targetProvider);
   }
 
+  // Allow Provider -> Role (will be auto-routed to a model)
+  if (source.type === 'provider' && target.type === 'role') {
+    return true;
+  }
+
   return false;
 };

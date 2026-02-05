@@ -6,6 +6,7 @@ import type {
   VisualModelNodeData,
   VisualNodeData,
   VisualNodePosition,
+  VisualNodeState,
   VisualProviderNodeData,
   VisualRoleId,
   VisualRoleNodeData,
@@ -184,9 +185,42 @@ export const mergeNodePositions = (
   next: Node<VisualNodeData>[]
 ): Node<VisualNodeData>[] => {
   const positions = new Map(previous.map((node) => [node.id, node.position]));
+  
   return next.map((node) => {
     const position = positions.get(node.id);
     return position ? { ...node, position } : node;
+  });
+};
+
+export const mergeNodePositionsWithStates = (
+  previous: Node<VisualNodeData>[],
+  next: Node<VisualNodeData>[],
+  savedStates: Record<string, VisualNodeState>
+): Node<VisualNodeData>[] => {
+  // 优先使用保存的状态中的位置
+  const savedPositions = new Map();
+  Object.entries(savedStates).forEach(([nodeId, state]) => {
+    if (state.position) {
+      savedPositions.set(nodeId, state.position);
+    }
+  });
+  
+  // 然后使用之前的位置作为fallback
+  const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
+  
+  return next.map((node) => {
+    // 优先使用保存的位置
+    const savedPosition = savedPositions.get(node.id);
+    if (savedPosition) {
+      return { ...node, position: savedPosition };
+    }
+    // 然后使用之前的位置
+    const previousPosition = previousPositions.get(node.id);
+    if (previousPosition) {
+      return { ...node, position: previousPosition };
+    }
+    // 最后使用当前位置
+    return node;
   });
 };
 
@@ -244,10 +278,148 @@ export const addManualModel = (
   };
 };
 
+export const removeManualModel = (
+  config: VisualGraphConfig,
+  providerId: string,
+  model: string
+): VisualGraphConfig => {
+  const raw = config.providers?.[providerId];
+  if (!raw || typeof raw !== 'object') return config;
+  
+  const providerCfg = { ...(raw as Record<string, unknown>) } as Record<string, unknown>;
+  const manualModels = coerceManualModels(providerCfg);
+  const nextManual = manualModels.filter((m) => m !== model);
+  
+  providerCfg.manual_models = nextManual;
+
+  // Clear roles using this model
+  const nextRoles = { ...(config.roles || {}) };
+  let rolesChanged = false;
+  Object.entries(nextRoles).forEach(([roleId, roleCfg]) => {
+    if (roleCfg.provider_id === providerId && roleCfg.model === model) {
+      nextRoles[roleId] = { ...roleCfg, provider_id: undefined, model: undefined };
+      rolesChanged = true;
+    }
+  });
+
+  return {
+    ...config,
+    providers: {
+      ...config.providers,
+      [providerId]: providerCfg,
+    },
+    roles: rolesChanged ? nextRoles : config.roles,
+  };
+};
+
+export const removeProvider = (
+  config: VisualGraphConfig,
+  providerId: string
+): VisualGraphConfig => {
+  // Remove provider
+  const nextProviders = { ...(config.providers || {}) };
+  delete nextProviders[providerId];
+  
+  // Clear roles using this provider
+  const nextRoles = { ...(config.roles || {}) };
+  let rolesChanged = false;
+  Object.entries(nextRoles).forEach(([roleId, roleCfg]) => {
+    if (roleCfg.provider_id === providerId) {
+      nextRoles[roleId] = { ...roleCfg, provider_id: undefined, model: undefined };
+      rolesChanged = true;
+    }
+  });
+
+  return {
+    ...config,
+    providers: nextProviders,
+    roles: rolesChanged ? nextRoles : config.roles,
+  };
+};
+
+
+
+export const extractNodeStates = (nodes: Node<VisualNodeData>[], edges: Edge<VisualEdgeData>[]): Record<string, VisualNodeState> => {
+  const states: Record<string, VisualNodeState> = {};
+  
+  nodes.forEach((node) => {
+    const state: VisualNodeState = {
+      position: node.position ? { x: node.position.x, y: node.position.y } : undefined,
+      selected: node.selected || false,
+      hidden: node.hidden || false,
+    };
+    
+    // 根据节点类型提取特定状态
+    if (node.type === 'role' && node.data.kind === 'role') {
+      state.data = {
+        roleData: {
+          readinessScore: node.data.readiness?.grade ? parseFloat(node.data.readiness.grade) : undefined,
+        }
+      };
+    } else if (node.type === 'provider' && node.data.kind === 'provider') {
+      state.data = {
+        providerData: {
+          connectivityStatus: node.data.status as 'success' | 'failed' | 'unknown',
+        }
+      };
+    } else if (node.type === 'model' && node.data.kind === 'model') {
+      state.data = {
+        modelData: {
+          assignedRoles: node.data.assignedRoles,
+        }
+      };
+    }
+    
+    states[node.id] = state;
+  });
+  
+  return states;
+};
+
+export const restoreNodeStates = (
+  nodes: Node<VisualNodeData>[], 
+  savedStates: Record<string, VisualNodeState>
+): Node<VisualNodeData>[] => {
+  return nodes.map((node) => {
+    const savedState = savedStates[node.id];
+    if (!savedState) return node;
+    
+    const updatedNode = { ...node };
+    
+    // 恢复节点数据状态（不包括位置）
+    if (savedState.data) {
+      updatedNode.data = { ...updatedNode.data };
+      
+      if (node.type === 'role' && savedState.data.roleData) {
+        (updatedNode.data as VisualRoleNodeData).readiness = savedState.data.roleData.readinessScore 
+          ? { ready: savedState.data.roleData.readinessScore > 0.5, grade: savedState.data.roleData.readinessScore.toString() }
+          : undefined;
+      } else if (node.type === 'provider' && savedState.data.providerData) {
+        (updatedNode.data as VisualProviderNodeData).status = savedState.data.providerData.connectivityStatus;
+      } else if (node.type === 'model' && savedState.data.modelData) {
+        (updatedNode.data as VisualModelNodeData).assignedRoles = savedState.data.modelData.assignedRoles as any;
+      }
+    }
+    
+    // 恢复选中状态
+    if (savedState.selected !== undefined) {
+      updatedNode.selected = savedState.selected;
+    }
+    
+    // 恢复隐藏状态
+    if (savedState.hidden !== undefined) {
+      updatedNode.hidden = savedState.hidden;
+    }
+    
+    // 位置恢复将在mergeNodePositions中处理，这里不处理
+    return updatedNode;
+  });
+};
+
 export const extractNodePositions = (nodes: Node<VisualNodeData>[]): Record<string, VisualNodePosition> => {
   const layout: Record<string, VisualNodePosition> = {};
   nodes.forEach((node) => {
-    if (node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number') {
+    if (node.position) {
       layout[node.id] = { x: node.position.x, y: node.position.y };
     }
   });
@@ -262,5 +434,19 @@ export const updateVisualLayout = (
   return {
     ...config,
     visual_layout: layout,
+  };
+};
+
+export const updateVisualStates = (
+  config: VisualGraphConfig,
+  nodes: Node<VisualNodeData>[],
+  edges: Edge<VisualEdgeData>[],
+  viewport?: { x: number; y: number; zoom: number }
+): VisualGraphConfig => {
+  const states = extractNodeStates(nodes, edges);
+  return {
+    ...config,
+    visual_node_states: states,
+    visual_viewport: viewport || config.visual_viewport,
   };
 };

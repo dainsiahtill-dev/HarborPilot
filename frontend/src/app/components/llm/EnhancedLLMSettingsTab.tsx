@@ -1309,17 +1309,25 @@ export function EnhancedLLMSettingsTab({
     return { roles: rolesStatus } as VisualGraphStatus;
   }, [llmStatus]);
 
-  // 安全地处理 visual 配置变更，确保 visual_layout 不丢失
+  // 安全地处理 visual 配置变更，确保 visual_layout 和 visual_node_states 不丢失
   const handleVisualConfigChange = (nextConfig: VisualGraphConfig) => {
     if (!onUpdateConfig || !llmConfig) return;
 
-    const currentConfig = llmConfig as Record<string, unknown>;
-    const nextConfigData = nextConfig as Record<string, unknown>;
+    const currentConfig = llmConfig as unknown as Record<string, unknown>;
+    const nextConfigData = nextConfig as unknown as Record<string, unknown>;
 
     const mergedConfig = {
+      ...currentConfig,
       ...nextConfigData,
+      // 确保保存的位置信息不会丢失
       visual_layout: (nextConfigData.visual_layout as Record<string, { x: number; y: number }>) ||
                      (currentConfig.visual_layout as Record<string, { x: number; y: number }>) || {},
+      // 确保保存的节点状态不会丢失
+      visual_node_states: (nextConfigData.visual_node_states as Record<string, unknown>) ||
+                          (currentConfig.visual_node_states as Record<string, unknown>) || {},
+      // 确保保存的视口状态不会丢失
+      visual_viewport: (nextConfigData.visual_viewport as { x: number; y: number; zoom: number }) ||
+                      (currentConfig.visual_viewport as { x: number; y: number; zoom: number }),
     };
 
     onUpdateConfig(mergedConfig as LlmConfig);

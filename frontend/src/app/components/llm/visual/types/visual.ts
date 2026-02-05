@@ -13,6 +13,7 @@ export interface VisualRoleNodeData {
     ready?: boolean;
     grade?: string;
   };
+  [key: string]: unknown;
 }
 
 export interface VisualProviderNodeData {
@@ -23,6 +24,7 @@ export interface VisualProviderNodeData {
   costClass?: string;
   status?: string;
   modelCount?: number;
+  [key: string]: unknown;
 }
 
 export interface VisualModelNodeData {
@@ -31,6 +33,7 @@ export interface VisualModelNodeData {
   model: string;
   label: string;
   assignedRoles?: VisualRoleId[];
+  [key: string]: unknown;
 }
 
 export type VisualNodeData = VisualRoleNodeData | VisualProviderNodeData | VisualModelNodeData;
@@ -39,6 +42,7 @@ export type VisualEdgeKind = 'provider-to-model' | 'model-to-role';
 
 export interface VisualEdgeData {
   kind: VisualEdgeKind;
+  [key: string]: unknown;
 }
 
 export interface VisualNodePosition {
@@ -46,10 +50,50 @@ export interface VisualNodePosition {
   y: number;
 }
 
+export interface VisualNodeState {
+  // 节点位置
+  position?: VisualNodePosition;
+  // 节点展开/折叠状态
+  expanded?: boolean;
+  // 节点选中状态
+  selected?: boolean;
+  // 节点可见性
+  hidden?: boolean;
+  // 节点数据状态
+  data?: {
+    // 角色节点的特定状态
+    roleData?: {
+      lastInterviewStatus?: 'passed' | 'failed' | 'none';
+      lastInterviewTimestamp?: string;
+      readinessScore?: number;
+    };
+    // Provider节点的特定状态
+    providerData?: {
+      connectivityStatus?: 'success' | 'failed' | 'unknown';
+      lastTestTimestamp?: string;
+      enabledModels?: string[];
+    };
+    // Model节点的特定状态
+    modelData?: {
+      assignedRoles?: string[];
+      lastUsedTimestamp?: string;
+      performanceScore?: number;
+    };
+  };
+}
+
 export interface VisualGraphConfig {
   providers: Record<string, unknown>;
   roles: Record<string, { provider_id?: string; model?: string; profile?: string }>;
   visual_layout?: Record<string, VisualNodePosition>;
+  // 新增：完整的节点状态持久化
+  visual_node_states?: Record<string, VisualNodeState>;
+  // 视图状态
+  visual_viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
   policies?: {
     role_requirements?: Record<string, { requires_thinking?: boolean; min_confidence?: number; error_message?: string }>;
   };

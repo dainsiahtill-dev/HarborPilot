@@ -15,9 +15,15 @@ import {
   buildVisualGraph,
   clearRoleAssignment,
   extractNodePositions,
+  extractNodeStates,
   mergeNodePositions,
+  mergeNodePositionsWithStates,
   modelNodeId,
+  removeManualModel,
+  removeProvider,
+  restoreNodeStates,
   updateRoleAssignment,
+  updateVisualStates,
 } from '../utils/configConverter';
 
 interface UseVisualLLMConfigOptions {
@@ -36,9 +42,18 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
   const [edges, setEdges] = useState<Edge<VisualEdgeData>[]>(graph.edges);
 
   useEffect(() => {
-    setNodes((prev) => mergeNodePositions(prev, graph.nodes));
+    // 先恢复节点状态（不包括位置）
+    let updatedNodes = graph.nodes;
+    if (config?.visual_node_states) {
+      updatedNodes = restoreNodeStates(updatedNodes, config.visual_node_states || {});
+    }
+    
+    // 然后合并位置（优先使用保存的位置）
+    updatedNodes = mergeNodePositionsWithStates(updatedNodes, graph.nodes, config?.visual_node_states || {});
+    
+    setNodes(updatedNodes);
     setEdges(graph.edges);
-  }, [graph.nodes, graph.edges]);
+  }, [graph.nodes, graph.edges, config?.visual_node_states]);
 
   const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
@@ -59,6 +74,16 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
         ...currentConfig,
         visual_layout: layout,
       };
+      onConfigChange(nextConfig);
+    },
+    [onConfigChange]
+  );
+
+  // 同步完整的节点状态到配置
+  const syncNodeStates = useCallback(
+    (currentConfig: VisualGraphConfig, currentNodes: Node<VisualNodeData>[], currentEdges: Edge<VisualEdgeData>[]) => {
+      if (!onConfigChange) return;
+      const nextConfig = updateVisualStates(currentConfig, currentNodes, currentEdges);
       onConfigChange(nextConfig);
     },
     [onConfigChange]
@@ -170,6 +195,54 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
             current
           );
         });
+      } else if (sourceNode.type === 'provider' && targetNode.type === 'role') {
+        // Direct Provider -> Role connection
+        // Auto-resolve model to bridge the connection
+        const providerData = sourceNode.data;
+        const roleData = targetNode.data;
+        
+        if (providerData.kind === 'provider' && roleData.kind === 'role') {
+          const providerId = providerData.providerId;
+          const roleId = roleData.roleId;
+
+          let targetModel = '';
+
+          // 1. Try to find model from provider config
+          if (config && config.providers) {
+            const providerCfg = config.providers[providerId] as Record<string, any>;
+            if (providerCfg) {
+              if (typeof providerCfg.default_model === 'string' && providerCfg.default_model) {
+                targetModel = providerCfg.default_model;
+              } else if (typeof providerCfg.model === 'string' && providerCfg.model) {
+                targetModel = providerCfg.model;
+              }
+            }
+          }
+
+          // 2. If no config model, try to use first existing model node for this provider
+          if (!targetModel) {
+            const existingModelNode = nodes.find(
+              (n) => n.type === 'model' && n.data.kind === 'model' && n.data.providerId === providerId
+            );
+            if (existingModelNode && existingModelNode.data.kind === 'model') {
+              targetModel = existingModelNode.data.model;
+            }
+          }
+
+          // 3. Fallback: if we found a model (or if we want to force one?), update config
+          if (targetModel) {
+             updateConfigRole(roleId, providerId, targetModel);
+          } else {
+             // If we can't resolve a model, we can't create a valid 3-way link.
+             // But maybe we should just create a placeholder model node?
+             // For now, let's warn. Ideally we'd prompt user.
+             console.warn('Could not auto-resolve model for provider -> role connection');
+             
+             // Optional: If it's a known provider type like Ollama without a model selected yet,
+             // maybe we just default to 'latest'? 
+             // But safer to do nothing if we can't be sure.
+          }
+        }
       }
     },
     [nodeMap, updateConfigRole]
@@ -188,6 +261,46 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
       });
     },
     [clearConfigRole, nodeMap]
+  );
+
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      const node = nodeMap.get(nodeId);
+      if (!node || !config || !onConfigChange) return;
+
+      if (node.type === 'model') {
+        const data = node.data;
+        if (data.kind === 'model') {
+          onConfigChange(removeManualModel(config, data.providerId, data.model));
+        }
+      } else if (node.type === 'provider') {
+        const data = node.data;
+        if (data.kind === 'provider') {
+          // Confirm deletion? Usually UI handles confirmation.
+          onConfigChange(removeProvider(config, data.providerId));
+        }
+      } else if (node.type === 'role') {
+         // Roles cannot be deleted from visual editor usually (defined in backend/config structure), 
+         // but maybe we can clear its assignment?
+         // For now, allow clearing assignment via context menu action "Clear Assignment", 
+         // but "Delete" might not mean deleting the role itself.
+         // Let's supported clearing assignment if "delete" is called on role?
+         // Or just do nothing for now.
+      }
+    },
+    [config, onConfigChange, nodeMap]
+  );
+
+  const deleteEdge = useCallback(
+    (edgeId: string) => {
+      const edge = edges.find(e => e.id === edgeId);
+      if (!edge) return;
+      // Re-use onEdgesDelete logic
+      onEdgesDelete([edge]);
+      // Also update local state for immediate feedback
+      setEdges((prev) => prev.filter((e) => e.id !== edgeId));
+    },
+    [edges, onEdgesDelete]
   );
 
   const addModel = useCallback(
@@ -238,17 +351,29 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
     [config, nodes, onConfigChange]
   );
 
+  const onNodesDelete = useCallback(
+    (deleted: Node<VisualNodeData>[]) => {
+      deleted.forEach((node) => {
+        deleteNode(node.id);
+      });
+    },
+    [deleteNode]
+  );
+
   return {
     nodes,
     edges,
     onNodesChange,
     onEdgesChange,
+    onNodesDelete,
     onConnect,
     onEdgesDelete,
     addModel,
+    syncNodePositions,
+    syncNodeStates,
     setNodes,
     setEdges,
-    syncNodePositions,
+    deleteNode,
+    deleteEdge,
   };
 }
-
