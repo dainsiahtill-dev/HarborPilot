@@ -84,6 +84,7 @@ interface InterviewHallV2Props {
   connectivityResults: Map<string, ConnectivityResult>;
   interviewRunning?: boolean;
   connectivityRunning?: boolean;
+  onSkipConnectivityTest?: (role: RoleId, providerId: string) => void;
 }
 
 type InterviewHallProps = InterviewHallLegacyProps | InterviewHallV2Props;
@@ -282,17 +283,26 @@ function InterviewHallV2({
   onRunInterview,
   connectivityResults,
   interviewRunning,
-  connectivityRunning
+  connectivityRunning,
+  onSkipConnectivityTest
 }: InterviewHallV2Props) {
   const activeRole = roles.find(role => role.id === selectedRole);
   const activeProvider = providers.find(provider => provider.id === selectedProvider);
   const connectivityKey = activeRole && selectedProvider ? `${activeRole.id}::${selectedProvider}` : null;
   const directConnectivity = connectivityKey ? connectivityResults.get(connectivityKey) : undefined;
+  const desiredModel = activeProvider?.model || '';
+  const matchesModel = (value?: ConnectivityResult) => {
+    if (!desiredModel) return false;
+    if (!value || !value.model) return false;
+    return value.model === desiredModel;
+  };
+  const directMatch = matchesModel(directConnectivity);
   let fallbackConnectivity: ConnectivityResult | undefined;
-  if (!directConnectivity && selectedProvider) {
+  if (!directMatch && selectedProvider && desiredModel) {
     let latest = 0;
     connectivityResults.forEach((value, key) => {
       if (!key.endsWith(`::${selectedProvider}`)) return;
+      if (!matchesModel(value)) return;
       const time = Date.parse(value.timestamp);
       const parsed = Number.isNaN(time) ? 0 : time;
       if (parsed >= latest) {
@@ -301,7 +311,7 @@ function InterviewHallV2({
       }
     });
   }
-  const connectivity = directConnectivity || fallbackConnectivity;
+  const connectivity = directMatch ? directConnectivity : fallbackConnectivity;
   const connectivityNote = connectivity?.sourceRole && connectivity?.sourceRole !== activeRole?.id
     ? `（复用自 ${connectivity.sourceRole}）`
     : !directConnectivity && fallbackConnectivity
@@ -319,16 +329,14 @@ function InterviewHallV2({
         : 'text-text-dim';
   const connectivityOk = connectivityState === 'passed';
   const canRunConnectivity = Boolean(activeRole && activeProvider && activeProvider.model);
-  const canRunInterview = Boolean(activeRole && activeProvider && activeProvider.model && connectivityOk);
+  const canRunInterview = Boolean(activeRole && activeProvider && activeProvider.model);
   const disabledReason = !activeRole
     ? '请选择岗位'
     : !activeProvider
       ? '请选择 LLM 卡片'
       : !activeProvider.model
         ? '当前提供商未配置模型'
-        : !connectivityOk
-          ? '请先通过连通性测试'
-          : null;
+        : null;
 
   return (
     <div className="space-y-6">
@@ -480,6 +488,15 @@ function InterviewHallV2({
               </div>
               {connectivity?.error ? (
                 <div className="text-[10px] text-red-300">{connectivity.error}</div>
+              ) : null}
+              {!connectivityOk && onSkipConnectivityTest && activeRole && activeProvider ? (
+                <button
+                  type="button"
+                  onClick={() => onSkipConnectivityTest(activeRole.id, activeProvider.id)}
+                  className="px-2 py-1 text-[10px] border border-amber-500/40 text-amber-300 rounded hover:bg-amber-500/10 transition-colors"
+                >
+                  跳过连通性测试
+                </button>
               ) : null}
             </div>
 

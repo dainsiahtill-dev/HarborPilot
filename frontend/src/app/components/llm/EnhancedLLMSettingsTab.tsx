@@ -1,5 +1,5 @@
 import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   InterviewHall,
@@ -350,6 +350,34 @@ const buildConnectivityResultFromSuites = (
   };
 };
 
+type ProviderStatusSnapshot = NonNullable<LlmStatus['providers']>[string];
+
+const resolveProviderRoleIds = (providerId: string, roles?: Record<string, LlmRoleConfig>): string[] => {
+  if (!roles) return [];
+  return Object.entries(roles)
+    .filter(([, roleCfg]) => roleCfg?.provider_id === providerId)
+    .map(([roleId]) => roleId);
+};
+
+const buildConnectivityResultFromStatus = (
+  providerStatus?: ProviderStatusSnapshot
+): ConnectivityResult | null => {
+  if (!providerStatus || typeof providerStatus !== 'object') return null;
+  const suites = providerStatus.suites as Record<string, unknown> | undefined;
+  const timestamp = typeof providerStatus.timestamp === 'string' ? providerStatus.timestamp : undefined;
+  const model = typeof providerStatus.model === 'string' ? providerStatus.model : undefined;
+  const result = buildConnectivityResultFromSuites(suites, timestamp, model);
+  if (result) return result;
+  if (typeof providerStatus.ready === 'boolean') {
+    return {
+      ok: providerStatus.ready,
+      timestamp: timestamp || new Date().toISOString(),
+      model
+    };
+  }
+  return null;
+};
+
 const normalizeConnectivityResult = (value: unknown): ConnectivityResult | null => {
   if (!value || typeof value !== 'object') return null;
   const payload = value as Record<string, unknown>;
@@ -535,6 +563,9 @@ export function EnhancedLLMSettingsTab({
     return ordered;
   }, [filteredProviderEntries]);
 
+  const configuredProviderCount = Object.keys(llmConfig?.providers || {}).length;
+  const hasConfiguredProviders = configuredProviderCount > 0;
+
   useEffect(() => {
     if (!methodInitRef.current && availableMethods.length > 0) {
       setSelectedMethod(recommendedMethod);
@@ -607,6 +638,33 @@ export function EnhancedLLMSettingsTab({
     const roleModel = roleCfg?.provider_id === providerId ? roleCfg.model || '' : '';
     return providerModel || roleModel || '';
   };
+
+  const handleEnterDeepTest = useCallback(() => {
+    try {
+      console.log('Entering deep test...');
+      setActiveTab('deepTest');
+      setDeepView('hall');
+      console.log('Deep test tab activated');
+    } catch (error) {
+      console.error('Error entering deep test:', error);
+    }
+  }, [setActiveTab, setDeepView]);
+
+  const handleSkipConnectivityTest = useCallback(() => {
+    if (!selectedRole || !selectedProviderId) return;
+    const key = `${selectedRole}::${selectedProviderId}`;
+    const timestamp = new Date().toISOString();
+    const model = resolveModelForSelection(selectedRole, selectedProviderId) || undefined;
+    setConnectivityResults((prev) => {
+      const next = new Map(prev);
+      next.set(key, {
+        ok: true,
+        timestamp,
+        model
+      });
+      return next;
+    });
+  }, [resolveModelForSelection, selectedProviderId, selectedRole]);
 
   const roles = useMemo(() => {
     const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
@@ -709,30 +767,38 @@ export function EnhancedLLMSettingsTab({
   }, [connectivityResults]);
 
   useEffect(() => {
-    if (!llmStatus?.providers) return;
+    if (!llmStatus?.providers || !llmConfig) return;
     setConnectivityResults((prev) => {
       const next = new Map(prev);
-      Object.entries(llmStatus.providers || {}).forEach(([providerId, providerStatus]) => {
-        if (!providerStatus || typeof providerStatus !== 'object') return;
-        const suites = providerStatus.suites as Record<string, unknown> | undefined;
-        if (!suites) return;
-        const result = buildConnectivityResultFromSuites(
-          suites,
-          typeof providerStatus.timestamp === 'string' ? providerStatus.timestamp : undefined,
-          typeof providerStatus.model === 'string' ? providerStatus.model : undefined
-        );
-        if (!result) return;
-        const role = typeof providerStatus.role === 'string' ? providerStatus.role : '';
-        if (!role) return;
-        const key = `${role}::${providerId}`;
-        const existing = next.get(key);
-        if (!existing || parseTimestamp(result.timestamp) >= parseTimestamp(existing.timestamp)) {
-          next.set(key, result);
+      const providersConfig = llmConfig.providers || {};
+      const configuredProviderIds = new Set(Object.keys(providersConfig));
+
+      Array.from(next.keys()).forEach((key) => {
+        const parts = key.split('::');
+        const providerId = parts.length > 1 ? parts[1] : '';
+        if (providerId && !configuredProviderIds.has(providerId)) {
+          next.delete(key);
         }
+      });
+
+      Object.entries(llmStatus.providers || {}).forEach(([providerId, providerStatus]) => {
+        if (!configuredProviderIds.has(providerId)) return;
+        const result = buildConnectivityResultFromStatus(providerStatus);
+        if (!result) return;
+        const role = typeof providerStatus?.role === 'string' ? providerStatus.role : '';
+        const roleIds = role ? [role] : resolveProviderRoleIds(providerId, llmConfig.roles);
+        const targetRoles = roleIds.length > 0 ? roleIds : ['provider'];
+        targetRoles.forEach((roleId) => {
+          const key = `${roleId}::${providerId}`;
+          const existing = next.get(key);
+          if (!existing || parseTimestamp(result.timestamp) >= parseTimestamp(existing.timestamp)) {
+            next.set(key, result);
+          }
+        });
       });
       return next;
     });
-  }, [llmStatus]);
+  }, [llmConfig, llmStatus]);
 
   useEffect(() => {
     if (!selectedTestProviderId) return;
@@ -914,13 +980,21 @@ export function EnhancedLLMSettingsTab({
     if (!llmConfig) return [];
     const providersConfig = llmConfig.providers || {};
     const getLatestConnectivity = (providerId: string): ConnectivityResult | undefined => {
+      const desiredModel = selectedRole ? resolveModelForSelection(selectedRole, providerId).trim() : '';
+      if (!desiredModel) {
+        return undefined;
+      }
+      const matchesModel = (value: ConnectivityResult) => {
+        return value.model ? value.model === desiredModel : false;
+      };
       if (selectedRole) {
         const direct = connectivityResults.get(`${selectedRole}::${providerId}`);
-        if (direct) return direct;
+        if (direct && matchesModel(direct)) return direct;
       }
       let best: ConnectivityResult | undefined;
       connectivityResults.forEach((value, key) => {
         if (!key.endsWith(`::${providerId}`)) return;
+        if (!matchesModel(value)) return;
         if (!best || parseTimestamp(value.timestamp) > parseTimestamp(best.timestamp)) {
           best = value;
         }
@@ -1419,10 +1493,8 @@ export function EnhancedLLMSettingsTab({
               CONFIG
             </button>
             <button
-              onClick={() => {
-                setActiveTab('deepTest');
-                setDeepView('hall');
-              }}
+              type="button"
+              onClick={handleEnterDeepTest}
               className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wider rounded-lg border transition-all ${
                 activeTab === 'deepTest'
                   ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 shadow-[0_0_16px_rgba(16,185,129,0.25)]'
@@ -1657,8 +1729,27 @@ export function EnhancedLLMSettingsTab({
                 )}
               </div>
             </div>
-            {Object.keys(llmConfig?.providers || {}).length === 0 ? (
-              <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
+            {hasConfiguredProviders ? (
+              <div className="space-y-3">
+                {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
+                  renderProviderCard(providerId, provider)
+                )}
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-[10px] text-text-dim">
+                    配置状态：{configuredProviderCount} 个提供商已准备
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleEnterDeepTest}
+                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2"
+                  >
+                    进入深度测试
+                    <PlayCircle className="size-3" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center space-y-4">
                 <Settings className="size-8 text-text-dim mx-auto mb-3" />
                 <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
                 <p className="text-xs text-text-dim mb-4">
@@ -1674,22 +1765,25 @@ export function EnhancedLLMSettingsTab({
                     ))}
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {Object.entries(llmConfig?.providers || {}).map(([providerId, provider]) =>
-                  renderProviderCard(providerId, provider)
-                )}
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-[10px] text-text-dim">配置状态：{configuredProviderCount} 个提供商</span>
                   <button
-                    onClick={() => {
-                      setActiveTab('deepTest');
-                      setDeepView('hall');
-                    }}
-                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2"
+                    type="button"
+                    onClick={handleEnterDeepTest}
+                    className="px-4 py-2 text-xs font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-2 opacity-80 hover:opacity-100"
                   >
-                    进入深度测试
+                    进入深度测试（无配置）
                     <PlayCircle className="size-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfigView('list');
+                      setSelectedMethod('sdk');
+                    }}
+                    className="px-3 py-1 text-xs font-semibold border border-amber-500/40 rounded text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+                  >
+                    前往配置
                   </button>
                 </div>
               </div>
@@ -1765,6 +1859,7 @@ export function EnhancedLLMSettingsTab({
                 connectivityResults={connectivityResults}
                 interviewRunning={interviewRunning}
                 connectivityRunning={connectivityRunning}
+                onSkipConnectivityTest={handleSkipConnectivityTest}
               />
             ) : (
               <InterviewSession
