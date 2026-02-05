@@ -25,6 +25,7 @@ declare global {
           env?: Record<string, string>;
           cols?: number;
           rows?: number;
+          use_conpty?: boolean;
         }) => Promise<{ ok: boolean; id?: string; error?: string | null }>;
         write: (id: string, data: string) => Promise<{ ok: boolean; error?: string | null }>;
         resize: (id: string, cols: number, rows: number) => Promise<{ ok: boolean; error?: string | null }>;

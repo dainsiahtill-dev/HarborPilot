@@ -19,11 +19,6 @@ export function useTerminal() {
 
       // If cwd is not provided, try to use workspace path
       let cwd = options.cwd;
-      if (!cwd && window.harborpilot.pickWorkspace) {
-        // We can't synchronously get workspace, but typically it defaults to repoRoot in backend if undefined.
-        // However, if we want it to be the *current* workspace, we might need to fetch it from settings or store.
-        // For now, let backend default to repoRoot if not provided, or passed explicitly.
-      }
 
       const res = await window.harborpilot.pty.start({
         command: '', // Auto-detect in backend

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { AlertTriangle, Loader2, Sparkles, TerminalSquare } from 'lucide-react';
@@ -118,7 +118,7 @@ export function PtyDrawer({
         background: '#05060b',
         foreground: '#d8e6ff',
         cursor: '#2bf6ff',
-        selection: 'rgba(43, 246, 255, 0.25)',
+        selectionBackground: 'rgba(43, 246, 255, 0.25)',
         black: '#05060b',
         brightBlack: '#10131b',
         green: '#27f5d0',
@@ -228,7 +228,7 @@ export function PtyDrawer({
       const cols = term?.cols ?? 120;
       const rows = term?.rows ?? 32;
       const result = await window.harborpilot?.pty?.start({
-        command: providerConfig.command,
+        command: providerConfig.command || '',
         args: providerConfig.tui_args || [],
         cwd: providerConfig.working_dir || undefined,
         env: providerConfig.env || undefined,
