@@ -179,6 +179,7 @@ def run_llm_tests(
     evaluation_mode: Optional[str] = None,
     api_key: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
     prompt_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     workspace = settings.workspace
@@ -191,6 +192,8 @@ def run_llm_tests(
         api_key = str(provider_cfg.get("api_key") or "")
     if extra_headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **extra_headers}}
+    if env_overrides:
+        provider_cfg = {**provider_cfg, "env": {**(provider_cfg.get("env") or {}), **env_overrides}}
     run_id = _new_test_run_id()
     timestamp = _utc_now()
     report: Dict[str, Any] = {
@@ -899,17 +902,25 @@ def _analyze_thinking_output(output: str) -> Dict[str, Any]:
 
 def _split_thinking_output(output: str) -> Tuple[str, str, str]:
     output = output or ""
-    thinking_text = _extract_tagged_block(output, "thinking") or _extract_tagged_block(output, "reasoning")
-    answer_text = _extract_tagged_block(output, "final") or _extract_tagged_block(output, "answer")
+    thinking_tags = ["thinking", "reasoning", "analysis", "think"]
+    answer_tags = ["final", "answer", "response"]
+    thinking_text = _extract_tagged_block(output, thinking_tags)
+    answer_text = _extract_tagged_block(output, answer_tags)
     fmt = "tagged" if (thinking_text or answer_text) else ""
     if not answer_text:
-        stripped = _strip_tagged_blocks(output, ["thinking", "reasoning", "final", "answer"])
+        stripped = _strip_tagged_blocks(output, [*thinking_tags, *answer_tags])
         answer_text = stripped.strip()
     return thinking_text.strip(), answer_text.strip(), fmt
 
 
-def _extract_tagged_block(text: str, tag: str) -> str:
+def _extract_tagged_block(text: str, tag: Any) -> str:
     if not text or not tag:
+        return ""
+    if isinstance(tag, (list, tuple)):
+        for item in tag:
+            found = _extract_tagged_block(text, item)
+            if found:
+                return found
         return ""
     pattern = re.compile(rf"<{tag}[^>]*>(.*?)</{tag}>", re.IGNORECASE | re.DOTALL)
     match = pattern.search(text)

@@ -145,6 +145,7 @@ interface EnhancedLLMSettingsTabProps {
     model: string;
     report: InteractiveInterviewReport;
   }) => Promise<{ saved: boolean; report_path?: string } | null>;
+  resolveProviderEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
   onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
   onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
   onDeleteProvider?: (providerId: string) => void | Promise<void>;
@@ -417,6 +418,7 @@ export function EnhancedLLMSettingsTab({
   onRunConnectivityTest,
   onAskInteractiveInterview,
   onSaveInteractiveInterview,
+  resolveProviderEnvOverrides,
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
@@ -1748,6 +1750,7 @@ export function EnhancedLLMSettingsTab({
                 onSelectProvider={setSelectedProviderId}
                 onAskQuestion={handleInteractiveAsk}
                 onSaveReport={handleInteractiveSave}
+                resolveEnvOverrides={resolveProviderEnvOverrides}
               />
             ) : deepView === 'hall' ? (
               <InterviewHall

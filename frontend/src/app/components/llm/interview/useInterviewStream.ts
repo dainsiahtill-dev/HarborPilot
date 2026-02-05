@@ -7,6 +7,22 @@ export interface StreamEvent {
   data: Record<string, unknown>;
 }
 
+export type RealtimeThinkingKind = 'reasoning' | 'command_execution' | 'agent_message';
+
+export interface RealtimeThinkingEvent {
+  id: string;
+  kind: RealtimeThinkingKind;
+  timestamp: string;
+  text?: string;
+  command?: string;
+  output?: string;
+  status?: string;
+  exitCode?: number | null;
+  thinking?: string | null;
+  answer?: string | null;
+  raw?: string;
+}
+
 export interface InterviewStreamResult {
   sessionId: string;
   answer: string;
@@ -22,10 +38,11 @@ export interface UseInterviewStreamOptions {
   onStart?: (sessionId: string) => void;
   onComplete?: (result: InterviewStreamResult) => void;
   onError?: (error: string) => void;
+  onThinkingEvent?: (event: RealtimeThinkingEvent) => void;
 }
 
 export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
-  const { onEvent, onStart, onComplete, onError } = options;
+  const { onEvent, onStart, onComplete, onError, onThinkingEvent } = options;
   const [isStreaming, setIsStreaming] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -58,6 +75,7 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
     expectsThinking?: boolean;
     sessionId?: string | null;
     context?: Array<{ question: string; answer: string }>;
+    envOverrides?: Record<string, string>;
   }) => {
     if (isStreaming) return;
     
@@ -93,6 +111,7 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
           expects_thinking: payload.expectsThinking,
           session_id: payload.sessionId,
           context: payload.context,
+          env_overrides: payload.envOverrides,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -173,6 +192,38 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
                     content: data.line || '',
                   });
                   break;
+                  
+                case 'thinking':
+                case 'command_execution':
+                case 'agent_message': {
+                  const itemId =
+                    typeof data.item_id === 'string' || typeof data.item_id === 'number'
+                      ? String(data.item_id)
+                      : '';
+                  const event: RealtimeThinkingEvent = {
+                    id: itemId || `${currentEvent}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    kind:
+                      currentEvent === 'thinking'
+                        ? 'reasoning'
+                        : (currentEvent as RealtimeThinkingKind),
+                    timestamp: typeof data.timestamp === 'string' ? data.timestamp : new Date().toISOString(),
+                    text: typeof data.text === 'string' ? data.text : undefined,
+                    command: typeof data.command === 'string' ? data.command : undefined,
+                    output: typeof data.output === 'string' ? data.output : undefined,
+                    status: typeof data.status === 'string' ? data.status : undefined,
+                    exitCode:
+                      typeof data.exit_code === 'number'
+                        ? data.exit_code
+                        : typeof data.exit_code === 'string'
+                          ? Number(data.exit_code)
+                          : undefined,
+                    thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
+                    answer: typeof data.answer === 'string' ? data.answer : undefined,
+                    raw: typeof data.raw === 'string' ? data.raw : undefined,
+                  };
+                  onThinkingEvent?.(event);
+                  break;
+                }
                   
                 case 'complete':
                   finalResult = data as InterviewStreamResult;

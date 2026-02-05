@@ -51,12 +51,9 @@ def _is_codex_provider(provider_id: str, provider_cfg: Dict[str, Any]) -> bool:
 def _looks_like_codex_model(model: str) -> bool:
     if not model:
         return False
-    lowered = model.lower()
-    if lowered.startswith("gpt-"):
-        return True
-    if "codex" in lowered:
-        return True
-    return False
+    # Codex CLI can route to non-GPT models depending on backend configuration.
+    # Do not block by name; accept any non-empty model string.
+    return True
 
 
 def _format_interview_context(context: Optional[List[Dict[str, Any]]]) -> str:
@@ -228,6 +225,7 @@ def run_interactive_interview_question(
     criteria: Optional[List[str]] = None,
     api_key: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
     debug: Optional[bool] = None,
 ) -> Dict[str, Any]:
     workspace = settings.workspace
@@ -237,8 +235,8 @@ def run_interactive_interview_question(
     provider_cfg = _resolve_provider(config, provider_id)
     if _is_codex_provider(provider_id, provider_cfg) and not _looks_like_codex_model(model):
         error_message = (
-            f"Model '{model}' is not supported with Codex CLI. "
-            "Please use a gpt-* codex model, or switch this provider to Ollama for local GGUF models."
+            f"Model '{model}' is not configured for Codex CLI. "
+            "Please provide a valid model name in the provider settings."
         )
         usage = estimate_usage("", "")
         payload = {
@@ -267,6 +265,8 @@ def run_interactive_interview_question(
         api_key = str(provider_cfg.get("api_key") or "")
     if extra_headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **extra_headers}}
+    if env_overrides:
+        provider_cfg = {**provider_cfg, "env": {**(provider_cfg.get("env") or {}), **env_overrides}}
     run_id = session_id or f"interactive-{_new_test_run_id()}"
     timestamp = _utc_now()
     cleaned_context = []

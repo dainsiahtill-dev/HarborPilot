@@ -13,9 +13,20 @@ const EVENT_STYLES: Record<TestEventType, { prefix: string; className: string }>
 interface TerminalOutputProps {
   events: TestEvent[];
   placeholder?: string;
+  title?: string;
+  heightClassName?: string;
+  className?: string;
+  showHeader?: boolean;
 }
 
-export function TerminalOutput({ events, placeholder }: TerminalOutputProps) {
+export function TerminalOutput({
+  events,
+  placeholder,
+  title = '终端输出',
+  heightClassName = 'h-80',
+  className,
+  showHeader = true
+}: TerminalOutputProps) {
   const outputRef = useRef<HTMLDivElement | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -37,14 +48,16 @@ export function TerminalOutput({ events, placeholder }: TerminalOutputProps) {
   }, []);
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-[10px] text-text-dim">
-        <span>终端输出</span>
-        <span className="text-[9px]">{autoScroll ? '自动滚动' : '已暂停滚动'}</span>
-      </div>
+    <div className={`space-y-2 ${className || ''}`}>
+      {showHeader ? (
+        <div className="flex items-center justify-between text-[10px] text-text-dim">
+          <span>{title}</span>
+          <span className="text-[9px]">{autoScroll ? '自动滚动' : '已暂停滚动'}</span>
+        </div>
+      ) : null}
       <div
         ref={outputRef}
-        className="bg-black/70 text-green-200 font-mono text-[11px] p-3 rounded-lg border border-white/10 h-80 overflow-y-auto"
+        className={`bg-black/70 text-green-200 font-mono text-[11px] p-3 rounded-lg border border-white/10 ${heightClassName} overflow-y-auto`}
       >
         {events.length === 0 ? (
           <div className="text-gray-500">

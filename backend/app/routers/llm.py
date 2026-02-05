@@ -58,6 +58,7 @@ class LlmTestPayload(BaseModel):
     evaluation_mode: Optional[str] = None
     api_key: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
+    env_overrides: Optional[Dict[str, str]] = None
     prompt_override: Optional[str] = None
 
 
@@ -77,6 +78,7 @@ class InterviewAskPayload(BaseModel):
     session_id: Optional[str] = None
     api_key: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
+    env_overrides: Optional[Dict[str, str]] = None
     debug: Optional[bool] = None
 
 
@@ -198,6 +200,7 @@ def llm_test(request: Request, payload: LlmTestPayload) -> Dict[str, Any]:
         evaluation_mode=payload.evaluation_mode,
         api_key=payload.api_key,
         extra_headers=payload.headers,
+        env_overrides=payload.env_overrides,
         prompt_override=payload.prompt_override,
     )
     return report
@@ -218,6 +221,7 @@ def llm_interview_ask(request: Request, payload: InterviewAskPayload) -> Dict[st
         criteria=payload.criteria,
         api_key=payload.api_key,
         extra_headers=payload.headers,
+        env_overrides=payload.env_overrides,
         debug=payload.debug,
     )
 
@@ -269,6 +273,7 @@ async def llm_interview_stream(request: Request, payload: InterviewAskPayload):
                     criteria=payload.criteria,
                     api_key=payload.api_key,
                     extra_headers=payload.headers,
+                    env_overrides=payload.env_overrides,
                     output_queue=queue,
                 )
                 await queue.put({"type": "complete", "data": result})

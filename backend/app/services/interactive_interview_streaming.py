@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import signal
 import subprocess
@@ -48,6 +49,143 @@ from .interactive_interview import (
 
 _ACTIVE_PROCESS_LOCK = threading.Lock()
 _ACTIVE_CODEX_PROCESSES: Dict[str, subprocess.Popen] = {}
+_THINKING_TAGS = ("thinking", "think", "reasoning", "analysis")
+_ANSWER_TAGS = ("answer", "final", "response")
+
+
+def _extract_tagged_block(text: str, tags: Tuple[str, ...]) -> Optional[str]:
+    if not text:
+        return None
+    for tag in tags:
+        pattern = re.compile(rf"<{tag}[^>]*>(.*?)</{tag}>", re.DOTALL | re.IGNORECASE)
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _extract_agent_message_parts(text: str) -> Tuple[Optional[str], Optional[str]]:
+    if not text:
+        return None, None
+    thinking = _extract_tagged_block(text, _THINKING_TAGS)
+    answer = _extract_tagged_block(text, _ANSWER_TAGS)
+    if not thinking and not answer:
+        return None, text.strip()
+    return thinking, answer
+
+
+def _maybe_parse_codex_json_line(line: str) -> Optional[Dict[str, Any]]:
+    trimmed = line.strip()
+    if not trimmed or not trimmed.startswith("{") or not trimmed.endswith("}"):
+        return None
+    try:
+        payload = json.loads(trimmed)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _emit_stream_event(
+    loop: asyncio.AbstractEventLoop,
+    output_queue: asyncio.Queue,
+    event_type: str,
+    data: Dict[str, Any],
+) -> None:
+    asyncio.run_coroutine_threadsafe(
+        output_queue.put({"type": event_type, "data": data}),
+        loop,
+    )
+
+
+def _emit_codex_json_event(
+    loop: asyncio.AbstractEventLoop,
+    output_queue: asyncio.Queue,
+    payload: Dict[str, Any],
+) -> None:
+    event_type = payload.get("type")
+    if event_type not in ("item.started", "item.completed"):
+        return
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return
+    item_type = str(item.get("type") or "").strip()
+    item_id = item.get("id")
+    timestamp = _utc_now()
+
+    if event_type == "item.started" and item_type == "command_execution":
+        _emit_stream_event(
+            loop,
+            output_queue,
+            "command_execution",
+            {
+                "item_id": item_id,
+                "kind": "command_execution",
+                "timestamp": timestamp,
+                "status": item.get("status") or "in_progress",
+                "command": item.get("command"),
+                "exit_code": item.get("exit_code"),
+                "output": item.get("aggregated_output"),
+            },
+        )
+        return
+
+    if event_type != "item.completed":
+        return
+
+    if item_type in ("reasoning", "thinking", "analysis"):
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            _emit_stream_event(
+                loop,
+                output_queue,
+                "thinking",
+                {
+                    "item_id": item_id,
+                    "kind": "reasoning",
+                    "timestamp": timestamp,
+                    "text": text.strip(),
+                },
+            )
+        return
+
+    if item_type == "command_execution":
+        _emit_stream_event(
+            loop,
+            output_queue,
+            "command_execution",
+            {
+                "item_id": item_id,
+                "kind": "command_execution",
+                "timestamp": timestamp,
+                "status": item.get("status") or "completed",
+                "command": item.get("command"),
+                "exit_code": item.get("exit_code"),
+                "output": item.get("aggregated_output"),
+            },
+        )
+        return
+
+    if item_type in ("agent_message", "message", "response"):
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        thinking, answer = _extract_agent_message_parts(text)
+        _emit_stream_event(
+            loop,
+            output_queue,
+            "agent_message",
+            {
+                "item_id": item_id,
+                "kind": "agent_message",
+                "timestamp": timestamp,
+                "thinking": thinking,
+                "answer": answer,
+                "raw": text.strip(),
+            },
+        )
+        return
 
 
 def _register_codex_process(run_id: str, process: subprocess.Popen) -> None:
@@ -139,6 +277,7 @@ async def run_interactive_interview_streaming(
     criteria: Optional[List[str]] = None,
     api_key: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
     output_queue: asyncio.Queue,
 ) -> Dict[str, Any]:
     """Run interactive interview with real-time streaming output
@@ -169,8 +308,8 @@ async def run_interactive_interview_streaming(
     # Check model compatibility
     if _is_codex_provider(provider_id, provider_cfg) and not _looks_like_codex_model(model):
         error_message = (
-            f"Model '{model}' is not supported with Codex CLI. "
-            "Please use a gpt-* codex model, or switch this provider to Ollama for local GGUF models."
+            f"Model '{model}' is not configured for Codex CLI. "
+            "Please provide a valid model name in the provider settings."
         )
         result = {
             "session_id": session_id or f"interactive-{_new_test_run_id()}",
@@ -193,6 +332,8 @@ async def run_interactive_interview_streaming(
         api_key = str(provider_cfg.get("api_key") or "")
     if extra_headers:
         provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **extra_headers}}
+    if env_overrides:
+        provider_cfg = {**provider_cfg, "env": {**(provider_cfg.get("env") or {}), **env_overrides}}
     
     run_id = session_id or f"interactive-{_new_test_run_id()}"
     timestamp = _utc_now()
@@ -352,6 +493,10 @@ async def _run_codex_streaming(
                         stdout_lines.append(line)
                     else:
                         stderr_lines.append(line)
+                    if stream_type == "stdout":
+                        payload = _maybe_parse_codex_json_line(line)
+                        if payload:
+                            _emit_codex_json_event(loop, output_queue, payload)
                     # Push to async queue
                     asyncio.run_coroutine_threadsafe(
                         output_queue.put({

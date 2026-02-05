@@ -60,6 +60,18 @@ def _resolve_command(command: str) -> Optional[str]:
     return shutil.which(command)
 
 
+def _supports_reasoning_effort(model: str) -> bool:
+    """Heuristic check for models that accept reasoning.effort config."""
+    if not model:
+        return False
+    lowered = model.strip().lower()
+    if lowered.startswith(("gpt-", "o1", "o3", "o4")):
+        return True
+    if "codex" in lowered:
+        return True
+    return False
+
+
 def _build_codex_exec_args(model: str, config: Dict[str, Any]) -> List[str]:
     """Build Codex CLI exec arguments based on official documentation
     
@@ -165,10 +177,14 @@ def _build_codex_exec_args(model: str, config: Dict[str, Any]) -> List[str]:
     # Config overrides (--config, -c)
     config_overrides = opts.get('config') or opts.get('config_overrides') or []
     if isinstance(config_overrides, (list, tuple)):
+        supports_reasoning_effort = _supports_reasoning_effort(model)
         for entry in config_overrides:
             kv = str(entry or '').strip()
             if kv and '=' in kv:
                 key, value = kv.split('=', 1)
+                key = key.strip()
+                if key in ("model_reasoning_effort", "reasoning.effort") and not supports_reasoning_effort:
+                    continue
                 args += ['--config', f'{key.strip()}={value.strip()}']
     
     # Special automation flags (mutually exclusive in most cases)
@@ -1119,7 +1135,11 @@ class CodexCLIProvider(BaseProvider):
             if code != 0 or cli_error:
                 message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
                 fallback_source = stderr_raw or stdout_raw or output or message
-                fallback_effort = _pick_reasoning_effort_fallback(fallback_source)
+                fallback_effort = (
+                    _pick_reasoning_effort_fallback(fallback_source)
+                    if _supports_reasoning_effort(model)
+                    else None
+                )
                 if fallback_effort:
                     retry_args = _set_codex_config_override(
                         args,
@@ -1145,7 +1165,7 @@ class CodexCLIProvider(BaseProvider):
                     usage = estimate_usage(prompt, output)
                     return InvokeResult(ok=True, output=output, latency_ms=latency_ms, usage=usage, raw=debug_raw)
                 message = (stderr_raw or cli_error or stdout_raw or "Codex CLI invoke failed").strip()
-                if message:
+                if message and fallback_effort:
                     message = f"{message}\n(auto-fallback reasoning.effort={fallback_effort} failed)"
 
                 usage = estimate_usage(prompt, output)

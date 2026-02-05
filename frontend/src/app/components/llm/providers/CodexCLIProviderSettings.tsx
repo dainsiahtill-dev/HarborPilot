@@ -554,7 +554,9 @@ export function CodexCLIProviderSettings({
             placeholder='{"KEY": "value"}'
           />
           <p className="text-[9px] text-text-dim mt-1">
-            Environment variables in JSON format
+            Environment variables in JSON format. You can reference keychain values like
+            <span className="font-mono"> keychain:llm:minimax </span>
+            (or <span className="font-mono">${'{'}keychain:llm:minimax{'}'}</span>) and they will be resolved at runtime.
           </p>
         </div>
       </div>

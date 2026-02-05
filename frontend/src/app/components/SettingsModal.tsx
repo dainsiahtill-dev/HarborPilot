@@ -16,6 +16,7 @@ import type {
   RoleConfig,
   ProviderKind
 } from '@/app/components/llm/types';
+import { isCLIProviderType } from '@/app/components/llm/types';
 import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
 
 const SETTINGS_MODAL_SIZE_KEY = 'harborpilot:ui:settings_modal:size';
@@ -415,6 +416,37 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       // ignore
     }
     return null;
+  };
+
+  const resolveEnvOverrides = async (providerId: string, cfg: ProviderConfig) => {
+    if (!isCLIProviderType(String(cfg.type || ''))) return null;
+    const env = cfg.env && typeof cfg.env === 'object' ? cfg.env : {};
+    const resolved: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined || value === null) continue;
+      const raw = String(value).trim();
+      const match = raw.match(/^\$?\{?keychain:([^}]+)\}?$/i);
+      if (match) {
+        if (!window.harborpilot?.secrets?.get) {
+          missing.push(key);
+          continue;
+        }
+        try {
+          const result = await window.harborpilot.secrets.get(match[1]);
+          if (result?.ok && result.value) {
+            resolved[key] = String(result.value);
+          } else {
+            missing.push(key);
+          }
+        } catch {
+          missing.push(key);
+        }
+      } else {
+        resolved[key] = raw;
+      }
+    }
+    return { env: resolved, missing };
   };
 
   useEffect(() => {
@@ -946,6 +978,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       }
 
       const apiKey = await resolveApiKey(providerId, providerCfg);
+      const envResult = await resolveEnvOverrides(providerId, providerCfg);
+      if (envResult?.missing && envResult.missing.length > 0) {
+        emitEvent('stderr', `环境变量缺少密钥: ${envResult.missing.join(', ')}`);
+      }
 
       emitEvent('stdout', '验证配置');
       const warnings: string[] = [];
@@ -1028,7 +1064,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           test_level: 'full',
           evaluation_mode: evaluationMode,
           prompt_override: promptOverride,
-          api_key: apiKey
+          api_key: apiKey,
+          env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined
         }),
         signal: controller.signal
       });
@@ -1100,6 +1137,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     if (!providerId || !model) return;
     const providerCfg = llmConfig.providers?.[providerId];
     const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    const envResult = providerCfg ? await resolveEnvOverrides(providerId, providerCfg) : null;
     setLlmTesting((prev) => ({ ...prev, [role]: true }));
     try {
       const res = await apiFetch('/llm/test', {
@@ -1112,6 +1150,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           suites: suites || llmConfig.policies?.test_required_suites,
           test_level: level,
           api_key: apiKey,
+          env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined
         }),
       });
       if (!res.ok) {
@@ -1202,6 +1241,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       return null;
     }
     const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    const envResult = providerCfg ? await resolveEnvOverrides(providerId, providerCfg) : null;
     const suites = ['thinking', 'interview'];
     const payload = {
       role,
@@ -1228,7 +1268,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           model,
           suites,
           test_level: 'full',
-          api_key: apiKey
+          api_key: apiKey,
+          env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined
         }),
         signal: controller.signal
       });
@@ -1293,6 +1334,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       throw new Error('提供商未配置');
     }
     const apiKey = await resolveApiKey(payload.providerId, providerCfg);
+    const envResult = await resolveEnvOverrides(payload.providerId, providerCfg);
     const res = await apiFetch('/llm/interview/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1306,6 +1348,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         criteria: payload.expectedCriteria,
         session_id: payload.sessionId,
         api_key: apiKey,
+        env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined,
         debug: payload.debug
       })
     });
@@ -1367,6 +1410,16 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   ): Promise<Record<string, unknown> | null> => {
     const suites = ['connectivity', 'response'];
     return (await runLlmTest(role, 'quick', suites, false, { providerId, model })) || null;
+  };
+
+  const resolveProviderEnvOverrides = async (providerId: string) => {
+    const cfg = llmConfigRef.current?.providers?.[providerId];
+    if (!cfg) return null;
+    const envResult = await resolveEnvOverrides(providerId, cfg);
+    if (!envResult?.env || Object.keys(envResult.env).length === 0) {
+      return null;
+    }
+    return envResult.env;
   };
 
   const runAllTests = async () => {
@@ -1928,6 +1981,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onRunConnectivityTest={runConnectivityTest}
                 onAskInteractiveInterview={askInteractiveInterview}
                 onSaveInteractiveInterview={saveInteractiveInterview}
+                resolveProviderEnvOverrides={resolveProviderEnvOverrides}
                 onUpdateConfig={updateLLMConfigDraft}
                 onTestProvider={runProviderTest}
                 onCancelTestProvider={cancelProviderTest}

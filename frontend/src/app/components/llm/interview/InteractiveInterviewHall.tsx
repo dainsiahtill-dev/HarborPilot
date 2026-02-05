@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, AlertTriangle, Loader2, Send, RefreshCw, Check, XCircle, Eraser } from 'lucide-react';
 import type { InterviewProviderSummary, InterviewRoleSummary } from './InterviewHall';
 import { TerminalOutput } from '../test/TerminalOutput';
 import { useTestEvents } from '../test/hooks/useTestEvents';
 import type { TestEvent } from '../test/types';
-import { useInterviewStream } from './useInterviewStream';
+import { RealtimeThinkingDisplay } from './RealtimeThinkingDisplay';
+import { useInterviewStream, type RealtimeThinkingEvent } from './useInterviewStream';
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
 
@@ -105,6 +106,7 @@ interface InteractiveInterviewHallProps {
     providerId: string;
     report: InteractiveInterviewReport;
   }) => Promise<{ saved: boolean; report_path?: string } | null>;
+  resolveEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
 }
 
 const ROLE_BADGES: Record<string, string> = {
@@ -254,7 +256,8 @@ export function InteractiveInterviewHall({
   onSelectRole,
   onSelectProvider,
   onAskQuestion,
-  onSaveReport
+  onSaveReport,
+  resolveEnvOverrides
 }: InteractiveInterviewHallProps) {
   const [messages, setMessages] = useState<InterviewMessage[]>([]);
   const [customQuestion, setCustomQuestion] = useState('');
@@ -269,13 +272,32 @@ export function InteractiveInterviewHall({
   const [saving, setSaving] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const { events: sessionEvents, addEvent: addSessionEvent, resetEvents: resetSessionEvents } = useTestEvents();
+  const [thinkingEvents, setThinkingEvents] = useState<RealtimeThinkingEvent[]>([]);
   const [debugMode, setDebugMode] = useState(false);
   const [useStreamingMode, setUseStreamingMode] = useState(true); // Enable streaming by default
+  const handleThinkingEvent = useCallback((event: RealtimeThinkingEvent) => {
+    setThinkingEvents((prev) => {
+      const next = [...prev];
+      const existingIndex = next.findIndex(
+        (item) => item.id === event.id && item.kind === event.kind
+      );
+      if (existingIndex >= 0) {
+        next[existingIndex] = { ...next[existingIndex], ...event };
+        return next;
+      }
+      next.push(event);
+      const maxEvents = 200;
+      if (next.length <= maxEvents) return next;
+      return next.slice(next.length - maxEvents);
+    });
+  }, []);
+  const clearThinkingEvents = useCallback(() => setThinkingEvents([]), []);
 
   const { isStreaming: isStreamConnecting, startStream, stopStream } = useInterviewStream({
     onEvent: (event) => {
       pushSessionEvent(event);
     },
+    onThinkingEvent: handleThinkingEvent,
     onStart: (streamSessionId) => {
       if (!sessionId) {
         setSessionId(streamSessionId);
@@ -341,6 +363,35 @@ export function InteractiveInterviewHall({
     () => messages.filter((message) => message.type === 'answer'),
     [messages]
   );
+  const qaPairs = useMemo(() => {
+    const pairs: Array<{ question: InterviewMessage | null; answer: InterviewMessage | null }> = [];
+    let pendingQuestion: InterviewMessage | null = null;
+    messages.forEach((message) => {
+      if (message.type === 'question') {
+        if (pendingQuestion) {
+          pairs.push({ question: pendingQuestion, answer: null });
+        }
+        pendingQuestion = message;
+        return;
+      }
+      if (message.type === 'answer') {
+        if (pendingQuestion) {
+          pairs.push({ question: pendingQuestion, answer: message });
+          pendingQuestion = null;
+          return;
+        }
+        pairs.push({ question: null, answer: message });
+        return;
+      }
+      pairs.push({ question: null, answer: message });
+    });
+    if (pendingQuestion) {
+      pairs.push({ question: pendingQuestion, answer: null });
+    }
+    return pairs;
+  }, [messages]);
+  const thinkingEnabled = debugMode && useStreamingMode;
+  const showThinkingPanel = thinkingEnabled || thinkingEvents.length > 0;
   const hasPendingEvaluation = answerMessages.some(
     (message) => !message.evaluation || message.evaluation.userRating === 'pending'
   );
@@ -363,9 +414,10 @@ export function InteractiveInterviewHall({
     setUserNotes('');
     setSessionStatus('idle');
     resetSessionEvents();
+    clearThinkingEvents();
     setDebugMode(false);
     setUseStreamingMode(true);
-  }, [resetSessionEvents, selectedRole, selectedProvider, stopStream]);
+  }, [clearThinkingEvents, resetSessionEvents, selectedRole, selectedProvider, stopStream]);
 
   useEffect(() => {
     return () => {
@@ -456,6 +508,15 @@ export function InteractiveInterviewHall({
         setSessionId(streamSessionId);
       }
 
+      let envOverrides: Record<string, string> | null = null;
+      if (resolveEnvOverrides) {
+        try {
+          envOverrides = await resolveEnvOverrides(selectedProvider);
+        } catch {
+          envOverrides = null;
+        }
+      }
+
       await startStream({
         roleId: selectedRole,
         providerId: selectedProvider,
@@ -465,6 +526,7 @@ export function InteractiveInterviewHall({
         expectsThinking: template ? template.difficulty !== 'basic' : undefined,
         sessionId: streamSessionId,
         context: buildContext(),
+        envOverrides: envOverrides || undefined,
       });
       return;
     }
@@ -757,6 +819,7 @@ export function InteractiveInterviewHall({
     setDebugMode(false);
     setUseStreamingMode(true);
     resetSessionEvents();
+    clearThinkingEvents();
   };
 
   if (view === 'report' && report) {
@@ -981,92 +1044,118 @@ export function InteractiveInterviewHall({
               {selectedModel ? `• ${selectedModel}` : ''}
             </div>
 
+            {showThinkingPanel ? (
+              <RealtimeThinkingDisplay
+                events={thinkingEvents}
+                enabled={thinkingEnabled}
+                isStreaming={responding && thinkingEnabled}
+                onClear={clearThinkingEvents}
+                className="flex-shrink-0"
+              />
+            ) : null}
+
             {messages.length === 0 ? (
               <div className="text-xs text-text-dim flex-1 flex items-center justify-center">暂无对话记录，请从左侧选择问题。</div>
             ) : (
               <div className="space-y-3 flex-1 min-h-0 overflow-auto pr-2">
-                {messages.map((message) => (
+                {qaPairs.map((pair, index) => {
+                  const question = pair.question;
+                  const answer = pair.answer;
+                  const criteria = answer?.expectedCriteria || question?.expectedCriteria || [];
+                  return (
                   <div
-                    key={message.id}
-                    className={`rounded-lg border p-3 text-xs flex-shrink-0 ${
-                      message.type === 'question'
-                        ? 'border-cyan-500/20 bg-cyan-500/5'
-                        : 'border-emerald-500/20 bg-emerald-500/5'
-                    }`}
+                    key={question?.id || answer?.id || `qa-${index}`}
+                    className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs flex-shrink-0 space-y-3"
                   >
-                    <div className="text-[10px] uppercase tracking-wide text-text-dim mb-1">
-                      {message.type === 'question' ? 'Question' : 'Answer'}
+                    <div className="text-[10px] uppercase tracking-wide text-text-dim">
+                      问答 {index + 1}
                     </div>
-                    <div className="text-text-main whitespace-pre-wrap">{message.content}</div>
-                    {message.thinking ? (
-                      <div className="mt-2 text-[11px] text-text-dim whitespace-pre-wrap">
-                        <span className="text-[10px] uppercase tracking-wide">Thinking</span>
-                        <div>{message.thinking}</div>
+
+                    {question ? (
+                      <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
+                        <div className="text-[10px] uppercase tracking-wide text-text-dim mb-1">Question</div>
+                        <div className="text-text-main whitespace-pre-wrap">{question.content}</div>
                       </div>
                     ) : null}
 
-                    {message.type === 'answer' ? (
-                      <div className="mt-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => updateEvaluation(message.id, { userRating: 'pass' })}
-                            className={`px-2 py-1 text-[10px] rounded border ${
-                              message.evaluation?.userRating === 'pass'
-                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                                : 'border-white/10 text-text-dim'
-                            }`}
-                          >
-                            <Check className="size-3 inline-block mr-1" />
-                            通过
-                          </button>
-                          <button
-                            onClick={() => updateEvaluation(message.id, { userRating: 'fail' })}
-                            className={`px-2 py-1 text-[10px] rounded border ${
-                              message.evaluation?.userRating === 'fail'
-                                ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
-                                : 'border-white/10 text-text-dim'
-                            }`}
-                          >
-                            <XCircle className="size-3 inline-block mr-1" />
-                            失败
-                          </button>
-                        </div>
-
-                        {message.expectedCriteria && message.expectedCriteria.length > 0 ? (
-                          <div className="space-y-1 text-[10px] text-text-dim">
-                            <div className="uppercase tracking-wide">评估指标</div>
-                            <div className="flex flex-wrap gap-2">
-                              {message.expectedCriteria.map((item) => (
-                                <label key={item} className="flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(message.evaluation?.criteriaAssessment?.[item])}
-                                    onChange={(event) => {
-                                      updateEvaluation(message.id, {
-                                        criteriaAssessment: {
-                                          ...(message.evaluation?.criteriaAssessment || {}),
-                                          [item]: event.target.checked
-                                        }
-                                      });
-                                    }}
-                                  />
-                                  {item}
-                                </label>
-                              ))}
-                            </div>
+                    {answer ? (
+                      <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+                        <div className="text-[10px] uppercase tracking-wide text-text-dim mb-1">Answer</div>
+                        <div className="text-text-main whitespace-pre-wrap">{answer.content}</div>
+                        {answer.thinking ? (
+                          <div className="text-[11px] text-text-dim whitespace-pre-wrap">
+                            <span className="text-[10px] uppercase tracking-wide">Thinking</span>
+                            <div>{answer.thinking}</div>
                           </div>
                         ) : null}
 
-                        <input
-                          value={message.evaluation?.notes || ''}
-                          onChange={(event) => updateEvaluation(message.id, { notes: event.target.value })}
-                          placeholder="备注（可选）"
-                          className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px]"
-                        />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => updateEvaluation(answer.id, { userRating: 'pass' })}
+                              className={`px-2 py-1 text-[10px] rounded border ${
+                                answer.evaluation?.userRating === 'pass'
+                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                                  : 'border-white/10 text-text-dim'
+                              }`}
+                            >
+                              <Check className="size-3 inline-block mr-1" />
+                              通过
+                            </button>
+                            <button
+                              onClick={() => updateEvaluation(answer.id, { userRating: 'fail' })}
+                              className={`px-2 py-1 text-[10px] rounded border ${
+                                answer.evaluation?.userRating === 'fail'
+                                  ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                                  : 'border-white/10 text-text-dim'
+                              }`}
+                            >
+                              <XCircle className="size-3 inline-block mr-1" />
+                              失败
+                            </button>
+                          </div>
+
+                          {criteria.length > 0 ? (
+                            <div className="space-y-1 text-[10px] text-text-dim">
+                              <div className="uppercase tracking-wide">评估指标</div>
+                              <div className="flex flex-wrap gap-2">
+                                {criteria.map((item) => (
+                                  <label key={item} className="flex items-center gap-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(answer.evaluation?.criteriaAssessment?.[item])}
+                                      onChange={(event) => {
+                                        updateEvaluation(answer.id, {
+                                          criteriaAssessment: {
+                                            ...(answer.evaluation?.criteriaAssessment || {}),
+                                            [item]: event.target.checked
+                                          }
+                                        });
+                                      }}
+                                    />
+                                    {item}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <input
+                            value={answer.evaluation?.notes || ''}
+                            onChange={(event) => updateEvaluation(answer.id, { notes: event.target.value })}
+                            placeholder="备注（可选）"
+                            className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px]"
+                          />
+                        </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="text-[11px] text-text-dim">
+                        {responding ? '等待回答中...' : '暂无回答'}
+                      </div>
+                    )}
                   </div>
-                ))}
+                );
+                })}
               </div>
             )}
 
