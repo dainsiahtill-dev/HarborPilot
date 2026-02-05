@@ -1,4 +1,6 @@
-import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck, Loader2, Cpu, Zap } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck, Loader2, Cpu, Zap, Info } from 'lucide-react';
+import { useState } from 'react';
+import { MultiRoleInterviewStatus, InterviewDetailsModal } from './MultiRoleInterviewStatus';
 
 export interface InterviewRoleSummary {
   id: 'pm' | 'director' | 'qa' | 'docs';
@@ -43,6 +45,17 @@ export interface ConnectivityResult {
   };
 }
 
+// 面试结果详情接口
+export interface InterviewResultDetail {
+  status: 'passed' | 'failed' | 'none';
+  timestamp?: string;
+  score?: number;
+  lastRunId?: string;
+  thinkingSupported?: boolean;
+  thinkingConfidence?: number | null;
+}
+
+// 扩展后的面试提供商摘要接口
 export interface InterviewProviderSummary {
   id: string;
   name: string;
@@ -57,7 +70,11 @@ export interface InterviewProviderSummary {
     latencyMs?: number;
     error?: string;
   };
+  // 扩展：多角色面试结果（替代单一 interviewStatus）
+  interviewResults?: Record<RoleId, InterviewResultDetail>;
+  // 保持向后兼容：单一面试状态
   interviewStatus?: 'passed' | 'failed' | 'none';
+  // 保持向后兼容：最后面试记录
   lastInterview?: {
     timestamp: string;
     status: 'passed' | 'failed';
@@ -293,6 +310,7 @@ function InterviewHallV2({
   connectivityRunning,
   onSkipConnectivityTest
 }: InterviewHallV2Props) {
+  const [inspectingProvider, setInspectingProvider] = useState<InterviewProviderSummary | null>(null);
   const activeRole = roles.find(role => role.id === selectedRole);
   const activeProvider = providers.find(provider => provider.id === selectedProvider);
   const connectivityKey = activeRole && selectedProvider ? `${activeRole.id}::${selectedProvider}` : null;
@@ -426,15 +444,20 @@ function InterviewHallV2({
                           <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${styles.border} ${styles.text}`}>
                             {STATUS_LABELS[provider.status]}
                           </span>
-                          {provider.interviewStatus && provider.interviewStatus !== 'none' ? (
-                            <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${
-                              provider.interviewStatus === 'passed'
-                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                                : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
-                            }`}>
-                              {provider.interviewStatus === 'passed' ? '面试通过' : '面试失败'}
-                            </span>
-                          ) : null}
+                          <div className="flex items-center gap-2">
+                            <MultiRoleInterviewStatus provider={provider} compact />
+                            {(provider.interviewResults && Object.keys(provider.interviewResults).length > 0) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInspectingProvider(provider);
+                                }}
+                                className="text-text-dim hover:text-cyan-200 transition-colors"
+                              >
+                                <Info className="size-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-1 text-[10px] text-text-dim">
                           {provider.providerType} • {provider.model || '未设置模型'}
@@ -556,6 +579,9 @@ function InterviewHallV2({
           </div>
         </div>
       </div>
+      {inspectingProvider && (
+        <InterviewDetailsModal provider={inspectingProvider} onClose={() => setInspectingProvider(null)} />
+      )}
     </div>
   );
 }

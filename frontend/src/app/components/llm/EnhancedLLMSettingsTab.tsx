@@ -957,6 +957,41 @@ export function EnhancedLLMSettingsTab({
           ? 'success'
           : 'failed';
       setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: connectivityStatus }));
+      
+      // Enhanced persistence: Save success status to multiple storage mechanisms
+      if (ready) {
+        // 1. Update immediate cache for current session
+        previousValidStatus.current = {
+          ...previousValidStatus.current,
+          [selectedTestProvider.id]: 'success'
+        };
+        
+        // 2. Save to connectivity results for persistence
+        const key = `${selectedRole}::${selectedTestProvider.id}`;
+        const model = resolveModelForSelection(selectedRole, selectedTestProvider.id);
+        const connectivityResult: ConnectivityResult = {
+          ok: true,
+          timestamp: new Date().toISOString(),
+          model: model
+        };
+        setConnectivityResults((prev) => {
+          const next = new Map(prev);
+          next.set(key, connectivityResult);
+          return next;
+        });
+        
+        // 3. Save to localStorage for cross-session persistence
+        try {
+          const storageKey = `llm_provider_status_${selectedTestProvider.id}`;
+          localStorage.setItem(storageKey, JSON.stringify({
+            status: 'success',
+            timestamp: Date.now(),
+            model: model
+          }));
+        } catch (e) {
+          console.warn('Failed to persist provider status to localStorage:', e);
+        }
+      }
       setTestStatus(ready ? 'success' : 'failed');
       addEvent({
         type: ready ? 'result' : 'error',
@@ -979,29 +1014,119 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
+  // Cache previous valid statuses to prevent flickering to 'unknown' during transient updates
+  const previousValidStatus = useRef<Record<string, ConnectivityStatus>>({});
+
+  // Restore persisted statuses from localStorage on component mount
+  useEffect(() => {
+    if (!llmConfig) return;
+    
+    const restored: Record<string, ConnectivityStatus> = {};
+    const providers = llmConfig.providers || {};
+    
+    Object.keys(providers).forEach(providerId => {
+      const storageKey = `llm_provider_status_${providerId}`;
+      const stored = localStorage.getItem(storageKey);
+      
+      if (stored) {
+        try {
+          const data = JSON.parse(stored);
+          // Only restore statuses from the last 24 hours
+          if (Date.now() - data.timestamp < 24 * 60 * 60 * 1000) {
+            restored[providerId] = data.status;
+          } else {
+            // Clean up old entries
+            localStorage.removeItem(storageKey);
+          }
+        } catch (e) {
+          console.warn(`Failed to restore status for provider ${providerId}:`, e);
+          localStorage.removeItem(storageKey);
+        }
+      }
+    });
+    
+    // Update cache with restored statuses
+    previousValidStatus.current = { ...previousValidStatus.current, ...restored };
+  }, [llmConfig]);
+
   const providerConnectivityStatus = useMemo(() => {
     const status: Record<string, ConnectivityStatus> = {};
     const providersStatus = llmStatus?.providers;
-    if (!providersStatus) return status;
-    Object.entries(providersStatus).forEach(([providerId, providerStatus]) => {
-      if (!providerStatus || typeof providerStatus !== 'object') {
-        status[providerId] = 'unknown';
-        return;
+    
+    // Calculate current status from llmStatus
+    if (providersStatus) {
+      Object.entries(providersStatus).forEach(([providerId, providerStatus]) => {
+        if (!providerStatus || typeof providerStatus !== 'object') {
+          // Don't set unknown yet, just skip
+          return;
+        }
+        const suites = providerStatus.suites as Record<string, unknown> | undefined;
+        const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
+        
+        let determinedStatus: ConnectivityStatus | undefined;
+        
+        if (connectivity && typeof connectivity.ok === 'boolean') {
+          determinedStatus = connectivity.ok ? 'success' : 'failed';
+        } else if (typeof providerStatus.ready === 'boolean') {
+          determinedStatus = providerStatus.ready ? 'success' : 'failed';
+        }
+
+        if (determinedStatus) {
+          status[providerId] = determinedStatus;
+        }
+      });
+    }
+
+    // Smart merge with previous valid status to ensure stability
+    const merged = { ...previousValidStatus.current };
+    
+    // Only update statuses that have explicit changes and are valid
+    Object.entries(status).forEach(([providerId, newStatus]) => {
+      const oldStatus = previousValidStatus.current[providerId];
+      // Only update when new status is valid and different from old status
+      if (newStatus !== 'unknown' && newStatus !== oldStatus) {
+        merged[providerId] = newStatus;
       }
-      const suites = providerStatus.suites as Record<string, unknown> | undefined;
-      const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
-      if (connectivity && typeof connectivity.ok === 'boolean') {
-        status[providerId] = connectivity.ok ? 'success' : 'failed';
-        return;
-      }
-      if (typeof providerStatus.ready === 'boolean') {
-        status[providerId] = providerStatus.ready ? 'success' : 'failed';
-        return;
-      }
-      status[providerId] = 'unknown';
     });
-    return status;
+    
+    // Preserve valid cached statuses that are not overridden
+    Object.entries(previousValidStatus.current).forEach(([providerId, oldStatus]) => {
+      if (oldStatus !== 'unknown' && !status[providerId]) {
+        merged[providerId] = oldStatus;
+      }
+    });
+    
+    // Update cache
+    previousValidStatus.current = merged;
+    return merged;
   }, [llmStatus]);
+
+  // Add state change monitoring for debugging
+  useEffect(() => {
+    console.log('Provider connectivity status changed:', {
+      providerConnectivityStatus,
+      providerTestStatus,
+      timestamp: new Date().toISOString()
+    });
+  }, [providerConnectivityStatus, providerTestStatus]);
+
+  // Monitor for status loss during config saves
+  useEffect(() => {
+    if (!llmStatus?.providers) return;
+    
+    const currentProviders = Object.keys(llmStatus.providers);
+    const statusProviders = Object.keys(providerConnectivityStatus);
+    
+    const lostStatusProviders = statusProviders.filter(
+      providerId => !currentProviders.includes(providerId) && 
+                   providerConnectivityStatus[providerId] !== 'unknown'
+    );
+    
+    if (lostStatusProviders.length > 0) {
+      console.warn('Detected lost provider statuses after llmStatus update:', lostStatusProviders);
+      // Status cache will preserve these lost statuses
+    }
+  }, [llmStatus, providerConnectivityStatus]);
 
   const interviewProviders = useMemo<InterviewProviderSummary[]>(() => {
     if (!llmConfig) return [];
@@ -1012,16 +1137,55 @@ export function EnhancedLLMSettingsTab({
         return undefined;
       }
       const matchesModel = (value: ConnectivityResult) => {
-        return value.model ? value.model === desiredModel : false;
+        // If we have a desired model, try to match it
+        if (desiredModel && value.model) {
+           return value.model === desiredModel;
+        }
+        // If no desired model specified (or value has none), rely on timestamp/providerId match primarily
+        return true; 
       };
+      
+      // First try exact match with role and provider
       if (selectedRole) {
-        const direct = connectivityResults.get(`${selectedRole}::${providerId}`);
-        if (direct && matchesModel(direct)) return direct;
+        const directKey = `${selectedRole}::${providerId}`;
+        const direct = connectivityResults.get(directKey);
+        if (direct) {
+             // If we found a direct role match, check model if possible, but trust the key first
+             // This fixes the issue where config update re-renders but map has old data?
+             // Actually, if config updates, desiredModel updates. If map has old model, it returns false.
+             // That is CORRECT for the edited provider.
+             // But for others? Their desiredModel shouldn't change.
+             
+             // Wait, if I edit Provider A, `llmConfig` changes. 
+             // Provider B's `resolveModelForSelection` is called.
+             // It uses `llmConfig`. 
+             // If `llmConfig` is fresh, Provider B's model is same.
+             
+             // Issue might be `connectivityResults` being cleared? 
+             // Let's verify if `setConnectivityResults` is called anywhere else.
+             
+             if (matchesModel(direct)) return direct;
+        }
       }
+
+      // Fallback: search for any result for this provider
       let best: ConnectivityResult | undefined;
       connectivityResults.forEach((value, key) => {
+        // Strict check: key must imply this provider.
+        // Keys are either `role::provider` or `provider` (if we support that, though we usually use role::provider)
+        // Actually, logs show keys are like `qa::ollama-...`.
+        
         if (!key.endsWith(`::${providerId}`)) return;
+        
+        // If we have a desired model, we should probably enforce it, 
+        // BUT if the user is just browsing, seeing "last known good" is better than "unknown".
+        // Let's relax matching: if exact model match fails, maybe show it but mark as 'stale'?
+        // For now, let's just return the best result we have for this provider, 
+        // and let the UI decide if it's valid.
+        
+        // Current logic:
         if (!matchesModel(value)) return;
+        
         if (!best || parseTimestamp(value.timestamp) > parseTimestamp(best.timestamp)) {
           best = value;
         }
@@ -1049,6 +1213,18 @@ export function EnhancedLLMSettingsTab({
             : 'untested';
 
       const providerInterview = latestByProvider[providerId];
+
+      const interviewResults: Record<string, { status: 'passed' | 'failed' | 'none'; timestamp?: string; score?: number; lastRunId?: string; thinkingSupported?: boolean; thinkingConfidence?: number | null }> = {};
+      
+      // Populate multi-role results
+      Object.values(latestByRoleProviderModel).forEach((interview) => {
+         if (interview.provider_id === providerId && interview.model === model) {
+             interviewResults[interview.role] = {
+                 status: interview.status as 'passed' | 'failed',
+                 timestamp: interview.timestamp,
+             };
+         }
+      });
 
       let interviewStatus: InterviewProviderSummary['interviewStatus'] = 'none';
       let lastInterview: InterviewProviderSummary['lastInterview'] | undefined;
@@ -1093,6 +1269,7 @@ export function EnhancedLLMSettingsTab({
             }
           : undefined,
         interviewStatus,
+        interviewResults,
         lastInterview
       };
     });
@@ -1366,6 +1543,28 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
+  // Helper function to determine connectivity state (moved to component top)
+  const determineConnectivityState = useCallback((providerId: string) => {
+    const localStatus = providerTestStatus[providerId];
+    const persistedStatus = providerConnectivityStatus[providerId];
+    
+    // Priority 1: Running test status
+    if (localStatus === 'running') return 'running';
+    
+    // Priority 2: Valid persisted status (not unknown)
+    if (persistedStatus && persistedStatus !== 'unknown') {
+      return persistedStatus;
+    }
+    
+    // Priority 3: Valid local status (not running and not unknown)
+    if (localStatus && localStatus !== 'unknown') {
+      return localStatus;
+    }
+    
+    // Fallback to unknown only if no valid status available
+    return 'unknown';
+  }, [providerTestStatus, providerConnectivityStatus]);
+
   const renderProviderCard = (providerId: string, provider: ProviderConfig) => {
     const providerInfo = getProviderInfo(provider.type || '');
     const ProviderComponent = getProviderComponent(provider.type || '');
@@ -1379,10 +1578,9 @@ export function EnhancedLLMSettingsTab({
 
     const localStatus = providerTestStatus[providerId];
     const persistedStatus = providerConnectivityStatus[providerId];
-    const connectivityState =
-      localStatus === 'running'
-        ? 'running'
-        : persistedStatus || localStatus || 'unknown';
+    
+    // Use the helper function to determine connectivity state
+    const connectivityState = determineConnectivityState(providerId);
     const statusStyleKey = connectivityState === 'running' ? 'unknown' : connectivityState;
     const statusStyles = {
       unknown: {
