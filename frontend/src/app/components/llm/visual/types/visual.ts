@@ -41,9 +41,15 @@ export interface VisualEdgeData {
   kind: VisualEdgeKind;
 }
 
+export interface VisualNodePosition {
+  x: number;
+  y: number;
+}
+
 export interface VisualGraphConfig {
   providers: Record<string, unknown>;
   roles: Record<string, { provider_id?: string; model?: string; profile?: string }>;
+  visual_layout?: Record<string, VisualNodePosition>;
   policies?: {
     role_requirements?: Record<string, { requires_thinking?: boolean; min_confidence?: number; error_message?: string }>;
   };

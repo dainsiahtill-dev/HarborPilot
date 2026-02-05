@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck, Loader2, Cpu, Zap } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PlayCircle, ShieldCheck, Loader2, Cpu, Zap } from 'lucide-react';
 
 export interface InterviewRoleSummary {
   id: 'pm' | 'director' | 'qa' | 'docs';
@@ -56,6 +56,13 @@ export interface InterviewProviderSummary {
     success: boolean;
     latencyMs?: number;
     error?: string;
+  };
+  interviewStatus?: 'passed' | 'failed' | 'none';
+  lastInterview?: {
+    timestamp: string;
+    status: 'passed' | 'failed';
+    role?: string;
+    model?: string;
   };
 }
 
@@ -419,6 +426,15 @@ function InterviewHallV2({
                           <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${styles.border} ${styles.text}`}>
                             {STATUS_LABELS[provider.status]}
                           </span>
+                          {provider.interviewStatus && provider.interviewStatus !== 'none' ? (
+                            <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${
+                              provider.interviewStatus === 'passed'
+                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                            }`}>
+                              {provider.interviewStatus === 'passed' ? '面试通过' : '面试失败'}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="mt-1 text-[10px] text-text-dim">
                           {provider.providerType} • {provider.model || '未设置模型'}
@@ -442,6 +458,11 @@ function InterviewHallV2({
                       <div className="mt-2 text-[10px] text-text-dim">
                         Thinking 置信度：{Math.round(provider.thinkingConfidence * 100)}%
                         {provider.thinkingSupported === false ? ' (不支持)' : ''}
+                      </div>
+                    ) : null}
+                    {provider.lastInterview ? (
+                      <div className="mt-2 text-[10px] text-text-dim">
+                        最近面试：{provider.interviewStatus === 'passed' ? '通过' : '未通过'} • {formatTimestamp(provider.lastInterview.timestamp)}
                       </div>
                     ) : null}
                   </button>

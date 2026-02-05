@@ -6,6 +6,7 @@ import {
   ReactFlow,
   type Connection,
   type Node,
+  type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useVisualLLMConfig } from './hooks/useVisualLLMConfig';
@@ -29,6 +30,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     onEdgesDelete,
     onConnect,
     addModel,
+    syncNodePositions,
   } = useVisualLLMConfig({ config, status, onConfigChange });
 
   const [modelDraft, setModelDraft] = useState('');
@@ -58,6 +60,17 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     return '#34d399';
   };
 
+  const handleNodesChange = (changes: NodeChange[]) => {
+    onNodesChange(changes);
+    // 当拖拽结束时，同步位置到 config
+    const hasPositionChange = changes.some(
+      (change) => change.type === 'position' && !change.dragging
+    );
+    if (hasPositionChange && config && onConfigChange) {
+      syncNodePositions(config);
+    }
+  };
+
   if (!config) {
     return (
       <div className="rounded-xl border border-white/10 bg-black/30 p-6 text-xs text-text-dim">
@@ -84,7 +97,13 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           {onSave ? (
             <button
               type="button"
-              onClick={() => onSave?.()}
+              onClick={() => {
+                // 保存前同步位置
+                if (config && onConfigChange) {
+                  syncNodePositions(config);
+                }
+                onSave?.();
+              }}
               className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white rounded transition-colors"
             >
               保存配置
@@ -133,7 +152,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
+          onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onEdgesDelete={onEdgesDelete}
           onConnect={onConnect}
@@ -155,4 +174,3 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     </div>
   );
 }
-

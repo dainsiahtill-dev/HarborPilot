@@ -35,6 +35,10 @@ from ..llm.providers import (
     provider_manager,
 )
 from ..utils import save_persisted_settings
+from ..services.interactive_interview import (
+    load_interview_history_summary,
+)
+
 
 router = APIRouter()
 
@@ -402,6 +406,9 @@ def llm_status(request: Request) -> Dict[str, Any]:
     global_state = "READY"
     if blocked or unsupported:
         global_state = "BLOCKED"
+
+    interview_summary = load_interview_history_summary(state.settings)
+
     return {
         "roles": roles_status,
         "providers": providers_status,
@@ -409,6 +416,7 @@ def llm_status(request: Request) -> Dict[str, Any]:
         "blocked_roles": blocked,
         "unsupported_roles": unsupported,
         "state": global_state,
+        "interviews": interview_summary,
     }
 
 

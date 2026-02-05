@@ -971,13 +971,24 @@ export function InteractiveInterviewHall({
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="flex items-center gap-2">
                       <div className="text-xs text-text-main font-semibold">{provider.name}</div>
-                      <div className="text-[10px] text-text-dim">{provider.model || '未设置模型'}</div>
+                      {provider.interviewStatus && provider.interviewStatus !== 'none' ? (
+                        <span className={`text-[9px] uppercase px-1.5 py-0.5 rounded border ${
+                          provider.interviewStatus === 'passed'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                            : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                        }`}>
+                          {provider.interviewStatus === 'passed' ? '面试通过' : '面试失败'}
+                        </span>
+                      ) : null}
                     </div>
-                    <span className={`text-[9px] uppercase px-2 py-0.5 rounded border ${styles.border} ${styles.text}`}>
-                      {STATUS_LABELS[provider.status]}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-text-dim">{provider.model || '未设置模型'}</span>
+                      <span className={`text-[9px] uppercase px-2 py-0.5 rounded border ${styles.border} ${styles.text}`}>
+                        {STATUS_LABELS[provider.status]}
+                      </span>
+                    </div>
                   </div>
                 </button>
               );

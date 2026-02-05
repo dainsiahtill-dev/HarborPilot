@@ -5,6 +5,7 @@ import type {
   VisualGraphStatus,
   VisualModelNodeData,
   VisualNodeData,
+  VisualNodePosition,
   VisualProviderNodeData,
   VisualRoleId,
   VisualRoleNodeData,
@@ -40,6 +41,7 @@ export const buildVisualGraph = (
 ): { nodes: Node<VisualNodeData>[]; edges: Edge<VisualEdgeData>[] } => {
   const providers = Object.entries(config.providers || {});
   const roleReqs = config.policies?.role_requirements || {};
+  const savedLayout = config.visual_layout || {};
 
   const providerModels = new Map<string, Set<string>>();
   const addModel = (providerId: string, model: string) => {
@@ -80,10 +82,12 @@ export const buildVisualGraph = (
         ? providerCfg.name.trim()
         : providerId;
     const modelList = Array.from(providerModels.get(providerId) || []);
+    
+    const savedProviderPosition = savedLayout[providerNodeId(providerId)];
     const providerNode: Node<VisualProviderNodeData> = {
       id: providerNodeId(providerId),
       type: 'provider',
-      position: { x: 40, y: providerIndex * 180 + 40 },
+      position: savedProviderPosition || { x: 40, y: providerIndex * 180 + 40 },
       data: {
         kind: 'provider',
         providerId,
@@ -95,10 +99,11 @@ export const buildVisualGraph = (
     nodes.push(providerNode);
 
     modelList.forEach((model, modelIndex) => {
+      const savedModelPosition = savedLayout[modelNodeId(providerId, model)];
       const modelNode: Node<VisualModelNodeData> = {
         id: modelNodeId(providerId, model),
         type: 'model',
-        position: { x: 340, y: providerIndex * 180 + modelIndex * 120 + 40 },
+        position: savedModelPosition || { x: 340, y: providerIndex * 180 + modelIndex * 120 + 40 },
         data: {
           kind: 'model',
           providerId,
@@ -122,10 +127,12 @@ export const buildVisualGraph = (
     const requirement = roleReqs[roleId] || {};
     const readiness = status?.roles?.[roleId];
     const meta = ROLE_META[roleId];
+    
+    const savedRolePosition = savedLayout[roleNodeId(roleId)];
     nodes.push({
       id: roleNodeId(roleId),
       type: 'role',
-      position: { x: 700, y: index * 180 + 40 },
+      position: savedRolePosition || { x: 700, y: index * 180 + 40 },
       data: {
         kind: 'role',
         roleId,
@@ -228,5 +235,26 @@ export const addManualModel = (
       ...config.providers,
       [providerId]: providerCfg,
     },
+  };
+};
+
+export const extractNodePositions = (nodes: Node<VisualNodeData>[]): Record<string, VisualNodePosition> => {
+  const layout: Record<string, VisualNodePosition> = {};
+  nodes.forEach((node) => {
+    if (node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number') {
+      layout[node.id] = { x: node.position.x, y: node.position.y };
+    }
+  });
+  return layout;
+};
+
+export const updateVisualLayout = (
+  config: VisualGraphConfig,
+  nodes: Node<VisualNodeData>[]
+): VisualGraphConfig => {
+  const layout = extractNodePositions(nodes);
+  return {
+    ...config,
+    visual_layout: layout,
   };
 };

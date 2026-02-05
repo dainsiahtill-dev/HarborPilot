@@ -74,6 +74,33 @@ interface LlmStatus {
       role?: string | null;
     }
   >;
+  interviews?: {
+    lastUpdated: string | null;
+    latest_by_provider: Record<
+      string,
+      {
+        id: string;
+        role: string;
+        provider_id: string;
+        model: string;
+        status: 'passed' | 'failed';
+        timestamp: string;
+        report_path: string;
+      }
+    >;
+    latest_by_role_provider_model: Record<
+      string,
+      {
+        id: string;
+        role: string;
+        provider_id: string;
+        model: string;
+        status: 'passed' | 'failed';
+        timestamp: string;
+        report_path: string;
+      }
+    >;
+  };
 }
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
@@ -1002,6 +1029,10 @@ export function EnhancedLLMSettingsTab({
       return best;
     };
 
+    const interviews = llmStatus?.interviews;
+    const latestByProvider = interviews?.latest_by_provider || {};
+    const latestByRoleProviderModel = interviews?.latest_by_role_provider_model || {};
+
     return Object.entries(providersConfig).map(([providerId, providerCfg]) => {
       const providerInfo = getProviderInfo(providerCfg.type || '');
       const model = resolveProviderModel(providerId, providerCfg, llmConfig.roles);
@@ -1016,6 +1047,35 @@ export function EnhancedLLMSettingsTab({
           : connectivity?.ok === false
             ? 'failed'
             : 'untested';
+
+      const providerInterview = latestByProvider[providerId];
+
+      let interviewStatus: InterviewProviderSummary['interviewStatus'] = 'none';
+      let lastInterview: InterviewProviderSummary['lastInterview'] | undefined;
+
+      if (providerInterview && selectedRole) {
+        const roleProviderModelKey = `${selectedRole}::${providerId}::${model}`;
+        const roleProviderModelInterview = latestByRoleProviderModel[roleProviderModelKey];
+
+        if (roleProviderModelInterview) {
+          interviewStatus = roleProviderModelInterview.status === 'passed' ? 'passed' : 'failed';
+          lastInterview = {
+            timestamp: roleProviderModelInterview.timestamp,
+            status: roleProviderModelInterview.status as 'passed' | 'failed',
+            role: roleProviderModelInterview.role,
+            model: roleProviderModelInterview.model
+          };
+        } else if (providerInterview) {
+          interviewStatus = providerInterview.status === 'passed' ? 'passed' : 'failed';
+          lastInterview = {
+            timestamp: providerInterview.timestamp,
+            status: providerInterview.status as 'passed' | 'failed',
+            role: providerInterview.role,
+            model: providerInterview.model
+          };
+        }
+      }
+
       return {
         id: providerId,
         name: providerCfg.name || providerInfo?.name || providerId,
@@ -1031,7 +1091,9 @@ export function EnhancedLLMSettingsTab({
               latencyMs: connectivity.latencyMs,
               error: connectivity.error
             }
-          : undefined
+          : undefined,
+        interviewStatus,
+        lastInterview
       };
     });
   }, [connectivityResults, connectivityRunningKey, getProviderInfo, llmConfig, llmStatus, selectedRole]);
@@ -1330,6 +1392,10 @@ export function EnhancedLLMSettingsTab({
             ? '连通失败'
             : '连通未知';
 
+    const interviews = llmStatus?.interviews;
+    const latestByProvider = interviews?.latest_by_provider || {};
+    const providerInterview = latestByProvider[providerId];
+
     return (
       <div
         key={providerId}
@@ -1340,7 +1406,7 @@ export function EnhancedLLMSettingsTab({
           <div className="flex items-center gap-3">
             <div>
               <h4 className="text-sm font-semibold text-text-main">{provider.name || providerInfo.name}</h4>
-              <div className="flex items-center gap-2 text-[10px] text-text-dim">
+              <div className="flex items-center gap-2 text-[10px] text-text-dim flex-wrap">
                 <span className="capitalize">{providerInfo.type}</span>
                 <span>•</span>
                 <span className="font-mono">{provider.model || "default"}</span>
@@ -1353,7 +1419,25 @@ export function EnhancedLLMSettingsTab({
                   <span className={`size-2 rounded-full ${statusStyles.dot} animate-pulse`} />
                   {connectivityLabel}
                 </span>
+                {providerInterview ? (
+                  <>
+                    <span>•</span>
+                    <span className={`flex items-center gap-1 ${
+                      providerInterview.status === 'passed' ? 'text-emerald-300' : 'text-rose-300'
+                    }`}>
+                      <span className={`size-2 rounded-full ${
+                        providerInterview.status === 'passed' ? 'bg-emerald-400' : 'bg-rose-400'
+                      }`} />
+                      {providerInterview.status === 'passed' ? '面试通过' : '面试失败'}
+                    </span>
+                  </>
+                ) : null}
               </div>
+              {providerInterview ? (
+                <div className="mt-1 text-[10px] text-text-dim">
+                  {providerInterview.role} · {providerInterview.model} · {new Date(providerInterview.timestamp).toLocaleString()}
+                </div>
+              ) : null}
             </div>
           </div>
           

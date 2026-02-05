@@ -14,6 +14,7 @@ import {
   addManualModel,
   buildVisualGraph,
   clearRoleAssignment,
+  extractNodePositions,
   mergeNodePositions,
   modelNodeId,
   updateRoleAssignment,
@@ -48,6 +49,16 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setEdges((current) => applyEdgeChanges(changes, current));
   }, []);
+
+  const syncNodePositions = useCallback((currentConfig: VisualGraphConfig) => {
+    if (!onConfigChange) return;
+    const layout = extractNodePositions(nodes);
+    const nextConfig = {
+      ...currentConfig,
+      visual_layout: layout,
+    };
+    onConfigChange(nextConfig);
+  }, [nodes, onConfigChange]);
 
   const updateConfigRole = useCallback(
     (roleId: VisualRoleId, providerId: string, model: string) => {
@@ -187,5 +198,6 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
     addModel,
     setNodes,
     setEdges,
+    syncNodePositions,
   };
 }

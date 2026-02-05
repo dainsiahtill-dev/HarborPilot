@@ -594,3 +594,104 @@ def save_interactive_interview_report(
         {"role": role, "provider_id": provider_id, "model": model, "status": status},
     )
     return {"saved": True, "report_path": report_path, "history_path": history_path}
+
+
+def load_interview_history_summary(
+    settings: Settings,
+) -> Dict[str, Any]:
+    """
+    加载面试历史并生成摘要，返回 latest_by_provider 和 latest_by_role_provider_model 索引。
+
+    Returns:
+        {
+            "lastUpdated": "ISO timestamp or null",
+            "latest_by_provider": {
+                "providerA": {
+                    "id": "...",
+                    "role": "pm",
+                    "provider_id": "providerA",
+                    "model": "gpt-4",
+                    "status": "passed",
+                    "timestamp": "2026-02-05T20:10:00Z",
+                    "report_path": ".harborpilot/runtime/interviews/..."
+                }
+            },
+            "latest_by_role_provider_model": {
+                "pm::providerA::gpt-4": {
+                    "id": "...",
+                    "role": "pm",
+                    "provider_id": "providerA",
+                    "model": "gpt-4",
+                    "status": "passed",
+                    "timestamp": "2026-02-05T20:10:00Z",
+                    "report_path": "..."
+                }
+            }
+        }
+    """
+    workspace = settings.workspace
+    cache_root = build_cache_root(settings.ramdisk_root or "", workspace)
+    history_path = resolve_artifact_path(workspace, cache_root, ".harborpilot/runtime/interviews/interview_history.json")
+
+    result: Dict[str, Any] = {
+        "lastUpdated": None,
+        "latest_by_provider": {},
+        "latest_by_role_provider_model": {},
+    }
+
+    if not os.path.isfile(history_path):
+        return result
+
+    try:
+        with open(history_path, "r", encoding="utf-8") as handle:
+            history = json.load(handle)
+    except Exception:
+        return result
+
+    if not isinstance(history, dict):
+        return result
+
+    interviews = history.get("interviews")
+    if not isinstance(interviews, list) or len(interviews) == 0:
+        return result
+
+    def get_timestamp(item: Dict[str, Any]) -> str:
+        return str(item.get("timestamp") or item.get("endTime") or "")
+
+    interviews.sort(key=get_timestamp, reverse=True)
+
+    for item in interviews:
+        if not isinstance(item, dict):
+            continue
+
+        provider_id = str(item.get("provider_id") or "")
+        role = str(item.get("role") or "")
+        model = str(item.get("model") or "")
+        timestamp = get_timestamp(item)
+        if not provider_id or not timestamp:
+            continue
+
+        status = str(item.get("status") or "").lower()
+        if status not in ("passed", "failed"):
+            status = "failed"
+
+        summary_item = {
+            "id": item.get("id") or "",
+            "role": role,
+            "provider_id": provider_id,
+            "model": model,
+            "status": status,
+            "timestamp": timestamp,
+            "report_path": item.get("report_path") or "",
+        }
+
+        if provider_id not in result["latest_by_provider"]:
+            result["latest_by_provider"][provider_id] = summary_item
+
+        role_provider_model_key = f"{role}::{provider_id}::{model}"
+        if role_provider_model_key not in result["latest_by_role_provider_model"]:
+            result["latest_by_role_provider_model"][role_provider_model_key] = summary_item
+
+    result["lastUpdated"] = get_timestamp(interviews[0]) if interviews else None
+
+    return result
