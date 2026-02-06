@@ -1,5 +1,5 @@
 import { X, Save, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { apiFetch } from '@/api';
@@ -148,7 +148,6 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [llmError, setLlmError] = useState<string | null>(null);
   const [llmTesting, setLlmTesting] = useState<Record<string, boolean>>({});
   const [providerModels, setProviderModels] = useState<Record<string, { supported: boolean; models: string[] }>>({});
-  const [providerJsonDrafts, setProviderJsonDrafts] = useState<Record<string, { env: string; headers: string }>>({});
   const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, string>>({});
   const [reportDrawer, setReportDrawer] = useState<{ open: boolean; data: unknown | null }>({ open: false, data: null });
@@ -169,8 +168,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const llmSavePendingRef = useRef<LLMConfig | null>(null);
   const llmSaveInFlightRef = useRef(false);
   const llmSaveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
-  const providerSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const providerPendingUpdatesRef = useRef<Record<string, Partial<ProviderConfig>>>({});
+  const llmAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deletingProviders, setDeletingProviders] = useState<Record<string, boolean>>({});
 
   const clampSettingsModalSize = (size: { width: number; height: number }) => {
@@ -333,39 +331,22 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     };
   }, [isOpen]);
 
-  const clearProviderSaveTimers = () => {
-    Object.values(providerSaveTimersRef.current).forEach((timer) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    });
-    providerSaveTimersRef.current = {};
-    providerPendingUpdatesRef.current = {};
+  const clearLlmAutoSaveTimer = () => {
+    if (llmAutoSaveTimerRef.current) {
+      clearTimeout(llmAutoSaveTimerRef.current);
+      llmAutoSaveTimerRef.current = null;
+    }
   };
 
   useEffect(() => {
     if (!isOpen) {
-      clearProviderSaveTimers();
+      clearLlmAutoSaveTimer();
       return;
     }
     return () => {
-      clearProviderSaveTimers();
+      clearLlmAutoSaveTimer();
     };
   }, [isOpen]);
-
-  const syncProviderDraftsFromConfig = (config: LLMConfig) => {
-    const providers = config.providers || {};
-    setProviderJsonDrafts(() => {
-      const next: Record<string, { env: string; headers: string }> = {};
-      Object.entries(providers).forEach(([id, cfg]) => {
-        next[id] = {
-          env: safeJsonStringify(cfg.env || {}, 2),
-          headers: safeJsonStringify(cfg.headers || {}, 2),
-        };
-      });
-      return next;
-    });
-  };
 
   const loadLLMConfig = async () => {
     setLlmLoading(true);
@@ -379,7 +360,6 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       setLLMConfig(data);
       llmConfigRef.current = data;
       lastSavedConfigRef.current = data;
-      syncProviderDraftsFromConfig(data);
       await refreshProviderKeyStatus(data.providers || {});
     } catch (err) {
       setLlmError(err instanceof Error ? err.message : 'Failed to load LLM config');
@@ -491,6 +471,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         },
       };
       llmConfigRef.current = next;
+      scheduleLlmSave(next);
       return next;
     });
   };
@@ -498,44 +479,58 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const updateProvider = (providerId: string, updates: Partial<ProviderConfig>) => {
     setLLMConfig((prev) => {
       if (!prev) return prev;
+      const prevProvider = prev.providers?.[providerId] || {};
+      const prevModel =
+        typeof prevProvider.model === 'string'
+          ? prevProvider.model
+          : typeof prevProvider.model_id === 'string'
+            ? prevProvider.model_id
+            : typeof prevProvider.default_model === 'string'
+              ? prevProvider.default_model
+              : '';
+      const nextProvider = {
+        ...prevProvider,
+        ...updates,
+      };
+      const nextModel =
+        typeof nextProvider.model === 'string'
+          ? nextProvider.model
+          : typeof nextProvider.model_id === 'string'
+            ? nextProvider.model_id
+            : typeof nextProvider.default_model === 'string'
+              ? nextProvider.default_model
+              : '';
+
+      let nextRoles = prev.roles || {};
+      if (nextModel && nextModel !== prevModel) {
+        nextRoles = { ...(prev.roles || {}) };
+        Object.entries(nextRoles).forEach(([roleId, roleCfg]) => {
+          if (!roleCfg || typeof roleCfg !== 'object') return;
+          if (roleCfg.provider_id !== providerId) return;
+          const roleModel = typeof roleCfg.model === 'string' ? roleCfg.model : '';
+          if (!roleModel || roleModel === prevModel) {
+            nextRoles[roleId] = { ...roleCfg, model: nextModel };
+          }
+        });
+      }
       const next = {
         ...prev,
         providers: {
           ...prev.providers,
-          [providerId]: {
-            ...prev.providers[providerId],
-            ...updates,
-          },
+          [providerId]: nextProvider,
         },
+        roles: nextRoles,
       };
       llmConfigRef.current = next;
+      scheduleLlmSave(next);
       return next;
     });
-  };
-
-  const scheduleProviderSave = (providerId: string, updates: Partial<ProviderConfig>) => {
-    providerPendingUpdatesRef.current[providerId] = {
-      ...(providerPendingUpdatesRef.current[providerId] || {}),
-      ...updates,
-    };
-
-    const existingTimer = providerSaveTimersRef.current[providerId];
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    providerSaveTimersRef.current[providerId] = setTimeout(async () => {
-      const pending = providerPendingUpdatesRef.current[providerId];
-      if (!pending) return;
-      delete providerPendingUpdatesRef.current[providerId];
-      delete providerSaveTimersRef.current[providerId];
-      await updateProviderAndPersist(providerId, pending);
-    }, 500);
   };
 
   const updateLLMConfigDraft = (nextConfig: LLMConfig) => {
     setLLMConfig(nextConfig);
     llmConfigRef.current = nextConfig;
+    scheduleLlmSave(nextConfig);
   };
 
   const parseListInput = (value: string) => {
@@ -581,19 +576,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           setLLMConfig(data);
           llmConfigRef.current = data;
           lastSavedConfigRef.current = data;
-          syncProviderDraftsFromConfig(data);
           await refreshProviderKeyStatus(data.providers || {});
           await loadLLMStatus();
         } catch (err) {
           setLlmError(err instanceof Error ? err.message : 'Failed to save LLM config');
           success = false;
-          const fallback = lastSavedConfigRef.current;
-          if (fallback) {
-            setLLMConfig(fallback);
-            llmConfigRef.current = fallback;
-            syncProviderDraftsFromConfig(fallback);
-            await refreshProviderKeyStatus(fallback.providers || {});
-          }
           llmSavePendingRef.current = null;
           break;
         }
@@ -607,10 +594,26 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     return runPromise;
   };
 
+  const scheduleLlmSave = useCallback(
+    (nextConfig?: LLMConfig) => {
+      const configToSave = nextConfig || llmConfigRef.current;
+      if (!configToSave) return;
+      if (llmAutoSaveTimerRef.current) {
+        clearTimeout(llmAutoSaveTimerRef.current);
+      }
+      llmAutoSaveTimerRef.current = setTimeout(() => {
+        llmAutoSaveTimerRef.current = null;
+        void queueLlmSave(configToSave);
+      }, 600);
+    },
+    [queueLlmSave]
+  );
+
   const applyLLMConfigMutation = async (mutator: (current: LLMConfig) => LLMConfig) => {
     const current = llmConfigRef.current;
     if (!current) return null;
     const nextConfig = mutator(current);
+    clearLlmAutoSaveTimer();
     await queueLlmSave(nextConfig, { optimistic: true });
     return lastSavedConfigRef.current;
   };
@@ -640,6 +643,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const saveLLMConfig = async (config?: LLMConfig) => {
     const target = config || llmConfigRef.current;
     if (!target) return;
+    clearLlmAutoSaveTimer();
     await queueLlmSave(target);
   };
 
@@ -697,61 +701,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }));
   };
 
-  const updateProviderAndPersist = async (providerId: string, updates: Partial<ProviderConfig>) => {
-    await applyLLMConfigMutation((current) => {
-      const prevProvider = current.providers?.[providerId] || {};
-      const prevModel =
-        typeof prevProvider.model === 'string'
-          ? prevProvider.model
-          : typeof prevProvider.model_id === 'string'
-            ? prevProvider.model_id
-            : typeof prevProvider.default_model === 'string'
-              ? prevProvider.default_model
-              : '';
-      const nextProvider = {
-        ...prevProvider,
-        ...updates,
-      };
-      const nextModel =
-        typeof nextProvider.model === 'string'
-          ? nextProvider.model
-          : typeof nextProvider.model_id === 'string'
-            ? nextProvider.model_id
-            : typeof nextProvider.default_model === 'string'
-              ? nextProvider.default_model
-              : '';
-
-      let nextRoles = current.roles || {};
-      if (nextModel && nextModel !== prevModel) {
-        nextRoles = { ...(current.roles || {}) };
-        Object.entries(nextRoles).forEach(([roleId, roleCfg]) => {
-          if (!roleCfg || typeof roleCfg !== 'object') return;
-          if (roleCfg.provider_id !== providerId) return;
-          const roleModel = typeof roleCfg.model === 'string' ? roleCfg.model : '';
-          if (!roleModel || roleModel === prevModel) {
-            nextRoles[roleId] = { ...roleCfg, model: nextModel };
-          }
-        });
-      }
-
-      return {
-        ...current,
-        providers: {
-          ...(current.providers || {}),
-          [providerId]: nextProvider,
-        },
-        roles: nextRoles,
-      };
-    });
-  };
-
   const deleteProviderAndPersist = async (providerId: string) => {
     setDeletingProviders((prev) => ({ ...prev, [providerId]: true }));
-    if (providerSaveTimersRef.current[providerId]) {
-      clearTimeout(providerSaveTimersRef.current[providerId]);
-      delete providerSaveTimersRef.current[providerId];
-    }
-    delete providerPendingUpdatesRef.current[providerId];
     try {
       await applyLLMConfigMutation((current) => {
         const nextProviders = { ...(current.providers || {}) };
@@ -2049,7 +2000,6 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 }}
                 onUpdateProvider={(providerId, updates) => {
                   updateProvider(providerId, updates as Partial<ProviderConfig>);
-                  scheduleProviderSave(providerId, updates as Partial<ProviderConfig>);
                 }}
                 onDeleteProvider={async (providerId) => {
                   await deleteProviderAndPersist(providerId);

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import { useCallback, type ChangeEvent } from 'react';
 import { Key } from 'lucide-react';
 
 // Cyberpunk style input classes
@@ -16,14 +16,12 @@ interface ProviderInputProps {
   min?: number;
   max?: number;
   step?: string;
-  // 防抖延迟（毫秒）
-  debounceMs?: number;
   // 调试标签
   debugLabel?: string;
 }
 
 /**
- * 简化的提供商输入组件，专注于防止API KEY清空问题
+ * 简化的提供商输入组件，作为受控组件交由上层状态管理
  */
 export function ProviderInput({
   value,
@@ -37,92 +35,18 @@ export function ProviderInput({
   min,
   max,
   step,
-  debounceMs = 300,
   debugLabel
 }: ProviderInputProps) {
-  // 本地状态，只用于显示，不参与复杂的同步逻辑
-  const [localValue, setLocalValue] = useState(value || '');
-  
-  // 防抖更新定时器
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // 跟踪是否正在防抖中
-  const isDebouncingRef = useRef(false);
-
-  // 当父组件值变化且不在防抖中时，更新本地值
-  React.useEffect(() => {
-    if (!isDebouncingRef.current && value !== localValue) {
-      setLocalValue(value || '');
-    }
-  }, [value]);
-
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
-    
-    // 立即更新本地状态，确保输入框响应
-    setLocalValue(newValue);
-    
-    // 标记正在防抖
-    isDebouncingRef.current = true;
-    
-    // 防抖更新父组件状态
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-    }
-    
-    updateTimeoutRef.current = setTimeout(() => {
-      if (debugLabel) {
-        console.log(`ProviderInput[${debugLabel}]: Updating to:`, newValue);
-      }
-      onChange(newValue);
-      // 防抖结束，重置标志
-      isDebouncingRef.current = false;
-    }, debounceMs);
-  }, [onChange, debounceMs, debugLabel]);
-
-  // 处理数字类型的输入
-  const handleNumberChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    
-    // 立即更新本地状态
-    setLocalValue(newValue);
-    
-    // 标记正在防抖
-    isDebouncingRef.current = true;
-    
-    // 防抖更新父组件状态
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-    }
-    
-    updateTimeoutRef.current = setTimeout(() => {
-      const parsedValue = newValue === '' ? undefined : parseFloat(newValue);
-      if (debugLabel) {
-        console.log(`ProviderInput[${debugLabel}]: Updating number to:`, parsedValue);
-      }
-      onChange(parsedValue as any);
-      // 防抖结束，重置标志
-      isDebouncingRef.current = false;
-    }, debounceMs);
-  }, [onChange, debounceMs, debugLabel]);
-
-  // 清理定时器
-  React.useEffect(() => {
-    return () => {
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // 使用本地值作为显示值
-  const displayValue = localValue;
+    onChange(newValue);
+  }, [onChange]);
 
   return (
     <input
       type={type}
-      value={displayValue}
-      onChange={type === 'number' ? handleNumberChange : handleChange}
+      value={value ?? ''}
+      onChange={handleChange}
       className={`${cyberInputClasses} ${className}`}
       placeholder={placeholder}
       disabled={disabled}
@@ -131,6 +55,7 @@ export function ProviderInput({
       min={min}
       max={max}
       step={step}
+      data-debug-label={debugLabel}
     />
   );
 }

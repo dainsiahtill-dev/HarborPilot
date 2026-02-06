@@ -2,7 +2,6 @@ import React, { useState, useCallback } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
-import { useProviderForm } from '../hooks';
 import { type ProviderConfig } from '../types';
 
 interface MaxminiProviderSettingsProps {
@@ -17,7 +16,6 @@ interface ModelInfo {
   description?: string;
 }
 
-const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
 const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
 
 export function MaxminiProviderSettings({
@@ -25,16 +23,12 @@ export function MaxminiProviderSettings({
   onUpdate,
   onValidate
 }: MaxminiProviderSettingsProps) {
-  const {
-    formState,
-    hasChanges,
-    isDirty,
-    setFieldValue,
-  } = useProviderForm({
-    provider,
-    onUpdate,
-    debounceMs: 300,
-  });
+  const setFieldValue = useCallback(
+    <K extends keyof ProviderConfig>(field: K, value: ProviderConfig[K]) => {
+      onUpdate({ [field]: value });
+    },
+    [onUpdate]
+  );
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([
     { id: 'M2-her', name: 'M2-her', description: '最新对话模型' }
@@ -51,9 +45,9 @@ export function MaxminiProviderSettings({
     setFetchError(null);
 
     try {
-      const baseUrl = formState.base_url || 'https://api.minimaxi.com/v1';
-      const modelsPath = formState.models_path || '/query/model_list';
-      const apiKey = formState.api_key;
+      const baseUrl = provider.base_url || 'https://api.minimaxi.com/v1';
+      const modelsPath = provider.models_path || '/query/model_list';
+      const apiKey = provider.api_key;
 
       if (!apiKey) {
         setFetchError('请先配置 API Key');
@@ -98,7 +92,7 @@ export function MaxminiProviderSettings({
       setAvailableModels(models);
       
       // If current model is not in the list, select the first one
-      const currentModel = formState.model || 'M2-her';
+      const currentModel = provider.model || 'M2-her';
       if (!models.find(m => m.id === currentModel) && models.length > 0) {
         handleFieldChange('model', models[0].id);
       }
@@ -108,17 +102,17 @@ export function MaxminiProviderSettings({
     } finally {
       setIsLoadingModels(false);
     }
-  }, [formState.base_url, formState.models_path, formState.api_key, formState.model, handleFieldChange]);
+  }, [provider.base_url, provider.models_path, provider.api_key, provider.model, handleFieldChange]);
 
   return (
-    <BaseProviderSettings provider={formState} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
+    <BaseProviderSettings provider={provider} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
       {/* MiniMax API Configuration */}
       <div className="space-y-4">
         <h5 className="text-xs font-semibold text-text-main">MiniMax API 配置</h5>
         
         {/* Base URL */}
         <UrlInput
-          value={formState.base_url}
+          value={provider.base_url}
           onChange={(value) => setFieldValue('base_url', value)}
           placeholder="https://api.minimaxi.com/v1"
           label="API 基础URL"
@@ -128,14 +122,14 @@ export function MaxminiProviderSettings({
 
         {/* API Key */}
         <ApiKeyInput
-          apiKey={formState.api_key}
+          apiKey={provider.api_key}
           onChange={(value) => setFieldValue('api_key', value)}
           debugLabel="maxmini_api_key"
         />
 
         {/* API Path */}
         <TextInput
-          value={formState.api_path}
+          value={provider.api_path}
           onChange={(value) => setFieldValue('api_path', value)}
           placeholder="/text/chatcompletion_v2"
           label="API 路径"
@@ -148,7 +142,7 @@ export function MaxminiProviderSettings({
           <label className="block text-xs text-text-muted mb-1">模型</label>
           <div className="flex items-center gap-2">
             <select
-              value={formState.model || "M2-her"}
+              value={provider.model || "M2-her"}
               onChange={(e) => handleFieldChange('model', e.target.value)}
               className={cyberSelectClasses}
             >
@@ -186,7 +180,7 @@ export function MaxminiProviderSettings({
         
         {/* Temperature */}
         <NumberInput
-          value={formState.temperature}
+          value={provider.temperature}
           onChange={(value) => setFieldValue('temperature', value)}
           placeholder="1.0"
           label="Temperature (0-1)"
@@ -199,7 +193,7 @@ export function MaxminiProviderSettings({
 
         {/* Top P */}
         <NumberInput
-          value={formState.top_p}
+          value={provider.top_p}
           onChange={(value) => setFieldValue('top_p', value)}
           placeholder="1.0"
           label="Top P (0-1)"
@@ -212,7 +206,7 @@ export function MaxminiProviderSettings({
 
         {/* Max Tokens */}
         <NumberInput
-          value={formState.max_tokens}
+          value={provider.max_tokens}
           onChange={(value) => setFieldValue('max_tokens', value)}
           placeholder="2048"
           label="Max Tokens"
@@ -226,7 +220,7 @@ export function MaxminiProviderSettings({
           <input
             type="checkbox"
             id="stream"
-            checked={formState.streaming ?? false}
+            checked={provider.streaming ?? false}
             onChange={(e) => handleFieldChange('streaming', e.target.checked)}
             className="rounded border-white/10 bg-black/30"
           />
