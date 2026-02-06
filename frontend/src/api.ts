@@ -62,16 +62,16 @@ export async function openPath(targetPath: string): Promise<{ ok: boolean; error
   return window.harborpilot.openPath(targetPath);
 }
 
+const isViteDevMode = typeof window !== 'undefined' && (window as unknown as { __DEV_BACKEND__?: unknown }).__DEV_BACKEND__ !== undefined;
+
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const doFetch = async (info: BackendInfo) => {
-    if (!info.baseUrl) {
-      throw new Error("Backend baseUrl missing.");
-    }
     const headers = new Headers(init.headers || {});
     if (info.token) {
       headers.set("Authorization", `Bearer ${info.token}`);
     }
-    return fetch(`${info.baseUrl}${path}`, { ...init, headers });
+    const url = (isViteDevMode && !info.baseUrl) ? path : `${info.baseUrl}${path}`;
+    return fetch(url, { ...init, headers });
   };
 
   let info = await getBackendInfo();
@@ -95,7 +95,7 @@ export async function connectWebSocket(forceRefresh = false): Promise<WebSocket>
     clearBackendInfoCache();
   }
   let info = await getBackendInfo();
-  if (!info.baseUrl) {
+  if (forceRefresh || !info.baseUrl) {
     clearBackendInfoCache();
     info = await getBackendInfo();
   }

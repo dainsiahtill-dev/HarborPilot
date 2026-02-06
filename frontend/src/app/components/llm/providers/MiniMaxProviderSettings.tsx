@@ -1,12 +1,49 @@
 import React, { useCallback } from 'react';
+import { Key } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
-import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
 import { type ProviderConfig } from '../types';
 
 interface MiniMaxProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
   onValidate: () => any;
+}
+
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+
+function MiniMaxApiKeyInput({ 
+  value, 
+  onChange, 
+  placeholder 
+}: { 
+  value?: string; 
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  }, [onChange]);
+
+  return (
+    <div>
+      <label className="block text-xs text-text-muted mb-1 flex items-center gap-1">
+        <Key className="size-3" />
+        API Key
+      </label>
+      <input
+        type="text"
+        value={value ?? ''}
+        onChange={handleChange}
+        placeholder={placeholder || 'sk-...'}
+        className={`${cyberInputClasses} font-mono`}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <p className="text-[9px] text-text-dim mt-1">
+        API Key用于身份验证，请妥善保管
+      </p>
+    </div>
+  );
 }
 
 export function MiniMaxProviderSettings({
@@ -32,44 +69,52 @@ export function MiniMaxProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">MiniMax API 配置</h5>
         
         {/* Base URL */}
-        <UrlInput
-          value={provider.base_url}
-          onChange={(value) => setFieldValue('base_url', value)}
-          placeholder="https://api.minimaxi.com/v1"
-          label="API 基础URL"
-          description="MiniMax官方API端点"
-          debugLabel="minimax_base_url"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">API 基础URL</label>
+          <input
+            type="text"
+            value={provider.base_url || ''}
+            onChange={(e) => setFieldValue('base_url', e.target.value)}
+            placeholder="https://api.minimaxi.com/v1"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">MiniMax官方API端点</p>
+        </div>
 
         {/* API Key */}
-        <ApiKeyInput
+        <MiniMaxApiKeyInput
           value={provider.api_key}
           onChange={(value) => setFieldValue('api_key', value)}
           placeholder="sk-..."
-          label="API Key"
-          description="MiniMax API密钥"
-          debugLabel="minimax_api_key"
         />
 
         {/* API Path */}
-        <TextInput
-          value={provider.api_path}
-          onChange={(value) => setFieldValue('api_path', value)}
-          placeholder="/text/chatcompletion_v2"
-          label="API 路径"
-          description="文本对话API路径（v2版本）"
-          debugLabel="minimax_api_path"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">API 路径</label>
+          <input
+            type="text"
+            value={provider.api_path || ''}
+            onChange={(e) => setFieldValue('api_path', e.target.value)}
+            placeholder="/text/chatcompletion_v2"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">文本对话API路径（v2版本）</p>
+        </div>
 
         {/* Model Input */}
-        <TextInput
-          value={provider.model || ''}
-          onChange={(value) => setFieldValue('model', value)}
-          placeholder="MiniMax-M2.1"
-          label="模型名称"
-          description="输入 MiniMax 模型名称，如 MiniMax-M2.1、MiniMax-M2.1-lightning、MiniMax-M2"
-          debugLabel="minimax_model"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">模型名称</label>
+          <input
+            type="text"
+            value={provider.model || ''}
+            onChange={(e) => setFieldValue('model', e.target.value)}
+            placeholder="MiniMax-M2.1"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">
+            输入 MiniMax 模型名称，如 MiniMax-M2.1、MiniMax-M2.1-lightning、MiniMax-M2
+          </p>
+        </div>
       </div>
 
       {/* Model Parameters */}
@@ -77,41 +122,50 @@ export function MiniMaxProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">模型参数</h5>
         
         {/* Temperature */}
-        <NumberInput
-          value={provider.temperature}
-          onChange={(value) => setFieldValue('temperature', value)}
-          placeholder="1.0"
-          label="Temperature (0-1)"
-          description="影响输出随机性，值越高越随机，默认1.0"
-          min={0}
-          max={1}
-          step="0.1"
-          debugLabel="minimax_temperature"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Temperature (0-1)</label>
+          <input
+            type="number"
+            value={provider.temperature ?? ''}
+            onChange={(e) => setFieldValue('temperature', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+            placeholder="1.0"
+            className={cyberInputClasses}
+            min={0}
+            max={1}
+            step="0.1"
+          />
+          <p className="text-[9px] text-text-dim mt-1">影响输出随机性，值越高越随机，默认1.0</p>
+        </div>
 
         {/* Top P */}
-        <NumberInput
-          value={provider.top_p}
-          onChange={(value) => setFieldValue('top_p', value)}
-          placeholder="0.95"
-          label="Top P (0-1)"
-          description="核采样阈值，默认0.95"
-          min={0}
-          max={1}
-          step="0.01"
-          debugLabel="minimax_top_p"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Top P (0-1)</label>
+          <input
+            type="number"
+            value={provider.top_p ?? ''}
+            onChange={(e) => setFieldValue('top_p', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+            placeholder="0.95"
+            className={cyberInputClasses}
+            min={0}
+            max={1}
+            step="0.01"
+          />
+          <p className="text-[9px] text-text-dim mt-1">核采样阈值，默认0.95</p>
+        </div>
 
         {/* Max Tokens */}
-        <NumberInput
-          value={provider.max_tokens}
-          onChange={(value) => setFieldValue('max_tokens', value)}
-          placeholder="2048"
-          label="Max Tokens"
-          description="生成内容的最大Token数，默认2048"
-          min={1}
-          debugLabel="minimax_max_tokens"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Max Tokens</label>
+          <input
+            type="number"
+            value={provider.max_tokens ?? ''}
+            onChange={(e) => setFieldValue('max_tokens', e.target.value === '' ? undefined : parseInt(e.target.value))}
+            placeholder="2048"
+            className={cyberInputClasses}
+            min={1}
+          />
+          <p className="text-[9px] text-text-dim mt-1">生成内容的最大Token数，默认2048</p>
+        </div>
 
         {/* Stream */}
         <div className="flex items-center gap-2">

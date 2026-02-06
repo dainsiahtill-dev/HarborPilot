@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
+import { RefreshCw, AlertCircle, Key } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
-import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
 import { type ProviderConfig } from '../types';
 
 interface KimiProviderSettingsProps {
@@ -17,8 +16,44 @@ interface ModelInfo {
   context?: string;
 }
 
-// Cyberpunk style select classes
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+
 const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
+
+function KimiApiKeyInput({ 
+  value, 
+  onChange, 
+  placeholder 
+}: { 
+  value?: string; 
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  }, [onChange]);
+
+  return (
+    <div>
+      <label className="block text-xs text-text-muted mb-1 flex items-center gap-1">
+        <Key className="size-3" />
+        API Key
+      </label>
+      <input
+        type="text"
+        value={value ?? ''}
+        onChange={handleChange}
+        placeholder={placeholder || 'sk-...'}
+        className={`${cyberInputClasses} font-mono`}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <p className="text-[9px] text-text-dim mt-1">
+        API Key用于身份验证，请妥善保管
+      </p>
+    </div>
+  );
+}
 
 export function KimiProviderSettings({
   provider,
@@ -118,42 +153,50 @@ export function KimiProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">Kimi API 配置</h5>
         
         {/* Base URL */}
-        <UrlInput
-          value={provider.base_url}
-          onChange={(value) => setFieldValue('base_url', value)}
-          placeholder="https://api.moonshot.cn/v1"
-          label="API 基础URL"
-          description="Moonshot AI 官方 API 端点"
-          debugLabel="kimi_base_url"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">API 基础URL</label>
+          <input
+            type="text"
+            value={provider.base_url || ''}
+            onChange={(e) => setFieldValue('base_url', e.target.value)}
+            placeholder="https://api.moonshot.cn/v1"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">Moonshot AI 官方 API 端点</p>
+        </div>
 
         {/* API Key */}
-        <ApiKeyInput
-          apiKey={provider.api_key}
+        <KimiApiKeyInput
+          value={provider.api_key}
           onChange={(value) => setFieldValue('api_key', value)}
           placeholder="sk-..."
-          debugLabel="kimi_api_key"
         />
 
         {/* API Path */}
-        <TextInput
-          value={provider.api_path}
-          onChange={(value) => setFieldValue('api_path', value)}
-          placeholder="/v1/chat/completions"
-          label="API 路径"
-          description="对话补全 API 路径（OpenAI 兼容格式）"
-          debugLabel="kimi_api_path"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">API 路径</label>
+          <input
+            type="text"
+            value={provider.api_path || ''}
+            onChange={(e) => setFieldValue('api_path', e.target.value)}
+            placeholder="/v1/chat/completions"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">对话补全 API 路径（OpenAI 兼容格式）</p>
+        </div>
 
         {/* Models Path */}
-        <TextInput
-          value={provider.models_path}
-          onChange={(value) => setFieldValue('models_path', value)}
-          placeholder="/v1/models"
-          label="模型列表路径"
-          description="获取可用模型列表的 API 路径"
-          debugLabel="kimi_models_path"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">模型列表路径</label>
+          <input
+            type="text"
+            value={provider.models_path || ''}
+            onChange={(e) => setFieldValue('models_path', e.target.value)}
+            placeholder="/v1/models"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          <p className="text-[9px] text-text-dim mt-1">获取可用模型列表的 API 路径</p>
+        </div>
 
         {/* Model Selection with Fetch Button */}
         <div>
@@ -197,52 +240,61 @@ export function KimiProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">模型参数</h5>
         
         {/* Temperature */}
-        <NumberInput
-          value={provider.temperature}
-          onChange={(value) => setFieldValue('temperature', value)}
-          placeholder="0.7"
-          label="Temperature (0-2)"
-          description="影响输出随机性，值越高越随机，默认0.7"
-          min={0}
-          max={2}
-          step="0.1"
-          debugLabel="kimi_temperature"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Temperature (0-1)</label>
+          <input
+            type="number"
+            value={provider.temperature ?? ''}
+            onChange={(e) => setFieldValue('temperature', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+            placeholder="1.0"
+            className={cyberInputClasses}
+            min={0}
+            max={1}
+            step="0.1"
+          />
+          <p className="text-[9px] text-text-dim mt-1">影响输出随机性，值越高越随机，默认1.0</p>
+        </div>
 
         {/* Top P */}
-        <NumberInput
-          value={provider.top_p}
-          onChange={(value) => setFieldValue('top_p', value)}
-          placeholder="1.0"
-          label="Top P (0-1)"
-          description="采样策略，默认1.0"
-          min={0}
-          max={1}
-          step="0.1"
-          debugLabel="kimi_top_p"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Top P (0-1)</label>
+          <input
+            type="number"
+            value={provider.top_p ?? ''}
+            onChange={(e) => setFieldValue('top_p', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+            placeholder="0.95"
+            className={cyberInputClasses}
+            min={0}
+            max={1}
+            step="0.01"
+          />
+          <p className="text-[9px] text-text-dim mt-1">核采样阈值，默认0.95</p>
+        </div>
 
         {/* Max Tokens */}
-        <NumberInput
-          value={provider.max_tokens}
-          onChange={(value) => setFieldValue('max_tokens', value)}
-          placeholder="2048"
-          label="Max Tokens"
-          description="生成内容的最大 Token 数，默认2048"
-          min={1}
-          debugLabel="kimi_max_tokens"
-        />
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Max Tokens</label>
+          <input
+            type="number"
+            value={provider.max_tokens ?? ''}
+            onChange={(e) => setFieldValue('max_tokens', e.target.value === '' ? undefined : parseInt(e.target.value))}
+            placeholder="2048"
+            className={cyberInputClasses}
+            min={1}
+          />
+          <p className="text-[9px] text-text-dim mt-1">生成内容的最大Token数，默认2048</p>
+        </div>
 
         {/* Stream */}
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
-            id="stream"
+            id="kimi-stream"
             checked={provider.streaming ?? false}
             onChange={(e) => handleFieldChange('streaming', e.target.checked)}
             className="rounded border-white/10 bg-black/30"
           />
-          <label htmlFor="stream" className="text-xs text-text-main">
+          <label htmlFor="kimi-stream" className="text-xs text-text-main">
             启用流式传输
           </label>
         </div>
@@ -251,37 +303,34 @@ export function KimiProviderSettings({
         </p>
       </div>
 
-      {/* Model Information */}
+      {/* Kimi Model Information */}
       <div className="space-y-4">
         <h5 className="text-xs font-semibold text-text-main">Kimi 模型信息</h5>
         <div className="bg-black/30 rounded-lg p-4 border border-white/10">
           <div className="space-y-3 text-xs">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-              <span className="text-text-main font-medium">moonshot-v1</span>
-              <span className="text-text-dim">系列模型</span>
+              <div className="w-2 h-2 rounded-full bg-violet-400"></div>
+              <span className="text-text-main font-medium">Moonshot AI (Kimi)</span>
+              <span className="text-text-dim">官方大语言模型</span>
             </div>
             
             <div className="space-y-2 text-text-dim">
-              <p>• moonshot-v1-8k: 标准模型，8K 上下文</p>
-              <p>• moonshot-v1-32k: 长上下文模型，32K 上下文</p>
-              <p>• moonshot-v1-128k: 超长上下文模型，128K 上下文</p>
-              <p>• 支持多轮对话和流式输出</p>
-              <p>• 支持多模态输入（文本、图片、视频）</p>
-              <p>• OpenAI SDK 兼容</p>
+              <p>• moonshot-v1-8k：标准模型，支持8K上下文窗口</p>
+              <p>• moonshot-v1-32k：长上下文模型，支持32K上下文窗口</p>
+              <p>• moonshot-v1-128k：超长上下文模型，支持128K上下文窗口</p>
+              <p>• 支持多轮对话、流式输出、多模态输入</p>
             </div>
             
             <div className="pt-2 border-t border-white/10">
               <p className="text-[9px] text-text-dim">
                 官方文档：
                 <a 
-                  href="https://platform.moonshot.ai/docs/api/chat"
+                  href="https://platform.moonshot.cn/docs/api/chat"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-cyan-400 hover:text-cyan-300 ml-1 inline-flex items-center gap-0.5"
+                  className="text-cyan-400 hover:text-cyan-300 ml-1"
                 >
-                  Moonshot AI API 文档
-                  <ExternalLink className="size-3" />
+                  Kimi API 文档
                 </a>
               </p>
             </div>
