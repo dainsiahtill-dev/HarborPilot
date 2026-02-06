@@ -332,7 +332,7 @@ const resolveProviderFamily = (providerType: string, providerName: string): stri
   if (type.includes('openai') || name.includes('openai')) return 'OpenAI';
   if (type.includes('anthropic') || name.includes('anthropic')) return 'Anthropic';
   if (type.includes('gemini') || name.includes('gemini')) return 'Gemini';
-  if (type.includes('maxmini') || name.includes('minimax')) return 'MiniMax';
+  if (type.includes('minimax') || name.includes('minimax')) return 'MiniMax';
   if (type.includes('ollama') || name.includes('ollama')) return 'Ollama';
   if (type.includes('custom')) return 'Custom';
   return 'Other';

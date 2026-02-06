@@ -80,9 +80,9 @@ class ProviderRegistryClass {
       case 'gemini_cli':
         const { GeminiCLIProviderSettings } = await import('./providers/GeminiCLIProviderSettings');
         return GeminiCLIProviderSettings;
-      case 'maxmini':
-        const { MaxminiProviderSettings } = await import('./providers/MaxminiProviderSettings');
-        return MaxminiProviderSettings;
+      case 'minimax':
+        const { MiniMaxProviderSettings } = await import('./providers/MiniMaxProviderSettings');
+        return MiniMaxProviderSettings;
       case 'kimi':
         const { KimiProviderSettings } = await import('./providers/KimiProviderSettings');
         return KimiProviderSettings;

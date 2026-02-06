@@ -12,7 +12,7 @@ from .ollama_provider import OllamaProvider
 from .openai_compat_provider import OpenAICompatProvider
 from .anthropic_compat_provider import AnthropicCompatProvider
 from .gemini_cli_provider import GeminiCLIProvider
-from .maxmini_provider import MaxminiProvider
+from .minimax_provider import MiniMaxProvider
 from .gemini_api_provider import GeminiAPIProvider
 from .kimi_provider import KimiProvider
 
@@ -31,7 +31,7 @@ class ProviderManager:
         self.register_provider("codex_sdk", CodexSDKProvider)
         self.register_provider("codex_cli", CodexCLIProvider)  # Use proper Codex CLI provider
         self.register_provider("gemini_cli", GeminiCLIProvider)
-        self.register_provider("maxmini", MaxminiProvider)
+        self.register_provider("minimax", MiniMaxProvider)
         self.register_provider("kimi", KimiProvider)
         self.register_provider("gemini_api", GeminiAPIProvider)
         self.register_provider("ollama", OllamaProvider)
@@ -181,7 +181,7 @@ class ProviderManager:
         elif "gemini" in command:
             return "gemini_cli"
         elif "minimax" in base_url:
-            return "maxmini"
+            return "minimax"
         elif "generativelanguage.googleapis.com" in base_url:
             return "gemini_api"
         elif "api.openai.com" in base_url:

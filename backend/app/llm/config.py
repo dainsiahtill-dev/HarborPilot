@@ -107,11 +107,11 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
                 "confidence_threshold": 0.6
             }
         },
-        "maxmini": {
-            "type": "maxmini",
+        "minimax": {
+            "type": "minimax",
             "name": "MiniMax",
             "base_url": "https://api.minimax.chat/v1",
-            "api_key_ref": "keychain:maxmini",
+            "api_key_ref": "keychain:minimax",
             "api_path": "/text/chatcompletion_pro",
             "models_path": "/query/model_list",
             "timeout": 60,

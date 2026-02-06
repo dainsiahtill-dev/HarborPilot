@@ -1,4 +1,4 @@
-﻿import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InterviewHall } from './interview/InterviewHall';
@@ -180,7 +180,7 @@ const DEFAULT_COST_CLASS_BY_KIND: Record<ProviderKind, CostClass> = {
   [PROVIDER_KINDS.OPENAI_COMPAT]: COST_CLASSES.METERED,
   [PROVIDER_KINDS.ANTHROPIC_COMPAT]: COST_CLASSES.METERED,
   [PROVIDER_KINDS.CUSTOM_HTTPS]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.MAXMINI]: COST_CLASSES.METERED,
+  [PROVIDER_KINDS.MINIMAX]: COST_CLASSES.METERED,
   [PROVIDER_KINDS.GEMINI_API]: COST_CLASSES.METERED
 };
 

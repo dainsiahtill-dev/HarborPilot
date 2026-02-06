@@ -18,7 +18,7 @@ export const PROVIDER_KINDS = {
   OPENAI_COMPAT: 'openai_compat' as const,
   ANTHROPIC_COMPAT: 'anthropic_compat' as const,
   CUSTOM_HTTPS: 'custom_https' as const,
-  MAXMINI: 'maxmini' as const,
+  MINIMAX: 'minimax' as const,
   GEMINI_API: 'gemini_api' as const,
   KIMI: 'kimi' as const
 } as const;
@@ -310,7 +310,7 @@ export const usesBaseUrlForType = (providerType?: string): boolean => {
     providerType === PROVIDER_KINDS.CODEX_SDK ||
     providerType === PROVIDER_KINDS.OPENAI_COMPAT ||
     providerType === PROVIDER_KINDS.ANTHROPIC_COMPAT ||
-    providerType === PROVIDER_KINDS.MAXMINI ||
+    providerType === PROVIDER_KINDS.MINIMAX ||
     providerType === PROVIDER_KINDS.GEMINI_API ||
     providerType === PROVIDER_KINDS.KIMI
   );
@@ -378,7 +378,7 @@ export const PROVIDER_LABELS: ProviderLabels = {
   [PROVIDER_KINDS.OPENAI_COMPAT]: 'OpenAI',
   [PROVIDER_KINDS.ANTHROPIC_COMPAT]: 'Anthropic-compatible',
   [PROVIDER_KINDS.CUSTOM_HTTPS]: 'Custom HTTPS',
-  [PROVIDER_KINDS.MAXMINI]: 'MiniMax',
+  [PROVIDER_KINDS.MINIMAX]: 'MiniMax',
   [PROVIDER_KINDS.GEMINI_API]: 'Gemini API',
   [PROVIDER_KINDS.KIMI]: 'Kimi'
 };

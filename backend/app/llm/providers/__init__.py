@@ -17,7 +17,7 @@ from .anthropic_compat_provider import AnthropicCompatProvider
 from .codex_cli_provider import CodexCLIProvider
 from .codex_sdk_provider import CodexSDKProvider
 from .gemini_cli_provider import GeminiCLIProvider
-from .maxmini_provider import MaxminiProvider
+from .minimax_provider import MiniMaxProvider
 from .gemini_api_provider import GeminiAPIProvider
 
 # Base classes and utilities
@@ -43,7 +43,7 @@ __all__ = [
     "CodexCLIProvider",
     "CodexSDKProvider",
     "GeminiCLIProvider", 
-    "MaxminiProvider",
+    "MiniMaxProvider",
     "GeminiAPIProvider",
     
     # Base classes and utilities

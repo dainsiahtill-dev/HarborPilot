@@ -143,8 +143,8 @@ export interface OllamaProviderConfig extends BaseProviderConfig {
 }
 
 /** MiniMax Provider */
-export interface MaxminiProviderConfig extends BaseProviderConfig {
-  type: 'maxmini';
+export interface MiniMaxProviderConfig extends BaseProviderConfig {
+  type: 'minimax';
   baseUrl: string;
   apiKey?: string;
   apiKeyRef?: string;
@@ -179,7 +179,7 @@ export type ProviderConfigStrict =
   | AnthropicCompatProviderConfig
   | GeminiAPIProviderConfig
   | OllamaProviderConfig
-  | MaxminiProviderConfig
+  | MiniMaxProviderConfig
   | KimiProviderConfig
   | CustomHTTPSProviderConfig;
 
@@ -528,7 +528,7 @@ export function isHTTPProviderConfig(config: ProviderConfigStrict): config is
   | AnthropicCompatProviderConfig
   | GeminiAPIProviderConfig
   | OllamaProviderConfig
-  | MaxminiProviderConfig
+  | MiniMaxProviderConfig
   | KimiProviderConfig
   | CustomHTTPSProviderConfig {
   return !isCLIProviderConfig(config);

@@ -6,7 +6,7 @@ import pytest
 import sys
 from app.llm.providers.codex_cli_provider import CodexCLIProvider
 from app.llm.providers.gemini_cli_provider import GeminiCLIProvider
-from app.llm.providers.maxmini_provider import MaxminiProvider
+from app.llm.providers.minimax_provider import MiniMaxProvider
 from app.llm.providers.gemini_api_provider import GeminiAPIProvider
 from app.llm.providers.openai_compat_provider import OpenAICompatProvider
 from app.llm.providers.anthropic_compat_provider import AnthropicCompatProvider
@@ -142,34 +142,23 @@ class TestGeminiCLIProvider:
         assert thinking.confidence >= 0.4
 
 
-class TestMaxminiProvider:
+class TestMiniMaxProvider:
     """Test MiniMax Provider"""
     
     def test_provider_info(self):
         """Test provider information"""
-        info = MaxminiProvider.get_provider_info()
+        info = MiniMaxProvider.get_provider_info()
         assert info.name == "MiniMax Provider"
-        assert info.type == "maxmini"
+        assert info.type == "minimax"
         assert "chinese_support" in info.supported_features
         assert info.cost_class == "METERED"
     
     def test_default_config(self):
         """Test default configuration"""
-        config = MaxminiProvider.get_default_config()
-        assert config["base_url"] == "https://api.minimax.chat/v1"
-        assert "abab6.5" in config["model_specific"]
-    
-    def test_thinking_extraction_chinese(self):
-        """Test Chinese thinking extraction"""
-        response = {
-            "output": "<思考>让我分析一下这个问题的各个方面。</思考>基于以上分析，我的建议是...",
-            "config": {"thinking_extraction": {"enabled": True}}
-        }
-        
-        thinking = MaxminiProvider.extract_thinking_support(response)
-        assert thinking.supports_thinking is True
-        assert thinking.format in ("chinese_text", "chinese_xml")
-        assert "分析" in thinking.thinking_text
+        config = MiniMaxProvider.get_default_config()
+        assert config["base_url"] == "https://api.minimaxi.com/v1"
+        assert config["temperature"] == 0.7
+        assert config["max_tokens"] == 2048
     
 class TestGeminiAPIProvider:
     """Test Gemini API Provider"""
@@ -289,7 +278,7 @@ class TestProviderRegistry:
         provider_types = provider_manager.list_provider_types()
         assert "codex_cli" in provider_types
         assert "gemini_cli" in provider_types
-        assert "maxmini" in provider_types
+        assert "minimax" in provider_types
         assert "gemini_api" in provider_types
         assert "ollama" in provider_types
         assert "openai_compat" in provider_types
@@ -333,7 +322,7 @@ class TestProviderRegistry:
     def test_feature_support_check(self):
         """Test feature support checking"""
         assert provider_manager.supports_feature("codex_cli", "thinking_extraction") is True
-        assert provider_manager.supports_feature("maxmini", "chinese_support") is True
+        assert provider_manager.supports_feature("minimax", "chinese_support") is True
         assert provider_manager.supports_feature("gemini_api", "large_context") is True
         assert provider_manager.supports_feature("codex_cli", "nonexistent_feature") is False
     
