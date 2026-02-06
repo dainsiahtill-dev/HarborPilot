@@ -2,6 +2,10 @@ import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { CLI_MODES, type CLIMode, type ProviderConfig } from '../types';
 
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
+const cyberTextareaClasses = "flex w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[80px] resize-y";
+
 interface GeminiCLIProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
@@ -58,7 +62,7 @@ export function GeminiCLIProviderSettings({
             type="password"
             value={env.GOOGLE_API_KEY || ''}
             onChange={(e) => handleFieldChange('env', { ...env, GOOGLE_API_KEY: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={`${cyberInputClasses} font-mono`}
             placeholder="Enter your Google API key"
           />
           <p className="text-[9px] text-text-dim mt-1">
@@ -72,7 +76,7 @@ export function GeminiCLIProviderSettings({
           <select
             value={env.GOOGLE_GENAI_USE_VERTEXAI || 'false'}
             onChange={(e) => handleFieldChange('env', { ...env, GOOGLE_GENAI_USE_VERTEXAI: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="false">Google AI Studio</option>
             <option value="true">Vertex AI</option>
@@ -136,7 +140,7 @@ export function GeminiCLIProviderSettings({
             type="text"
             value={provider.health_args || 'version'}
             onChange={(e) => handleFieldChange('health_args', e.target.value.split(' ').filter(arg => arg.trim()))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={`${cyberInputClasses} font-mono`}
             placeholder="version"
           />
           <p className="text-[9px] text-text-dim mt-1">
@@ -151,7 +155,7 @@ export function GeminiCLIProviderSettings({
             type="text"
             value={provider.list_args || 'models list'}
             onChange={(e) => handleFieldChange('list_args', e.target.value.split(' ').filter(arg => arg.trim()))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={`${cyberInputClasses} font-mono`}
             placeholder="models list"
           />
           <p className="text-[9px] text-text-dim mt-1">
@@ -195,10 +199,10 @@ export function GeminiCLIProviderSettings({
             type="number"
             value={provider.temperature || 0.7}
             onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value) || 0.7)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-            min="0"
-            max="2"
-            step="0.1"
+            min={0}
+            max={2}
+            step={0.1}
+            className={cyberInputClasses}
           />
           <p className="text-[9px] text-text-dim mt-1">
             Controls randomness (0 = deterministic, 2 = very creative)
@@ -212,9 +216,9 @@ export function GeminiCLIProviderSettings({
             type="number"
             value={provider.max_tokens || 8192}
             onChange={(e) => handleFieldChange('max_tokens', parseInt(e.target.value) || 8192)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-            min="1"
-            max="8192"
+            min={1}
+            max={8192}
+            className={cyberInputClasses}
           />
           <p className="text-[9px] text-text-dim mt-1">
             Maximum number of tokens in the response

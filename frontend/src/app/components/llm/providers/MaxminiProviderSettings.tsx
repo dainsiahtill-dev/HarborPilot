@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
+import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
 import { type ProviderConfig } from '../types';
 
 interface MaxminiProviderSettingsProps {
@@ -14,6 +15,9 @@ interface ModelInfo {
   name?: string;
   description?: string;
 }
+
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
 
 export function MaxminiProviderSettings({
   provider,
@@ -101,34 +105,31 @@ export function MaxminiProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">MiniMax API 配置</h5>
         
         {/* Base URL */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">API 基础URL</label>
-          <input
-            type="url"
-            value={provider.base_url || "https://api.minimaxi.com/v1"}
-            onChange={(e) => handleFieldChange('base_url', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-            placeholder="https://api.minimaxi.com/v1"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            MiniMax官方API端点
-          </p>
-        </div>
+        <UrlInput
+          value={provider.base_url}
+          onChange={(value) => onUpdate({ base_url: value })}
+          placeholder="https://api.minimaxi.com/v1"
+          label="API 基础URL"
+          description="MiniMax官方API端点"
+          debugLabel="maxmini_base_url"
+        />
+
+        {/* API Key */}
+        <ApiKeyInput
+          apiKey={provider.api_key}
+          onChange={(value) => onUpdate({ api_key: value })}
+          debugLabel="maxmini_api_key"
+        />
 
         {/* API Path */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">API 路径</label>
-          <input
-            type="text"
-            value={provider.api_path || "/text/chatcompletion_v2"}
-            onChange={(e) => handleFieldChange('api_path', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-            placeholder="/text/chatcompletion_v2"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            文本对话API路径（v2版本）
-          </p>
-        </div>
+        <TextInput
+          value={provider.api_path}
+          onChange={(value) => onUpdate({ api_path: value })}
+          placeholder="/text/chatcompletion_v2"
+          label="API 路径"
+          description="文本对话API路径（v2版本）"
+          debugLabel="maxmini_api_path"
+        />
 
         {/* Model Selection with Fetch Button */}
         <div>
@@ -137,7 +138,7 @@ export function MaxminiProviderSettings({
             <select
               value={provider.model || "M2-her"}
               onChange={(e) => handleFieldChange('model', e.target.value)}
-              className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              className={cyberSelectClasses}
             >
               {availableModels.map((model) => (
                 <option key={model.id} value={model.id}>
@@ -172,68 +173,49 @@ export function MaxminiProviderSettings({
         <h5 className="text-xs font-semibold text-text-main">模型参数</h5>
         
         {/* Temperature */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">
-            Temperature (0-1)
-          </label>
-          <input
-            type="number"
-            value={provider.temperature ?? 1.0}
-            onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-            min="0"
-            max="1"
-            step="0.1"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            影响输出随机性，值越高越随机，默认1.0
-          </p>
-        </div>
+        <NumberInput
+          value={provider.temperature}
+          onChange={(value) => onUpdate({ temperature: value })}
+          placeholder="1.0"
+          label="Temperature (0-1)"
+          description="影响输出随机性，值越高越随机，默认1.0"
+          min={0}
+          max={1}
+          step="0.1"
+          debugLabel="maxmini_temperature"
+        />
 
         {/* Top P */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">
-            Top P (0-1)
-          </label>
-          <input
-            type="number"
-            value={provider.top_p ?? 0.95}
-            onChange={(e) => handleFieldChange('top_p', parseFloat(e.target.value))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-            min="0"
-            max="1"
-            step="0.05"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            采样策略，影响输出随机性，默认0.95
-          </p>
-        </div>
+        <NumberInput
+          value={provider.top_p}
+          onChange={(value) => onUpdate({ top_p: value })}
+          placeholder="1.0"
+          label="Top P (0-1)"
+          description="采样策略，默认1.0"
+          min={0}
+          max={1}
+          step="0.1"
+          debugLabel="maxmini_top_p"
+        />
 
         {/* Max Tokens */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">
-            Max Tokens (1-2048)
-          </label>
-          <input
-            type="number"
-            value={provider.max_tokens ?? 2048}
-            onChange={(e) => handleFieldChange('max_tokens', parseInt(e.target.value))}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
-            min="1"
-            max="2048"
-          />
-          <p className="text-[9px] text-text-dim mt-1">
-            生成内容长度上限（Token数），最大2048
-          </p>
-        </div>
+        <NumberInput
+          value={provider.max_tokens}
+          onChange={(value) => onUpdate({ max_tokens: value })}
+          placeholder="2048"
+          label="Max Tokens"
+          description="生成内容的最大Token数，默认2048"
+          min={1}
+          debugLabel="maxmini_max_tokens"
+        />
 
         {/* Stream */}
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
             id="stream"
-            checked={provider.stream ?? false}
-            onChange={(e) => handleFieldChange('stream', e.target.checked)}
+            checked={provider.streaming ?? false}
+            onChange={(e) => handleFieldChange('streaming', e.target.checked)}
             className="rounded border-white/10 bg-black/30"
           />
           <label htmlFor="stream" className="text-xs text-text-main">
@@ -241,26 +223,26 @@ export function MaxminiProviderSettings({
           </label>
         </div>
         <p className="text-[9px] text-text-dim mt-1">
-          设置为true后，响应将分批返回
+          开启后响应将分批返回，适合实时对话场景
         </p>
       </div>
 
       {/* Model Information */}
       <div className="space-y-4">
-        <h5 className="text-xs font-semibold text-text-main">M2-her 模型信息</h5>
+        <h5 className="text-xs font-semibold text-text-main">MiniMax 模型信息</h5>
         <div className="bg-black/30 rounded-lg p-4 border border-white/10">
           <div className="space-y-3 text-xs">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
               <span className="text-text-main font-medium">M2-her</span>
-              <span className="text-text-dim">最新对话模型</span>
+              <span className="text-text-dim">对话模型</span>
             </div>
             
             <div className="space-y-2 text-text-dim">
-              <p>• 支持角色扮演和多轮对话</p>
-              <p>• 丰富的角色设定（system、user_system、group等）</p>
-              <p>• 支持示例对话学习</p>
-              <p>• 最大Token长度：2048</p>
+              <p>• M2-her: 最新对话模型，支持角色扮演</p>
+              <p>• 支持多轮对话和上下文理解</p>
+              <p>• 适用于创意写作、问答对话</p>
+              <p>• 支持自定义角色和风格</p>
             </div>
             
             <div className="pt-2 border-t border-white/10">
@@ -272,7 +254,7 @@ export function MaxminiProviderSettings({
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:text-cyan-300 ml-1"
                 >
-                  文本对话API文档
+                  MiniMax API 文档
                 </a>
               </p>
             </div>

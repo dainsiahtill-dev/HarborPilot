@@ -3,6 +3,9 @@ import { BaseProviderSettings } from './BaseProviderSettings';
 import { CodexModelBrowser } from '../model-browser/CodexModelBrowser';
 import { CLI_MODES, type CLIMode, type ProviderConfig } from '../types';
 
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
+
 interface CodexCLIProviderSettingsProps {
   providerId?: string;
   provider: ProviderConfig;
@@ -191,7 +194,7 @@ export function CodexCLIProviderSettings({
               type="text"
               value={modelId}
               onChange={(e) => handleFieldChange('model', e.target.value)}
-              className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              className={`${cyberInputClasses} flex-1 font-mono`}
               placeholder="gpt-5.2-codex, o3-mini, etc."
             />
             {providerId ? (
@@ -224,7 +227,7 @@ export function CodexCLIProviderSettings({
           <select
             value={cliMode}
             onChange={(e) => handleFieldChange('cli_mode', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value={CLI_MODES.HEADLESS}>Headless (exec --json)</option>
             <option value={CLI_MODES.TUI}>TUI (interactive)</option>
@@ -247,7 +250,7 @@ export function CodexCLIProviderSettings({
               }
               updateConfigOverride('approval_policy', `"${value}"`, { ask_for_approval: value });
             }}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="auto">Auto (profile/default)</option>
             <option value="untrusted">Untrusted (Always ask)</option>
@@ -273,7 +276,7 @@ export function CodexCLIProviderSettings({
               }
               updateConfigOverride('model_reasoning_effort', `"${value}"`);
             }}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="auto">Auto (profile/default)</option>
             <option value="low">Low</option>
@@ -291,7 +294,7 @@ export function CodexCLIProviderSettings({
           <select
             value={codexExec.sandbox || 'read-only'}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, sandbox: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="read-only">Read Only (Safe Default)</option>
             <option value="workspace-write">Workspace Write</option>
@@ -324,7 +327,7 @@ export function CodexCLIProviderSettings({
           <select
             value={codexExec.color || 'never'}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, color: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="never">Never</option>
             <option value="auto">Auto</option>
@@ -461,7 +464,7 @@ export function CodexCLIProviderSettings({
             type="text"
             value={codexExec.profile || ''}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, profile: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberInputClasses}
             placeholder="default, codex, or custom profile name"
           />
           <p className="text-[9px] text-text-dim mt-1">
@@ -511,7 +514,7 @@ export function CodexCLIProviderSettings({
             type="text"
             value={codexExec.output_schema || ''}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, output_schema: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={`${cyberInputClasses} font-mono`}
             placeholder="/path/to/schema.json"
           />
           <p className="text-[9px] text-text-dim mt-1">
@@ -526,7 +529,7 @@ export function CodexCLIProviderSettings({
             type="text"
             value={codexExec.output_last_message || ''}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, output_last_message: e.target.value })}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={`${cyberInputClasses} font-mono`}
             placeholder=".harborpilot/runtime/CODEX_LAST_MESSAGE.md"
           />
           <p className="text-[9px] text-text-dim mt-1">

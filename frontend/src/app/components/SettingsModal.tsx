@@ -169,6 +169,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const llmSavePendingRef = useRef<LLMConfig | null>(null);
   const llmSaveInFlightRef = useRef(false);
   const llmSaveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const providerSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const providerPendingUpdatesRef = useRef<Record<string, Partial<ProviderConfig>>>({});
   const [deletingProviders, setDeletingProviders] = useState<Record<string, boolean>>({});
 
   const clampSettingsModalSize = (size: { width: number; height: number }) => {
@@ -331,6 +333,26 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     };
   }, [isOpen]);
 
+  const clearProviderSaveTimers = () => {
+    Object.values(providerSaveTimersRef.current).forEach((timer) => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    });
+    providerSaveTimersRef.current = {};
+    providerPendingUpdatesRef.current = {};
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      clearProviderSaveTimers();
+      return;
+    }
+    return () => {
+      clearProviderSaveTimers();
+    };
+  }, [isOpen]);
+
   const syncProviderDraftsFromConfig = (config: LLMConfig) => {
     const providers = config.providers || {};
     setProviderJsonDrafts(() => {
@@ -489,6 +511,26 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       llmConfigRef.current = next;
       return next;
     });
+  };
+
+  const scheduleProviderSave = (providerId: string, updates: Partial<ProviderConfig>) => {
+    providerPendingUpdatesRef.current[providerId] = {
+      ...(providerPendingUpdatesRef.current[providerId] || {}),
+      ...updates,
+    };
+
+    const existingTimer = providerSaveTimersRef.current[providerId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    providerSaveTimersRef.current[providerId] = setTimeout(async () => {
+      const pending = providerPendingUpdatesRef.current[providerId];
+      if (!pending) return;
+      delete providerPendingUpdatesRef.current[providerId];
+      delete providerSaveTimersRef.current[providerId];
+      await updateProviderAndPersist(providerId, pending);
+    }, 500);
   };
 
   const updateLLMConfigDraft = (nextConfig: LLMConfig) => {
@@ -705,6 +747,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   const deleteProviderAndPersist = async (providerId: string) => {
     setDeletingProviders((prev) => ({ ...prev, [providerId]: true }));
+    if (providerSaveTimersRef.current[providerId]) {
+      clearTimeout(providerSaveTimersRef.current[providerId]);
+      delete providerSaveTimersRef.current[providerId];
+    }
+    delete providerPendingUpdatesRef.current[providerId];
     try {
       await applyLLMConfigMutation((current) => {
         const nextProviders = { ...(current.providers || {}) };
@@ -2000,8 +2047,9 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                   };
                   await addProviderAndPersist(providerId, payload);
                 }}
-                onUpdateProvider={async (providerId, updates) => {
-                  await updateProviderAndPersist(providerId, updates as Partial<ProviderConfig>);
+                onUpdateProvider={(providerId, updates) => {
+                  updateProvider(providerId, updates as Partial<ProviderConfig>);
+                  scheduleProviderSave(providerId, updates as Partial<ProviderConfig>);
                 }}
                 onDeleteProvider={async (providerId) => {
                   await deleteProviderAndPersist(providerId);

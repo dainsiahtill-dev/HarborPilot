@@ -239,7 +239,7 @@ export interface LLMStatus {
   blocked_roles: string[];
   unsupported_roles: string[];
   roles: Record<string, LLMStatusRole>;
-  providers?: Record<string, LLMStatusProvider>; // providers might be optional? EnhancedLLMSettingsTab has providers? Record<...>
+  providers?: Record<string, LLMStatusProvider>;
   last_updated: string;
 }
 
@@ -311,7 +311,8 @@ export const usesBaseUrlForType = (providerType?: string): boolean => {
     providerType === PROVIDER_KINDS.OPENAI_COMPAT ||
     providerType === PROVIDER_KINDS.ANTHROPIC_COMPAT ||
     providerType === PROVIDER_KINDS.MAXMINI ||
-    providerType === PROVIDER_KINDS.GEMINI_API
+    providerType === PROVIDER_KINDS.GEMINI_API ||
+    providerType === PROVIDER_KINDS.KIMI
   );
 };
 

@@ -1,6 +1,9 @@
-﻿import React from 'react';
+import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { type ProviderConfig } from '../types';
+
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+const cyberTextareaClasses = "flex w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[80px] resize-y";
 
 interface CodexSDKProviderSettingsProps {
   provider: ProviderConfig;
@@ -28,7 +31,7 @@ export function CodexSDKProviderSettings({
             type="text"
             value={provider.default_model || ''}
             onChange={(e) => handleFieldChange('default_model', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+            className={cyberInputClasses}
             placeholder="gpt-4-codex"
           />
         </div>
@@ -40,7 +43,7 @@ export function CodexSDKProviderSettings({
               type="number"
               value={provider.max_retries ?? 3}
               onChange={(e) => handleFieldChange('max_retries', parseInt(e.target.value) || 0)}
-              className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              className={cyberInputClasses}
               min="0"
               max="10"
             />
@@ -51,7 +54,7 @@ export function CodexSDKProviderSettings({
               type="number"
               value={provider.temperature ?? 0.2}
               onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value) || 0)}
-              className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              className={cyberInputClasses}
               min="0"
               max="2"
               step="0.1"
@@ -92,7 +95,7 @@ export function CodexSDKProviderSettings({
                 // ignore invalid JSON
               }
             }}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono h-20"
+            className={cyberTextareaClasses}
             placeholder='{"organization": "..."}'
           />
           <p className="text-[9px] text-text-dim mt-1">Extra SDK client params merged into the client constructor.</p>

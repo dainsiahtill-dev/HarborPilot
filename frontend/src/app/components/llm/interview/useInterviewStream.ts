@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBackendInfo } from '@/api';
 import type { TestEvent } from '../test/types';
 
@@ -282,12 +282,29 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
 
   const stopStream = useCallback((sessionIdOverride?: string | null) => {
     abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     const sessionId = sessionIdOverride ?? activeSessionIdRef.current;
     activeSessionIdRef.current = null;
     if (sessionId) {
       void requestCancel(sessionId);
     }
     setIsStreaming(false);
+  }, [requestCancel]);
+
+  // 组件卸载时清理资源
+  useEffect(() => {
+    return () => {
+      // 强制停止所有进行中的流
+      abortControllerRef.current?.abort();
+      eventSourceRef.current?.close();
+      // 如果有活跃会话，通知后端取消
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId) {
+        void requestCancel(sessionId);
+      }
+    };
   }, [requestCancel]);
 
   return {

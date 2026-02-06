@@ -9,6 +9,9 @@ interface OllamaProviderSettingsProps {
   onValidate: () => any;
 }
 
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
+
 export function OllamaProviderSettings({
   provider,
   onUpdate,
@@ -86,7 +89,7 @@ export function OllamaProviderSettings({
               type="text"
               value={provider.base_url || 'http://127.0.0.1:11434'}
               onChange={(e) => handleFieldChange('base_url', e.target.value)}
-              className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              className={`${cyberInputClasses} flex-1 font-mono`}
               placeholder="http://127.0.0.1:11434"
             />
           </div>
@@ -101,7 +104,7 @@ export function OllamaProviderSettings({
           <select
             value={provider.api_path || '/api/chat'}
             onChange={(e) => handleFieldChange('api_path', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberSelectClasses}
           >
             <option value="/api/chat">Chat API (/api/chat)</option>
             <option value="/api/generate">Generate API (/api/generate)</option>
@@ -128,7 +131,7 @@ export function OllamaProviderSettings({
             <select
               value={isCustomModel ? 'custom' : (provider.model || '')}
               onChange={handleModelSelect}
-              className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+              className={cyberSelectClasses}
             >
               <option value="" disabled>Select a model...</option>
               {availableModels.map(model => (
@@ -143,7 +146,7 @@ export function OllamaProviderSettings({
                   type="text"
                   value={provider.model || ''}
                   onChange={(e) => handleFieldChange('model', e.target.value)}
-                  className="w-full bg-indigo-500/10 text-text-main px-3 py-2 rounded border border-indigo-500/30 text-sm font-mono placeholder-white/20"
+                  className="flex h-9 w-full min-w-0 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 font-mono"
                   placeholder="Enter model name (e.g., llama3:8b)"
                   autoFocus
                 />
@@ -183,8 +186,8 @@ export function OllamaProviderSettings({
                 type="number"
                 value={provider.gpu_layers || 0}
                 onChange={(e) => handleFieldChange('gpu_layers', parseInt(e.target.value) || 0)}
-                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
                 placeholder="0"
+                className={cyberInputClasses}
               />
             </div>
             <div>
@@ -193,8 +196,8 @@ export function OllamaProviderSettings({
                 type="number"
                 value={provider.context_size || 2048}
                 onChange={(e) => handleFieldChange('context_size', parseInt(e.target.value) || 2048)}
-                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
                 step="512"
+                className={cyberInputClasses}
               />
             </div>
           </div>
@@ -211,10 +214,10 @@ export function OllamaProviderSettings({
                 type="number"
                 value={provider.temperature || 0.7}
                 onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value) || 0.7)}
-                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
                 min="0"
                 max="2"
                 step="0.1"
+                className={cyberInputClasses}
               />
             </div>
             {/* Top P */}
@@ -224,10 +227,10 @@ export function OllamaProviderSettings({
                 type="number"
                 value={provider.top_p || 0.9}
                 onChange={(e) => handleFieldChange('top_p', parseFloat(e.target.value) || 0.9)}
-                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
                 min="0"
                 max="1"
                 step="0.1"
+                className={cyberInputClasses}
               />
             </div>
           </div>

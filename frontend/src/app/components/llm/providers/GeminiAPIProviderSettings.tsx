@@ -2,6 +2,8 @@ import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { type ProviderConfig } from '../types';
 
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
+
 interface GeminiAPIProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
@@ -30,8 +32,8 @@ export function GeminiAPIProviderSettings({
             type="text"
             value={provider.api_path || '/v1beta/models/{model}:generateContent'}
             onChange={(e) => handleFieldChange('api_path', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
             placeholder="/v1beta/models/{model}:generateContent"
+            className={cyberInputClasses}
           />
           <p className="text-[9px] text-text-dim mt-1">
             Use {'{model}'} placeholder for dynamic model selection
@@ -45,8 +47,8 @@ export function GeminiAPIProviderSettings({
             type="text"
             value={provider.models_path || '/v1beta/models'}
             onChange={(e) => handleFieldChange('models_path', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
             placeholder="/v1beta/models"
+            className={cyberInputClasses}
           />
         </div>
       </div>
@@ -86,10 +88,10 @@ export function GeminiAPIProviderSettings({
             type="number"
             value={provider.temperature || 0.7}
             onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value) || 0.7)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
             min="0"
             max="2"
             step="0.1"
+            className={cyberInputClasses}
           />
         </div>
 
@@ -100,9 +102,9 @@ export function GeminiAPIProviderSettings({
             type="number"
             value={provider.max_tokens || 8192}
             onChange={(e) => handleFieldChange('max_tokens', parseInt(e.target.value) || 8192)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
             min="1"
             max="2097152"
+            className={cyberInputClasses}
           />
         </div>
 
@@ -113,9 +115,9 @@ export function GeminiAPIProviderSettings({
             type="number"
             value={provider.retries || 3}
             onChange={(e) => handleFieldChange('retries', parseInt(e.target.value) || 3)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
             min="0"
             max="10"
+            className={cyberInputClasses}
           />
         </div>
       </div>

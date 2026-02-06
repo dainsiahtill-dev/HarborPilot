@@ -64,6 +64,20 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
   }, []);
 
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+
+  // 组件卸载标记
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // 清理未执行的定时器
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // 同步节点位置到配置
   const syncNodePositions = useCallback(
@@ -101,6 +115,8 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
             clearTimeout(syncTimeoutRef.current);
           }
           syncTimeoutRef.current = setTimeout(() => {
+            // 检查组件是否仍然挂载
+            if (!isMountedRef.current) return;
             const layout = extractNodePositions(nextNodes);
             if (onConfigChange && config) {
               const nextConfig = {

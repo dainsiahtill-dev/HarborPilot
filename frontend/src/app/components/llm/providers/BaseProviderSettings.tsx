@@ -13,13 +13,20 @@ interface BaseProviderSettingsProps {
   onUpdate: (updates: Partial<ProviderConfig>) => void;
   onValidate: () => ValidationResult;
   children?: React.ReactNode;
+  hideApiKey?: boolean;
+  hideBaseUrl?: boolean;
 }
+
+// Cyberpunk style input classes
+const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
 
 export function BaseProviderSettings({ 
   provider, 
   onUpdate, 
   onValidate, 
-  children 
+  children,
+  hideApiKey,
+  hideBaseUrl
 }: BaseProviderSettingsProps) {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -76,13 +83,13 @@ export function BaseProviderSettings({
             type="text"
             value={provider.name || ''}
             onChange={(e) => handleFieldChange('name', e.target.value)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberInputClasses}
             placeholder="My LLM Provider"
           />
         </div>
 
-        {/* API Key - Only show if provider requires it */}
-        {provider.type && requiresApiKeyForType(provider.type) && (
+        {/* API Key - Only show if provider requires it and not hidden */}
+        {provider.type && requiresApiKeyForType(provider.type) && !hideApiKey && (
           <div>
             <label className="block text-xs text-text-muted mb-1">API Key</label>
             <div className="flex items-center gap-2">
@@ -90,13 +97,13 @@ export function BaseProviderSettings({
                 type={showApiKey ? "text" : "password"}
                 value={provider.api_key || ''}
                 onChange={(e) => handleFieldChange('api_key', e.target.value)}
-                className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+                className={`${cyberInputClasses} flex-1 font-mono`}
                 placeholder="Enter your API key"
               />
               <button
                 type="button"
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="p-2 rounded border border-white/10 hover:border-accent/40"
+                className="p-2 rounded border border-white/10 hover:border-accent/40 bg-black/40 text-slate-300 hover:text-slate-100 transition-colors"
               >
                 {showApiKey ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
               </button>
@@ -108,14 +115,14 @@ export function BaseProviderSettings({
         )}
 
         {/* Base URL - For API providers */}
-        {provider.type && usesBaseUrlForType(provider.type) && (
+        {provider.type && usesBaseUrlForType(provider.type) && !hideBaseUrl && (
           <div>
             <label className="block text-xs text-text-muted mb-1">Base URL</label>
             <input
               type="text"
               value={provider.base_url || ''}
               onChange={(e) => handleFieldChange('base_url', e.target.value)}
-              className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              className={`${cyberInputClasses} font-mono`}
               placeholder="https://api.example.com/v1"
             />
           </div>
@@ -129,7 +136,7 @@ export function BaseProviderSettings({
               type="text"
               value={provider.command || ''}
               onChange={(e) => handleFieldChange('command', e.target.value)}
-              className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+              className={`${cyberInputClasses} font-mono`}
               placeholder="codex, gemini, etc."
             />
           </div>
@@ -142,7 +149,7 @@ export function BaseProviderSettings({
             type="number"
             value={provider.timeout || 60}
             onChange={(e) => handleFieldChange('timeout', parseInt(e.target.value) || 60)}
-            className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm"
+            className={cyberInputClasses}
             min="1"
             max="300"
           />
