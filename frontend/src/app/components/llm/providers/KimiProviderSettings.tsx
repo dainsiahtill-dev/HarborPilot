@@ -3,6 +3,7 @@ import { RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
 import { type ProviderConfig } from '../types';
+import { useProviderForm, useDebouncedCallback } from '../hooks';
 
 interface KimiProviderSettingsProps {
   provider: ProviderConfig;
@@ -25,6 +26,17 @@ export function KimiProviderSettings({
   onUpdate,
   onValidate
 }: KimiProviderSettingsProps) {
+  const {
+    formState,
+    hasChanges,
+    isDirty,
+    setFieldValue,
+  } = useProviderForm({
+    provider,
+    onUpdate,
+    debounceMs: 300,
+  });
+
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([
     { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
     { id: 'moonshot-v1-32k', name: 'moonshot-v1-32k', description: '长上下文模型', context: '32K' },
@@ -34,17 +46,17 @@ export function KimiProviderSettings({
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const handleFieldChange = useCallback((field: string, value: any) => {
-    onUpdate({ [field]: value });
-  }, [onUpdate]);
+    setFieldValue(field as keyof ProviderConfig, value);
+  }, [setFieldValue]);
 
   const fetchModels = useCallback(async () => {
     setIsLoadingModels(true);
     setFetchError(null);
 
     try {
-      const baseUrl = provider.base_url || 'https://api.moonshot.cn/v1';
-      const modelsPath = provider.models_path || '/v1/models';
-      const apiKey = provider.api_key;
+      const baseUrl = formState.base_url || 'https://api.moonshot.cn/v1';
+      const modelsPath = formState.models_path || '/v1/models';
+      const apiKey = formState.api_key;
 
       if (!apiKey) {
         setFetchError('请先配置 API Key');
@@ -65,7 +77,6 @@ export function KimiProviderSettings({
 
       const data = await response.json();
       
-      // Parse Moonshot API response (OpenAI compatible format)
       let models: ModelInfo[] = [];
       if (data.data && Array.isArray(data.data)) {
         models = data.data.map((item: any) => ({
@@ -83,7 +94,6 @@ export function KimiProviderSettings({
         }));
       }
 
-      // Fallback to default if no models returned
       if (models.length === 0) {
         models = [
           { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
@@ -94,8 +104,7 @@ export function KimiProviderSettings({
 
       setAvailableModels(models);
       
-      // If current model is not in the list, select the first one
-      const currentModel = provider.model || provider.default_model || 'moonshot-v1-8k';
+      const currentModel = formState.model || formState.default_model || 'moonshot-v1-8k';
       if (!models.find(m => m.id === currentModel) && models.length > 0) {
         handleFieldChange('model', models[0].id);
       }
@@ -105,18 +114,18 @@ export function KimiProviderSettings({
     } finally {
       setIsLoadingModels(false);
     }
-  }, [provider.base_url, provider.models_path, provider.api_key, provider.model, provider.default_model]);
+  }, [formState.base_url, formState.models_path, formState.api_key, formState.model, formState.default_model, handleFieldChange]);
 
   return (
-    <BaseProviderSettings provider={provider} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
+    <BaseProviderSettings provider={formState} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
       {/* Kimi API Configuration */}
       <div className="space-y-4">
         <h5 className="text-xs font-semibold text-text-main">Kimi API 配置</h5>
         
         {/* Base URL */}
         <UrlInput
-          value={provider.base_url}
-          onChange={(value) => onUpdate({ base_url: value })}
+          value={formState.base_url}
+          onChange={(value) => setFieldValue('base_url', value)}
           placeholder="https://api.moonshot.cn/v1"
           label="API 基础URL"
           description="Moonshot AI 官方 API 端点"
@@ -125,16 +134,16 @@ export function KimiProviderSettings({
 
         {/* API Key */}
         <ApiKeyInput
-          apiKey={provider.api_key}
-          onChange={(value) => onUpdate({ api_key: value })}
+          apiKey={formState.api_key}
+          onChange={(value) => setFieldValue('api_key', value)}
           placeholder="sk-..."
           debugLabel="kimi_api_key"
         />
 
         {/* API Path */}
         <TextInput
-          value={provider.api_path}
-          onChange={(value) => onUpdate({ api_path: value })}
+          value={formState.api_path}
+          onChange={(value) => setFieldValue('api_path', value)}
           placeholder="/v1/chat/completions"
           label="API 路径"
           description="对话补全 API 路径（OpenAI 兼容格式）"
@@ -143,8 +152,8 @@ export function KimiProviderSettings({
 
         {/* Models Path */}
         <TextInput
-          value={provider.models_path}
-          onChange={(value) => onUpdate({ models_path: value })}
+          value={formState.models_path}
+          onChange={(value) => setFieldValue('models_path', value)}
           placeholder="/v1/models"
           label="模型列表路径"
           description="获取可用模型列表的 API 路径"
@@ -156,7 +165,7 @@ export function KimiProviderSettings({
           <label className="block text-xs text-text-muted mb-1">模型</label>
           <div className="flex items-center gap-2">
             <select
-              value={provider.model || provider.default_model || "moonshot-v1-8k"}
+              value={formState.model || formState.default_model || "moonshot-v1-8k"}
               onChange={(e) => handleFieldChange('model', e.target.value)}
               className={cyberSelectClasses}
             >
@@ -194,8 +203,8 @@ export function KimiProviderSettings({
         
         {/* Temperature */}
         <NumberInput
-          value={provider.temperature}
-          onChange={(value) => onUpdate({ temperature: value })}
+          value={formState.temperature}
+          onChange={(value) => setFieldValue('temperature', value)}
           placeholder="0.7"
           label="Temperature (0-2)"
           description="影响输出随机性，值越高越随机，默认0.7"
@@ -207,8 +216,8 @@ export function KimiProviderSettings({
 
         {/* Top P */}
         <NumberInput
-          value={provider.top_p}
-          onChange={(value) => onUpdate({ top_p: value })}
+          value={formState.top_p}
+          onChange={(value) => setFieldValue('top_p', value)}
           placeholder="1.0"
           label="Top P (0-1)"
           description="采样策略，默认1.0"
@@ -220,8 +229,8 @@ export function KimiProviderSettings({
 
         {/* Max Tokens */}
         <NumberInput
-          value={provider.max_tokens}
-          onChange={(value) => onUpdate({ max_tokens: value })}
+          value={formState.max_tokens}
+          onChange={(value) => setFieldValue('max_tokens', value)}
           placeholder="2048"
           label="Max Tokens"
           description="生成内容的最大 Token 数，默认2048"
@@ -234,7 +243,7 @@ export function KimiProviderSettings({
           <input
             type="checkbox"
             id="stream"
-            checked={provider.streaming ?? false}
+            checked={formState.streaming ?? false}
             onChange={(e) => handleFieldChange('streaming', e.target.checked)}
             className="rounded border-white/10 bg-black/30"
           />

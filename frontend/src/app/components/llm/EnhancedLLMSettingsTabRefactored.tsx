@@ -12,15 +12,16 @@ import {
   ProviderContextProvider, 
   useProviderContext,
   useSelectedRole,
+  useConnectivityStore,
+  type RoleId,
 } from './state';
-import type { ProviderState, ConnectivityResultStrict } from './state';
+import type { ProviderState } from './state';
 import { ProviderListManager } from './providers';
 
 import type { 
   ProviderConfig, 
   ProviderKind, 
   SimpleProvider,
-  RoleId,
 } from './types';
 import { PROVIDER_KINDS, isCLIProviderType } from './types';
 import type { TestEvent, TestResult } from './test/types';
@@ -306,8 +307,23 @@ function DeepTestPanel({
   onCancelInterview?: () => void;
 }) {
   const { state, setInterviewMode, setDeepView } = useProviderContext();
-  const { interviewMode, deepView, interviewPanel, interviewRunning } = state;
+  const { interviewMode, deepView, interviewPanel, interviewRunning, connectivityRunning, connectivityRunningKey } = state;
   const selectedRole = useSelectedRole();
+  const { buildProviderSummaries, buildConnectivityMap, getRoleProviderConnectivity } = useConnectivityStore();
+
+  const providers = useMemo(() => {
+    if (!llmConfig?.providers) return [];
+    return buildProviderSummaries(llmConfig.providers);
+  }, [llmConfig?.providers, buildProviderSummaries]);
+
+  const connectivityResults = useMemo(() => {
+    return buildConnectivityMap();
+  }, [buildConnectivityMap]);
+
+  const selectedProviderId = useMemo(() => {
+    const roleCfg = llmConfig?.roles?.[selectedRole];
+    return roleCfg?.provider_id || null;
+  }, [llmConfig?.roles, selectedRole]);
 
   // 简化的角色配置
   const roles = useMemo(() => {
@@ -400,10 +416,10 @@ function DeepTestPanel({
         {interviewMode === 'interactive' ? (
           <InteractiveInterviewHall
             roles={roles}
-            providers={[]}
+            providers={providers}
             selectedRole={selectedRole}
-            selectedProvider={null}
-            selectedModel={''}
+            selectedProvider={selectedProviderId}
+            selectedModel={llmConfig?.roles?.[selectedRole]?.model || ''}
             onSelectRole={() => {}}
             onSelectProvider={() => {}}
             onAskQuestion={onAskInteractiveInterview}
@@ -414,15 +430,15 @@ function DeepTestPanel({
           <InterviewHall
             roles={roles}
             selectedRole={selectedRole}
-            providers={[]}
-            selectedProvider={null}
+            providers={providers}
+            selectedProvider={selectedProviderId}
             onSelectRole={() => {}}
             onSelectProvider={() => {}}
             onRunConnectivityTest={handleRunConnectivity}
             onRunInterview={handleStartInterview}
-            connectivityResults={new Map()}
+            connectivityResults={connectivityResults}
             interviewRunning={interviewRunning}
-            connectivityRunning={false}
+            connectivityRunning={connectivityRunning}
             onSkipConnectivityTest={() => {}}
           />
         ) : (

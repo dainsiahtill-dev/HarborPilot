@@ -4,6 +4,7 @@
  */
 
 import type { RoleIdStrict, ProviderConfigStrict, ConnectivityResultStrict, InterviewSuiteReportStrict } from '../types/strict';
+export type { ConnectivityResultStrict } from '../types/strict';
 import type { ProviderConfig } from '../types';
 
 // ============================================================================

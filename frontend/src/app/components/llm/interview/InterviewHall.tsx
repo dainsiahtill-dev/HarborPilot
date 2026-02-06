@@ -83,7 +83,7 @@ export interface InterviewProviderSummary {
   };
 }
 
-type RoleId = 'pm' | 'director' | 'qa' | 'docs';
+export type RoleId = 'pm' | 'director' | 'qa' | 'docs';
 
 interface InterviewHallLegacyProps {
   roles: InterviewRoleSummary[];

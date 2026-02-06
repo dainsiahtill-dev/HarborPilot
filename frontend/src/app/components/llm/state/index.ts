@@ -20,6 +20,7 @@ export type {
   ConnectionMethodId,
   InterviewPanelState,
   TestPanelState,
+  ConnectivityResultStrict,
 } from './providerReducer';
 
 export { 
@@ -33,3 +34,14 @@ export {
   useConnectivityStatus,
   useIsProviderExpanded,
 } from './ProviderContext';
+
+export {
+  useConnectivityStore,
+  useRoleProviderConnectivity,
+  useProviderReadiness,
+  type InterviewProviderSummary,
+  type ConnectivityResult,
+  type InterviewRoleSummary,
+} from './connectivityStore';
+
+export type { RoleId } from '../interview/InterviewHall';
