@@ -59,7 +59,7 @@ export function GeminiCLIProviderSettings({
         <div>
           <label className="block text-xs text-text-muted mb-1">Google API Key</label>
           <input
-            type="password"
+            type="text"
             value={env.GOOGLE_API_KEY || ''}
             onChange={(e) => handleFieldChange('env', { ...env, GOOGLE_API_KEY: e.target.value })}
             className={`${cyberInputClasses} font-mono`}

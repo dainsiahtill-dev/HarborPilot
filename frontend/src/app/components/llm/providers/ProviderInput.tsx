@@ -160,7 +160,7 @@ export function ApiKeyInput({
       <ProviderInput
         value={apiKey}
         onChange={onChange}
-        type="password"
+        type="text"
         placeholder={placeholder}
         className="font-mono"
         debugLabel={debugLabel}

@@ -309,13 +309,9 @@ def normalize_llm_config(payload: Dict[str, Any], settings: Optional[Settings] =
 
 
 def redact_llm_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    data = json.loads(json.dumps(payload))
-    providers = data.get("providers")
-    if isinstance(providers, dict):
-        for provider in providers.values():
-            if isinstance(provider, dict) and "api_key" in provider:
-                provider.pop("api_key", None)
-    return data
+    # Keep api_key values so the UI can display plaintext keys without clearing.
+    # Deep copy to avoid mutating the original payload.
+    return json.loads(json.dumps(payload))
 
 
 def _write_json(path: str, payload: Dict[str, Any]) -> None:

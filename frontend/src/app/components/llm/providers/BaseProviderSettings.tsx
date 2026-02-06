@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { 
   type ProviderConfig,
   type ValidationResult,
@@ -29,7 +29,6 @@ export function BaseProviderSettings({
   hideBaseUrl
 }: BaseProviderSettingsProps) {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     const result = onValidate();
@@ -92,24 +91,15 @@ export function BaseProviderSettings({
         {provider.type && requiresApiKeyForType(provider.type) && !hideApiKey && (
           <div>
             <label className="block text-xs text-text-muted mb-1">API Key</label>
-            <div className="flex items-center gap-2">
-              <input
-                type={showApiKey ? "text" : "password"}
-                value={provider.api_key || ''}
-                onChange={(e) => handleFieldChange('api_key', e.target.value)}
-                className={`${cyberInputClasses} flex-1 font-mono`}
-                placeholder="Enter your API key"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="p-2 rounded border border-white/10 hover:border-accent/40 bg-black/40 text-slate-300 hover:text-slate-100 transition-colors"
-              >
-                {showApiKey ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-              </button>
-            </div>
+            <input
+              type="text"
+              value={provider.api_key || ''}
+              onChange={(e) => handleFieldChange('api_key', e.target.value)}
+              className={`${cyberInputClasses} font-mono`}
+              placeholder="Enter your API key"
+            />
             <p className="text-[9px] text-text-dim mt-1">
-              API key will be stored securely and used for authentication
+              API key will be stored and used for authentication
             </p>
           </div>
         )}

@@ -1054,62 +1054,70 @@ export function EnhancedLLMSettingsTab({
     const status: Record<string, ConnectivityStatus> = {};
     const providersStatus = llmStatus?.providers;
     
-    // Calculate current status from llmStatus
+    // 简化状态计算：直接从后端状态获取连通状态
     if (providersStatus) {
       Object.entries(providersStatus).forEach(([providerId, providerStatus]) => {
         if (!providerStatus || typeof providerStatus !== 'object') {
-          // Don't set unknown yet, just skip
           return;
         }
+        
+        // 优先使用connectivity.ok，其次使用ready
         const suites = providerStatus.suites as Record<string, unknown> | undefined;
         const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
         
-        let determinedStatus: ConnectivityStatus | undefined;
+        let finalStatus: ConnectivityStatus = 'unknown';
         
+        // 方法1: 从connectivity.suites获取
         if (connectivity && typeof connectivity.ok === 'boolean') {
-          determinedStatus = connectivity.ok ? 'success' : 'failed';
-        } else if (typeof providerStatus.ready === 'boolean') {
-          determinedStatus = providerStatus.ready ? 'success' : 'failed';
+          finalStatus = connectivity.ok ? 'success' : 'failed';
         }
-
-        if (determinedStatus) {
-          status[providerId] = determinedStatus;
+        // 方法2: 从provider.ready获取
+        else if (typeof providerStatus.ready === 'boolean') {
+          finalStatus = providerStatus.ready ? 'success' : 'failed';
         }
+        
+        // 直接设置状态，不依赖复杂的缓存逻辑
+        status[providerId] = finalStatus;
       });
     }
 
-    // Smart merge with previous valid status to ensure stability
-    const merged = { ...previousValidStatus.current };
-    
-    // Only update statuses that have explicit changes and are valid
+    // 简化的缓存合并：只保留当前有效的状态
     Object.entries(status).forEach(([providerId, newStatus]) => {
-      const oldStatus = previousValidStatus.current[providerId];
-      // Only update when new status is valid and different from old status
-      if (newStatus !== 'unknown' && newStatus !== oldStatus) {
-        merged[providerId] = newStatus;
+      if (newStatus !== 'unknown') {
+        previousValidStatus.current[providerId] = newStatus;
       }
     });
-    
-    // Preserve valid cached statuses that are not overridden
-    Object.entries(previousValidStatus.current).forEach(([providerId, oldStatus]) => {
-      if (oldStatus !== 'unknown' && !status[providerId]) {
-        merged[providerId] = oldStatus;
-      }
-    });
-    
-    // Update cache
-    previousValidStatus.current = merged;
-    return merged;
+
+    // 返回合并后的状态（当前状态 + 缓存的有效状态）
+    return { ...previousValidStatus.current, ...status };
   }, [llmStatus]);
 
   // Add state change monitoring for debugging
   useEffect(() => {
-    console.log('Provider connectivity status changed:', {
+    console.log('=== 连通状态调试信息 ===', {
+      timestamp: new Date().toISOString(),
       providerConnectivityStatus,
       providerTestStatus,
-      timestamp: new Date().toISOString()
+      llmStatusProviders: llmStatus?.providers,
+      previousValidStatus: previousValidStatus.current
     });
-  }, [providerConnectivityStatus, providerTestStatus]);
+    
+    // 详细分析每个提供商的状态
+    Object.entries(providerConnectivityStatus).forEach(([providerId, status]) => {
+      const localStatus = providerTestStatus[providerId];
+      const backendProvider = llmStatus?.providers?.[providerId];
+      const connectivity = backendProvider?.suites?.connectivity as any;
+      const ready = backendProvider?.ready;
+      
+      console.log(`提供商 ${providerId} 状态分析:`, {
+        finalStatus: status,
+        localTestStatus: localStatus,
+        backendConnectivityOk: connectivity?.ok,
+        backendReady: ready,
+        backendProvider: backendProvider
+      });
+    });
+  }, [providerConnectivityStatus, providerTestStatus, llmStatus]);
 
   // Monitor for status loss during config saves
   useEffect(() => {
@@ -1537,25 +1545,25 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
-  // Helper function to determine connectivity state (moved to component top)
+  // Helper function to determine connectivity state (简化版)
   const determineConnectivityState = useCallback((providerId: string) => {
     const localStatus = providerTestStatus[providerId];
     const persistedStatus = providerConnectivityStatus[providerId];
     
-    // Priority 1: Running test status
+    // 简化优先级：测试中 > 后端状态 > 本地状态
     if (localStatus === 'running') return 'running';
     
-    // Priority 2: Valid persisted status (not unknown)
+    // 优先使用后端计算的状态（更可靠）
     if (persistedStatus && persistedStatus !== 'unknown') {
       return persistedStatus;
     }
     
-    // Priority 3: Valid local status (not running and not unknown)
+    // 其次使用本地测试状态
     if (localStatus && localStatus !== 'unknown') {
       return localStatus;
     }
     
-    // Fallback to unknown only if no valid status available
+    // 最后才fallback到unknown
     return 'unknown';
   }, [providerTestStatus, providerConnectivityStatus]);
 

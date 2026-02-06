@@ -3,8 +3,6 @@ import {
   AlertTriangle, 
   Loader2, 
   PlayCircle, 
-  Eye, 
-  EyeOff, 
   Trash2, 
   Edit3, 
   ChevronDown, 
@@ -54,7 +52,6 @@ export function SimpleModelCard({
 }: SimpleModelCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [editForm, setEditForm] = useState<SimpleProvider>(provider);
 
   const isCodexCli = isCodexCLIProvider(provider.kind, provider.conn);
@@ -500,25 +497,16 @@ export function SimpleModelCard({
             </div>
             <div>
               <label className="block text-xs text-text-muted mb-1">API Key</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  value={isHTTPConnection(editForm.conn) ? editForm.conn.apiKey || '' : ''}
-                  onChange={(e) => setEditForm(prev => ({ 
-                    ...prev, 
-                    conn: { ...prev.conn, kind: 'http', apiKey: e.target.value }
-                  }) as SimpleProvider)}
-                  className="flex-1 bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
-                  placeholder="Enter your API key"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="p-2 rounded border border-white/10 hover:border-accent/40"
-                >
-                  {showApiKey ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={isHTTPConnection(editForm.conn) ? editForm.conn.apiKey || '' : ''}
+                onChange={(e) => setEditForm(prev => ({ 
+                  ...prev, 
+                  conn: { ...prev.conn, kind: 'http', apiKey: e.target.value }
+                }) as SimpleProvider)}
+                className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-sm font-mono"
+                placeholder="Enter your API key"
+              />
             </div>
           </div>
         )}
