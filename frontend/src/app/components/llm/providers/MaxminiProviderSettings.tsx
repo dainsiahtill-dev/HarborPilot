@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { ApiKeyInput, UrlInput, TextInput, NumberInput } from './ProviderInput';
+import { useProviderForm } from '../hooks';
 import { type ProviderConfig } from '../types';
 
 interface MaxminiProviderSettingsProps {
@@ -24,24 +25,35 @@ export function MaxminiProviderSettings({
   onUpdate,
   onValidate
 }: MaxminiProviderSettingsProps) {
+  const {
+    formState,
+    hasChanges,
+    isDirty,
+    setFieldValue,
+  } = useProviderForm({
+    provider,
+    onUpdate,
+    debounceMs: 300,
+  });
+
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([
     { id: 'M2-her', name: 'M2-her', description: '最新对话模型' }
   ]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const handleFieldChange = (field: string, value: any) => {
-    onUpdate({ [field]: value });
-  };
+  const handleFieldChange = useCallback((field: string, value: any) => {
+    setFieldValue(field as keyof ProviderConfig, value);
+  }, [setFieldValue]);
 
   const fetchModels = useCallback(async () => {
     setIsLoadingModels(true);
     setFetchError(null);
 
     try {
-      const baseUrl = provider.base_url || 'https://api.minimaxi.com/v1';
-      const modelsPath = provider.models_path || '/query/model_list';
-      const apiKey = provider.api_key;
+      const baseUrl = formState.base_url || 'https://api.minimaxi.com/v1';
+      const modelsPath = formState.models_path || '/query/model_list';
+      const apiKey = formState.api_key;
 
       if (!apiKey) {
         setFetchError('请先配置 API Key');
@@ -86,7 +98,7 @@ export function MaxminiProviderSettings({
       setAvailableModels(models);
       
       // If current model is not in the list, select the first one
-      const currentModel = provider.model || 'M2-her';
+      const currentModel = formState.model || 'M2-her';
       if (!models.find(m => m.id === currentModel) && models.length > 0) {
         handleFieldChange('model', models[0].id);
       }
@@ -96,18 +108,18 @@ export function MaxminiProviderSettings({
     } finally {
       setIsLoadingModels(false);
     }
-  }, [provider.base_url, provider.models_path, provider.api_key, provider.model]);
+  }, [formState.base_url, formState.models_path, formState.api_key, formState.model, handleFieldChange]);
 
   return (
-    <BaseProviderSettings provider={provider} onUpdate={onUpdate} onValidate={onValidate}>
+    <BaseProviderSettings provider={formState} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
       {/* MiniMax API Configuration */}
       <div className="space-y-4">
         <h5 className="text-xs font-semibold text-text-main">MiniMax API 配置</h5>
         
         {/* Base URL */}
         <UrlInput
-          value={provider.base_url}
-          onChange={(value) => onUpdate({ base_url: value })}
+          value={formState.base_url}
+          onChange={(value) => setFieldValue('base_url', value)}
           placeholder="https://api.minimaxi.com/v1"
           label="API 基础URL"
           description="MiniMax官方API端点"
@@ -116,15 +128,15 @@ export function MaxminiProviderSettings({
 
         {/* API Key */}
         <ApiKeyInput
-          apiKey={provider.api_key}
-          onChange={(value) => onUpdate({ api_key: value })}
+          apiKey={formState.api_key}
+          onChange={(value) => setFieldValue('api_key', value)}
           debugLabel="maxmini_api_key"
         />
 
         {/* API Path */}
         <TextInput
-          value={provider.api_path}
-          onChange={(value) => onUpdate({ api_path: value })}
+          value={formState.api_path}
+          onChange={(value) => setFieldValue('api_path', value)}
           placeholder="/text/chatcompletion_v2"
           label="API 路径"
           description="文本对话API路径（v2版本）"
@@ -136,7 +148,7 @@ export function MaxminiProviderSettings({
           <label className="block text-xs text-text-muted mb-1">模型</label>
           <div className="flex items-center gap-2">
             <select
-              value={provider.model || "M2-her"}
+              value={formState.model || "M2-her"}
               onChange={(e) => handleFieldChange('model', e.target.value)}
               className={cyberSelectClasses}
             >
@@ -174,8 +186,8 @@ export function MaxminiProviderSettings({
         
         {/* Temperature */}
         <NumberInput
-          value={provider.temperature}
-          onChange={(value) => onUpdate({ temperature: value })}
+          value={formState.temperature}
+          onChange={(value) => setFieldValue('temperature', value)}
           placeholder="1.0"
           label="Temperature (0-1)"
           description="影响输出随机性，值越高越随机，默认1.0"
@@ -187,8 +199,8 @@ export function MaxminiProviderSettings({
 
         {/* Top P */}
         <NumberInput
-          value={provider.top_p}
-          onChange={(value) => onUpdate({ top_p: value })}
+          value={formState.top_p}
+          onChange={(value) => setFieldValue('top_p', value)}
           placeholder="1.0"
           label="Top P (0-1)"
           description="采样策略，默认1.0"
@@ -200,8 +212,8 @@ export function MaxminiProviderSettings({
 
         {/* Max Tokens */}
         <NumberInput
-          value={provider.max_tokens}
-          onChange={(value) => onUpdate({ max_tokens: value })}
+          value={formState.max_tokens}
+          onChange={(value) => setFieldValue('max_tokens', value)}
           placeholder="2048"
           label="Max Tokens"
           description="生成内容的最大Token数，默认2048"
@@ -214,7 +226,7 @@ export function MaxminiProviderSettings({
           <input
             type="checkbox"
             id="stream"
-            checked={provider.streaming ?? false}
+            checked={formState.streaming ?? false}
             onChange={(e) => handleFieldChange('streaming', e.target.checked)}
             className="rounded border-white/10 bg-black/30"
           />
