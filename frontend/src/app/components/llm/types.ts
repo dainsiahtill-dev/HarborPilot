@@ -19,7 +19,8 @@ export const PROVIDER_KINDS = {
   ANTHROPIC_COMPAT: 'anthropic_compat' as const,
   CUSTOM_HTTPS: 'custom_https' as const,
   MAXMINI: 'maxmini' as const,
-  GEMINI_API: 'gemini_api' as const
+  GEMINI_API: 'gemini_api' as const,
+  KIMI: 'kimi' as const
 } as const;
 
 export type ProviderKind = typeof PROVIDER_KINDS[keyof typeof PROVIDER_KINDS];
@@ -125,7 +126,9 @@ export interface ProviderConfig {
   models_path?: string;
   headers?: Record<string, string>;
   temperature?: number;
+  top_p?: number;
   max_tokens?: number;
+  model?: string;
   default_model?: string;
   thinking_mode?: boolean;
   streaming?: boolean;
@@ -375,7 +378,8 @@ export const PROVIDER_LABELS: ProviderLabels = {
   [PROVIDER_KINDS.ANTHROPIC_COMPAT]: 'Anthropic-compatible',
   [PROVIDER_KINDS.CUSTOM_HTTPS]: 'Custom HTTPS',
   [PROVIDER_KINDS.MAXMINI]: 'MiniMax',
-  [PROVIDER_KINDS.GEMINI_API]: 'Gemini API'
+  [PROVIDER_KINDS.GEMINI_API]: 'Gemini API',
+  [PROVIDER_KINDS.KIMI]: 'Kimi'
 };
 
 export const STATUS_COLORS: StatusColors = {

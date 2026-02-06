@@ -14,6 +14,7 @@ from .anthropic_compat_provider import AnthropicCompatProvider
 from .gemini_cli_provider import GeminiCLIProvider
 from .maxmini_provider import MaxminiProvider
 from .gemini_api_provider import GeminiAPIProvider
+from .kimi_provider import KimiProvider
 
 
 class ProviderManager:
@@ -31,6 +32,7 @@ class ProviderManager:
         self.register_provider("codex_cli", CodexCLIProvider)  # Use proper Codex CLI provider
         self.register_provider("gemini_cli", GeminiCLIProvider)
         self.register_provider("maxmini", MaxminiProvider)
+        self.register_provider("kimi", KimiProvider)
         self.register_provider("gemini_api", GeminiAPIProvider)
         self.register_provider("ollama", OllamaProvider)
         self.register_provider("openai_compat", OpenAICompatProvider)

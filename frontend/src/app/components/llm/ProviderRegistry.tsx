@@ -83,6 +83,9 @@ class ProviderRegistryClass {
       case 'maxmini':
         const { MaxminiProviderSettings } = await import('./providers/MaxminiProviderSettings');
         return MaxminiProviderSettings;
+      case 'kimi':
+        const { KimiProviderSettings } = await import('./providers/KimiProviderSettings');
+        return KimiProviderSettings;
       case 'gemini_api':
         const { GeminiAPIProviderSettings } = await import('./providers/GeminiAPIProviderSettings');
         return GeminiAPIProviderSettings;

@@ -20,37 +20,40 @@ class MaxminiProvider(BaseProvider):
         return ProviderInfo(
             name="MiniMax Provider",
             type="maxmini",
-            description="MiniMax API provider for Chinese language models",
+            description="MiniMax API provider for M2-her model",
             version="1.0.0",
             author="HarborPilot Team",
-            documentation_url="https://api.minimax.chat/document",
+            documentation_url="https://platform.minimaxi.com/docs/api-reference/text-chat",
             supported_features=[
                 "thinking_extraction",
                 "model_listing",
                 "health_check",
                 "chinese_support",
                 "context_window",
-                "file_operations_via_interface"
+                "streaming"
             ],
             cost_class="METERED",
             provider_category="LLM",
             autonomous_file_access=False,
-            requires_file_interfaces=True,
+            requires_file_interfaces=False,
             model_listing_method="API"
         )
     
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
         return {
-            "base_url": "https://api.minimax.chat/v1",
+            "base_url": "https://api.minimaxi.com/v1",
             "api_key": "",
-            "api_key_ref": "keychain:maxmini",
-            "api_path": "/text/chatcompletion_pro",
+            "api_key_ref": "keychain:minimax",
+            "api_path": "/text/chatcompletion_v2",
             "models_path": "/query/model_list",
             "timeout": 60,
             "retries": 3,
-            "temperature": 0.7,
+            "model": "M2-her",
+            "temperature": 1.0,
+            "top_p": 0.95,
             "max_tokens": 2048,
+            "stream": False,
             "thinking_extraction": {
                 "enabled": True,
                 "patterns": [
@@ -63,17 +66,9 @@ class MaxminiProvider(BaseProvider):
                 "confidence_threshold": 0.6
             },
             "model_specific": {
-                "abab6.5": {
-                    "max_tokens": 245760,
+                "M2-her": {
+                    "max_tokens": 2048,
                     "supports_thinking": True
-                },
-                "abab6.5s": {
-                    "max_tokens": 245760,
-                    "supports_thinking": True
-                },
-                "abab6": {
-                    "max_tokens": 8192,
-                    "supports_thinking": False
                 }
             }
         }
@@ -109,11 +104,23 @@ class MaxminiProvider(BaseProvider):
             warnings.append("Invalid retries, using default 3")
             normalized["retries"] = 3
         
-        # Validate temperature
-        temperature = config.get("temperature", 0.7)
-        if not isinstance(temperature, (int, float)) or temperature < 0 or temperature > 2:
-            warnings.append("Invalid temperature, using default 0.7")
-            normalized["temperature"] = 0.7
+        # Validate temperature (0-1 for MiniMax M2-her)
+        temperature = config.get("temperature", 1.0)
+        if not isinstance(temperature, (int, float)) or temperature < 0 or temperature > 1:
+            warnings.append("Invalid temperature, using default 1.0")
+            normalized["temperature"] = 1.0
+        
+        # Validate top_p (0-1 for MiniMax M2-her)
+        top_p = config.get("top_p", 0.95)
+        if not isinstance(top_p, (int, float)) or top_p < 0 or top_p > 1:
+            warnings.append("Invalid top_p, using default 0.95")
+            normalized["top_p"] = 0.95
+        
+        # Validate max_tokens (1-2048 for MiniMax M2-her)
+        max_tokens = config.get("max_tokens", 2048)
+        if not isinstance(max_tokens, int) or max_tokens < 1 or max_tokens > 2048:
+            warnings.append("Invalid max_tokens, using default 2048")
+            normalized["max_tokens"] = 2048
         
         return ValidationResult(
             valid=len(errors) == 0,
@@ -203,7 +210,7 @@ class MaxminiProvider(BaseProvider):
             
             # Fallback to known MiniMax models if API doesn't return list
             if not models:
-                known_models = ["abab6.5", "abab6.5s", "abab6"]
+                known_models = ["M2-her"]
                 for model_id in known_models:
                     models.append(ModelInfo(id=model_id, label=f"MiniMax {model_id}"))
             
@@ -215,7 +222,7 @@ class MaxminiProvider(BaseProvider):
         base = self._base_url(config)
         timeout = int(config.get("timeout") or 60)
         retries = int(config.get("retries") or 0)
-        api_path = str(config.get("api_path", "/text/chatcompletion_pro")).strip()
+        api_path = str(config.get("api_path", "/text/chatcompletion_v2")).strip()
         url = base + api_path
         
         api_key = config.get("api_key")
@@ -223,14 +230,14 @@ class MaxminiProvider(BaseProvider):
             usage = estimate_usage(prompt, "")
             return InvokeResult(ok=False, output="", latency_ms=0, usage=usage, error="API key is required")
         
-        # Build MiniMax API payload
+        # Build MiniMax API payload for v2 endpoint
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": float(config.get("temperature") or 0.7),
+            "temperature": float(config.get("temperature") or 1.0),
+            "top_p": float(config.get("top_p") or 0.95),
             "max_tokens": int(config.get("max_tokens") or 2048),
-            "stream": False,
-            "mask_sensitive_info": False
+            "stream": bool(config.get("stream", False))
         }
         
         # Add model-specific settings
