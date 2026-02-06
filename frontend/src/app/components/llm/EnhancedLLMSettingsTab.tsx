@@ -1,4 +1,4 @@
-﻿import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle, ChevronDown, ChevronUp, Zap, Key, Shield, UserCheck, UserX, HelpCircle, Clock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -498,6 +498,7 @@ export function EnhancedLLMSettingsTab({
     () => loadConnectivityCache()
   );
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [selectedProviderType, setSelectedProviderType] = useState<string>('');
   const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
@@ -1133,64 +1134,49 @@ export function EnhancedLLMSettingsTab({
     const providersConfig = llmConfig.providers || {};
     const getLatestConnectivity = (providerId: string): ConnectivityResult | undefined => {
       const desiredModel = selectedRole ? resolveModelForSelection(selectedRole, providerId).trim() : '';
-      if (!desiredModel) {
-        return undefined;
-      }
-      const matchesModel = (value: ConnectivityResult) => {
-        // If we have a desired model, try to match it
-        if (desiredModel && value.model) {
-           return value.model === desiredModel;
-        }
-        // If no desired model specified (or value has none), rely on timestamp/providerId match primarily
-        return true; 
+      
+      // Helper to check if model matches (exact match or either is empty)
+      const matchesModel = (value: ConnectivityResult): boolean => {
+        if (!desiredModel || !value.model) return true;
+        return value.model === desiredModel;
       };
       
-      // First try exact match with role and provider
+      // Helper to check if key belongs to this provider
+      const isProviderKey = (key: string): boolean => {
+        return key === providerId || key.endsWith(`::${providerId}`);
+      };
+      
+      // Strategy 1: Try exact match with selected role and model
       if (selectedRole) {
         const directKey = `${selectedRole}::${providerId}`;
         const direct = connectivityResults.get(directKey);
-        if (direct) {
-             // If we found a direct role match, check model if possible, but trust the key first
-             // This fixes the issue where config update re-renders but map has old data?
-             // Actually, if config updates, desiredModel updates. If map has old model, it returns false.
-             // That is CORRECT for the edited provider.
-             // But for others? Their desiredModel shouldn't change.
-             
-             // Wait, if I edit Provider A, `llmConfig` changes. 
-             // Provider B's `resolveModelForSelection` is called.
-             // It uses `llmConfig`. 
-             // If `llmConfig` is fresh, Provider B's model is same.
-             
-             // Issue might be `connectivityResults` being cleared? 
-             // Let's verify if `setConnectivityResults` is called anywhere else.
-             
-             if (matchesModel(direct)) return direct;
+        if (direct && matchesModel(direct)) {
+          return direct;
         }
       }
-
-      // Fallback: search for any result for this provider
-      let best: ConnectivityResult | undefined;
+      
+      // Strategy 2: Find the best matching result for this provider
+      let bestMatch: ConnectivityResult | undefined;
+      let fallbackMatch: ConnectivityResult | undefined;
+      
       connectivityResults.forEach((value, key) => {
-        // Strict check: key must imply this provider.
-        // Keys are either `role::provider` or `provider` (if we support that, though we usually use role::provider)
-        // Actually, logs show keys are like `qa::ollama-...`.
+        if (!isProviderKey(key)) return;
         
-        if (!key.endsWith(`::${providerId}`)) return;
-        
-        // If we have a desired model, we should probably enforce it, 
-        // BUT if the user is just browsing, seeing "last known good" is better than "unknown".
-        // Let's relax matching: if exact model match fails, maybe show it but mark as 'stale'?
-        // For now, let's just return the best result we have for this provider, 
-        // and let the UI decide if it's valid.
-        
-        // Current logic:
-        if (!matchesModel(value)) return;
-        
-        if (!best || parseTimestamp(value.timestamp) > parseTimestamp(best.timestamp)) {
-          best = value;
+        // Prefer results with model matching
+        if (matchesModel(value)) {
+          if (!bestMatch || parseTimestamp(value.timestamp) > parseTimestamp(bestMatch.timestamp)) {
+            bestMatch = value;
+          }
+        } else {
+          // Keep track of non-matching model results as fallback
+          if (!fallbackMatch || parseTimestamp(value.timestamp) > parseTimestamp(fallbackMatch.timestamp)) {
+            fallbackMatch = value;
+          }
         }
       });
-      return best;
+      
+      // Return best match if available, otherwise fallback to any result for this provider
+      return bestMatch || fallbackMatch;
     };
 
     const interviews = llmStatus?.interviews;
@@ -1581,13 +1567,10 @@ export function EnhancedLLMSettingsTab({
 
     const isEditing = editingProvider === providerId;
     const isDeleting = Boolean(deletingProviders?.[providerId]);
+    const isExpanded = expandedProviders.has(providerId);
     const actionsDisabled = llmSaving || isDeleting;
     const testDisabled = actionsDisabled || !onTestProvider;
 
-    const localStatus = providerTestStatus[providerId];
-    const persistedStatus = providerConnectivityStatus[providerId];
-    
-    // Use the helper function to determine connectivity state
     const connectivityState = determineConnectivityState(providerId);
     const statusStyleKey = connectivityState === 'running' ? 'unknown' : connectivityState;
     const statusStyles = {
@@ -1613,6 +1596,7 @@ export function EnhancedLLMSettingsTab({
         text: 'text-rose-300'
       }
     }[statusStyleKey];
+
     const connectivityLabel =
       connectivityState === 'running'
         ? '测试中'
@@ -1626,56 +1610,72 @@ export function EnhancedLLMSettingsTab({
     const latestByProvider = interviews?.latest_by_provider || {};
     const providerInterview = latestByProvider[providerId];
 
+    const toggleExpanded = () => {
+      setExpandedProviders(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(providerId)) {
+          newSet.delete(providerId);
+        } else {
+          newSet.add(providerId);
+        }
+        return newSet;
+      });
+    };
+
+    const getInterviewIcon = () => {
+      if (!providerInterview) return <HelpCircle className="size-3 text-gray-400" />;
+      return providerInterview.status === 'passed' 
+        ? <UserCheck className="size-3 text-emerald-400" />
+        : <UserX className="size-3 text-rose-400" />;
+    };
+
+    const getInterviewLabel = () => {
+      if (!providerInterview) return '未测试';
+      return providerInterview.status === 'passed' ? '面试通过' : '面试失败';
+    };
+
+    const providerType = isCLIProviderType(provider.type || '') ? 'CLI' : 'HTTP';
+    const authType = requiresApiKey(provider.type || '') ? 'API Key' : 'None';
+    const costClass = getCostClass(provider.type || '');
+
     return (
       <div
         key={providerId}
         className={`rounded-xl p-4 border transition-all ${statusStyles.border} ${statusStyles.bg} ${statusStyles.glow}`}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        {/* Compact View - Core Info Only */}
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <div className={`size-2 rounded-full ${statusStyles.dot} animate-pulse`} />
             <div>
               <h4 className="text-sm font-semibold text-text-main">{provider.name || providerInfo.name}</h4>
-              <div className="flex items-center gap-2 text-[10px] text-text-dim flex-wrap">
-                <span className="capitalize">{providerInfo.type}</span>
-                <span>•</span>
+              <div className="flex items-center gap-2 text-[10px] text-text-dim">
                 <span className="font-mono">{provider.model || "default"}</span>
-                <span>•</span>
-                <span className={`${getCostClass(provider.type || '').toLowerCase() === 'local' ? 'text-green-400' : getCostClass(provider.type || '').toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
-                  {getCostClass(provider.type || '')}
+                <span className={`${costClass.toLowerCase() === 'local' ? 'text-green-400' : costClass.toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
+                  {costClass}
                 </span>
-                <span>•</span>
-                <span className={`flex items-center gap-1 ${statusStyles.text}`}>
-                  <span className={`size-2 rounded-full ${statusStyles.dot} animate-pulse`} />
-                  {connectivityLabel}
-                </span>
-                {providerInterview ? (
-                  <>
-                    <span>•</span>
-                    <span className={`flex items-center gap-1 ${
-                      providerInterview.status === 'passed' ? 'text-emerald-300' : 'text-rose-300'
-                    }`}>
-                      <span className={`size-2 rounded-full ${
-                        providerInterview.status === 'passed' ? 'bg-emerald-400' : 'bg-rose-400'
-                      }`} />
-                      {providerInterview.status === 'passed' ? '面试通过' : '面试失败'}
-                    </span>
-                  </>
-                ) : null}
               </div>
-              {providerInterview ? (
-                <div className="mt-1 text-[10px] text-text-dim">
-                  {providerInterview.role} · {providerInterview.model} · {new Date(providerInterview.timestamp).toLocaleString()}
-                </div>
-              ) : null}
             </div>
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Interview Status Badge */}
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5">
+              {getInterviewIcon()}
+              <span className="text-[10px] text-text-main">{getInterviewLabel()}</span>
+            </div>
+
+            {/* Connectivity Status Badge */}
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${statusStyles.border} bg-white/5`}>
+              <span className={`size-1.5 rounded-full ${statusStyles.dot}`} />
+              <span className={`text-[10px] ${statusStyles.text}`}>{connectivityLabel}</span>
+            </div>
+            
             <button
               onClick={() => openTestPanel(providerId)}
               disabled={testDisabled}
               className="p-1.5 rounded border border-cyan-500/30 hover:border-cyan-500/60 text-cyan-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="测试连通性"
             >
               <PlayCircle className="size-3" />
             </button>
@@ -1683,75 +1683,115 @@ export function EnhancedLLMSettingsTab({
               onClick={() => setEditingProvider(isEditing ? null : providerId)}
               disabled={actionsDisabled}
               className="p-1.5 rounded border border-white/10 hover:border-accent/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="编辑提供商"
             >
               <Settings className="size-3" />
+            </button>
+            <button
+              onClick={toggleExpanded}
+              className="p-1.5 rounded border border-white/10 hover:border-accent/40 transition-colors"
+              title={isExpanded ? "收起详情" : "展开详情"}
+            >
+              {isExpanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
             </button>
             <button
               onClick={() => handleDeleteProvider(providerId)}
               disabled={actionsDisabled}
               className="p-1.5 rounded border border-red-500/30 hover:border-red-500/40 text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="删除提供商"
             >
               {isDeleting ? <Loader2 className="size-3 animate-spin" /> : '×'}
             </button>
           </div>
         </div>
 
-        {/* Provider Settings */}
-        {isEditing && ProviderComponent ? (
-          <div className="space-y-4 pt-4 border-t border-white/10">
+        {/* Expanded View - Secondary Info */}
+        {isExpanded && !isEditing && (
+          <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+            {/* Three-column info cards */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+                <Zap className="size-3.5 text-amber-400" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[9px] text-text-dim uppercase tracking-wide">类型</div>
+                  <div className="text-xs text-text-main truncate">{providerType}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+                <Key className="size-3.5 text-cyan-400" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[9px] text-text-dim uppercase tracking-wide">认证</div>
+                  <div className="text-xs text-text-main truncate">{authType}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+                <Shield className="size-3.5 text-green-400" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[9px] text-text-dim uppercase tracking-wide">特性</div>
+                  <div className="text-xs text-text-main truncate">
+                    {providerInfo.supported_features.slice(0, 2).join(', ') || '-'}
+                    {providerInfo.supported_features.length > 2 && '...'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Interview Details */}
+            {providerInterview && (
+              <div className="space-y-2">
+                <h5 className="text-xs font-semibold text-text-main flex items-center gap-2">
+                  <UserCheck className="size-3.5 text-accent" />
+                  面试记录
+                </h5>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 text-[10px] uppercase font-semibold rounded border ${
+                    providerInterview.status === 'passed' 
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  }`}>
+                    {providerInterview.status === 'passed' ? 'PASSED' : 'FAILED'}
+                  </span>
+                  <span className="flex items-center gap-1 text-[10px] text-text-dim">
+                    <Clock className="size-3" />
+                    {new Date(providerInterview.timestamp).toLocaleString()}
+                  </span>
+                </div>
+                <div className="text-[10px] text-text-muted">
+                  角色: <span className="text-text-main">{providerInterview.role}</span>
+                  {' · '}
+                  模型: <span className="text-text-main font-mono">{providerInterview.model}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Last Test Info */}
+            {providerConnectivityStatus[providerId] && (
+              <div className="space-y-2">
+                <h5 className="text-xs font-semibold text-text-main flex items-center gap-2">
+                  <Clock className="size-3.5 text-cyan-400" />
+                  上次测试
+                </h5>
+                <div className="text-[10px] text-text-dim">
+                  {new Date(providerConnectivityStatus[providerId].timestamp).toLocaleString()}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Edit View */}
+        {isEditing && ProviderComponent && (
+          <div className="mt-4 pt-4 border-t border-white/10">
             <ProviderComponent
               providerId={providerId}
               provider={provider}
               onUpdate={(updates) => handleUpdateProvider(providerId, updates)}
               onValidate={() => {
-                // Return a mock validation result for now
-                // In a real implementation, this would be handled by the parent component
                 return { valid: true, errors: [], warnings: [] };
               }}
             />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Quick Info */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-text-muted">Type:</span>
-              <span className="text-xs text-text-main capitalize">{providerInfo.type}</span>
-            </div>
-            
-            {/* API Key Status */}
-            {!requiresApiKey(provider.type || '') && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-text-muted">Authentication:</span>
-                <span className="text-xs text-emerald-400">No API Key Required</span>
-              </div>
-            )}
-            
-            {/* Usage Class */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-text-muted">Usage Class:</span>
-              <span className={`text-xs capitalize ${getCostClass(provider.type || '').toLowerCase() === 'local' ? 'text-green-400' : getCostClass(provider.type || '').toLowerCase() === 'fixed' ? 'text-blue-400' : 'text-purple-400'}`}>
-                {getCostClass(provider.type || '')}
-              </span>
-            </div>
-
-            {/* Features */}
-            {providerInfo.supported_features.length > 0 && (
-              <div>
-                <span className="text-xs text-text-muted">Features:</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {providerInfo.supported_features.slice(0, 3).map((feature) => (
-                    <span key={feature} className="text-[9px] bg-accent/20 text-accent px-2 py-1 rounded">
-                      {feature}
-                    </span>
-                  ))}
-                  {providerInfo.supported_features.length > 3 && (
-                    <span className="text-[9px] text-text-dim">
-                      +{providerInfo.supported_features.length - 3} more
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

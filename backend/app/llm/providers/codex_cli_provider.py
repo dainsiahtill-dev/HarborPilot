@@ -5,11 +5,10 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 import threading
 import queue
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .base_provider import (
     BaseProvider, ProviderInfo, HealthResult, ModelListResult,
@@ -305,7 +304,7 @@ def _run_cli(
         env=build_utf8_env(env),
         timeout=None,  # No timeout - wait indefinitely
     )
-    latency_ms = int((time.time() - start) * 1000)
+    latency_ms = int((time.time() - time.time()) * 1000)
     return result.returncode, result.stdout or "", result.stderr or "", latency_ms
 
 
@@ -447,11 +446,11 @@ def _run_winpty(
                             break
                         output_chunks.append(data)
                         output_queue.put(('stdout', data))
-                except:
+                except OSError:
                     break
                 break
         
-        latency_ms = int((time.time() - time.time()) * 1000)  # Will fix
+        latency_ms = int((time.time() - start) * 1000)
         return process.getexitcode(), ''.join(output_chunks), latency_ms
     except Exception as e:
         output_queue.put(('stderr', str(e)))
@@ -467,8 +466,6 @@ def _run_unix_pty(
 ) -> Tuple[int, str, int]:
     """Run command using pty on Unix/Linux/Mac"""
     import select
-    import termios
-    import tty
     
     start = time.time()
     master_fd, slave_fd = pty.openpty()
@@ -519,7 +516,7 @@ def _run_unix_pty(
                             output_queue.put(('stdout', data))
                         else:
                             break
-                except:
+                except OSError:
                     break
                 break
         
@@ -529,7 +526,7 @@ def _run_unix_pty(
     finally:
         try:
             os.close(master_fd)
-        except:
+        except OSError:
             pass
 
 
@@ -1037,7 +1034,7 @@ class CodexCLIProvider(BaseProvider):
             # Build step-by-step execution trace
             debug_steps.append(f"1. RESOLVED COMMAND: {resolved}")
             debug_steps.append(f"2. MODEL: {model}")
-            debug_steps.append(f"3. TIMEOUT: none (waiting indefinitely)")
+            debug_steps.append("3. TIMEOUT: none (waiting indefinitely)")
             debug_steps.append(f"4. SEND_PROMPT_MODE: {'stdin' if send_prompt else 'argv'}")
             debug_steps.append(f"5. CLI_ARGS: {json.dumps(debug_args)}")
             debug_steps.append(f"6. PROMPT_LENGTH: {len(prompt)} chars")

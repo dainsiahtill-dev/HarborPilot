@@ -9,18 +9,28 @@ import {
   Edit3, 
   ChevronDown, 
   ChevronUp,
-  Terminal
+  Terminal,
+  Clock,
+  UserCheck,
+  UserX,
+  HelpCircle,
+  Zap,
+  Shield,
+  Key
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, useMemo } from 'react';
 import {
   PROVIDER_LABELS,
   STATUS_BADGES,
+  INTERVIEW_BADGES,
+  INTERVIEW_STATUS,
   isCLIProvider,
   isCodexCLIProvider,
   isCLIConnection,
   isHTTPConnection,
   type ProviderKind,
-  type SimpleProvider
+  type SimpleProvider,
+  type InterviewStatus
 } from './types';
 
 interface SimpleModelCardProps {
@@ -32,40 +42,6 @@ interface SimpleModelCardProps {
   onOpenTuiBrowser?: () => void;
   onViewTestReport?: () => void;
 }
-
-const CODEX_EXEC_PRESET = [
-  'exec',
-  '--skip-git-repo-check',
-  '--color',
-  'never',
-  '--model',
-  '{model}',
-  '--sandbox',
-  'danger-full-access',
-  '--json',
-  '{prompt}',
-];
-
-const CODEX_SLASH_COMMANDS = [
-  '/permissions',
-  '/apps',
-  '/compact',
-  '/diff',
-  '/exit',
-  '/feedback',
-  '/init',
-  '/logout',
-  '/mcp',
-  '/mention',
-  '/model',
-  '/ps',
-  '/fork',
-  '/resume',
-  '/new',
-  '/quit',
-  '/review',
-  '/status'
-];
 
 export function SimpleModelCard({
   provider,
@@ -80,7 +56,6 @@ export function SimpleModelCard({
   const [isEditing, setIsEditing] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [editForm, setEditForm] = useState<SimpleProvider>(provider);
-  const [advancedJson, setAdvancedJson] = useState('{}');
 
   const isCodexCli = isCodexCLIProvider(provider.kind, provider.conn);
   const cliMode = provider.cliMode || 'headless';
@@ -98,11 +73,70 @@ export function SimpleModelCard({
       conn: {
         kind: 'codex_cli',
         command: 'codex',
-        args: CODEX_EXEC_PRESET,
+        args: ['exec', '--skip-git-repo-check', '--color', 'never', '--model', '{model}', '--json', '{prompt}'],
         env: (prev.conn.kind === 'codex_cli' || prev.conn.kind === 'gemini_cli') ? prev.conn.env : {}
       }
     }));
   };
+
+  const getInterviewIcon = (status?: InterviewStatus) => {
+    switch (status) {
+      case INTERVIEW_STATUS.PASSED:
+        return <UserCheck className="size-3 text-green-400" />;
+      case INTERVIEW_STATUS.FAILED:
+        return <UserX className="size-3 text-red-400" />;
+      default:
+        return <HelpCircle className="size-3 text-gray-400" />;
+    }
+  };
+
+  const getInterviewLabel = (status?: InterviewStatus): string => {
+    switch (status) {
+      case INTERVIEW_STATUS.PASSED:
+        return '面试通过';
+      case INTERVIEW_STATUS.FAILED:
+        return '面试失败';
+      default:
+        return '未测试';
+    }
+  };
+
+  const providerType = useMemo(() => {
+    if (isCLIConnection(provider.conn)) {
+      return cliMode === 'tui' ? 'TUI' : 'CLI';
+    }
+    return 'HTTP';
+  }, [provider.conn, cliMode]);
+
+  const authType = useMemo(() => {
+    if (isCLIConnection(provider.conn)) {
+      return 'None';
+    }
+    if (provider.conn.kind === 'http' && provider.conn.apiKey) {
+      return 'API Key';
+    }
+    return 'None';
+  }, [provider.conn]);
+
+  const providerFeatures = useMemo(() => {
+    const features: string[] = [];
+    if (isCLIProvider(provider.kind)) {
+      features.push('CLI');
+      if (cliMode === 'tui') {
+        features.push('TUI');
+      }
+    }
+    if (isHTTPConnection(provider.conn)) {
+      features.push('REST API');
+    }
+    if (provider.costClass === 'LOCAL') {
+      features.push('Local');
+    }
+    if (provider.costClass === 'METERED') {
+      features.push('Metered');
+    }
+    return features;
+  }, [provider.kind, provider.conn, cliMode, provider.costClass]);
 
   const handleSaveEdit = () => {
     onUpdate(editForm);
@@ -135,8 +169,6 @@ export function SimpleModelCard({
           <div>
             <h4 className="text-sm font-semibold text-text-main">{provider.name}</h4>
             <div className="flex items-center gap-2 text-[10px] text-text-dim">
-              <span className="capitalize">{PROVIDER_LABELS[provider.kind]}</span>
-              <span>•</span>
               <span className="font-mono">{provider.modelId || "default"}</span>
               {provider.costClass && (
                 <>
@@ -149,6 +181,13 @@ export function SimpleModelCard({
         </div>
         
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5">
+            {getInterviewIcon(provider.interviewStatus)}
+            <span className="text-[10px] text-text-main">
+              {getInterviewLabel(provider.interviewStatus)}
+            </span>
+          </div>
+          
           <button
             onClick={onTest}
             disabled={provider.status === 'testing'}
@@ -181,84 +220,82 @@ export function SimpleModelCard({
 
   const renderExpandedView = () => (
     <div className="space-y-4 pt-4 border-t border-white/10">
-      {/* Connection Details */}
-      <div className="space-y-3">
-        <h5 className="text-xs font-semibold text-text-main">Connection Details</h5>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+          <Zap className="size-3.5 text-amber-400" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] text-text-dim uppercase tracking-wide">类型</div>
+            <div className="text-xs text-text-main truncate">{providerType}</div>
+          </div>
+        </div>
         
-        {isCLIConnection(provider.conn) ? (
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-text-muted">Command:</span>
-              <span className="text-text-main font-mono">{provider.conn.command}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">Args:</span>
-              <span className="text-text-main font-mono">{(provider.conn.args || []).join(' ')}</span>
-            </div>
-            {provider.conn.env && Object.keys(provider.conn.env).length > 0 && (
-              <div className="flex justify-between">
-                <span className="text-text-muted">Environment:</span>
-                <span className="text-text-main font-mono">{Object.keys(provider.conn.env).join(', ')}</span>
-              </div>
-            )}
+        <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+          <Key className="size-3.5 text-cyan-400" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] text-text-dim uppercase tracking-wide">认证</div>
+            <div className="text-xs text-text-main truncate">{authType}</div>
           </div>
-        ) : (
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-text-muted">Base URL:</span>
-              <span className="text-text-main font-mono">
-                {isHTTPConnection(provider.conn) ? provider.conn.baseUrl : ''}
-              </span>
-            </div>
-            {isHTTPConnection(provider.conn) && provider.conn.apiKey && (
-              <div className="flex justify-between">
-                <span className="text-text-muted">API Key:</span>
-                <span className="text-text-main">•••••••••••••••</span>
-              </div>
-            )}
+        </div>
+        
+        <div className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/5">
+          <Shield className="size-3.5 text-green-400" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] text-text-dim uppercase tracking-wide">特性</div>
+            <div className="text-xs text-text-main truncate">{providerFeatures.join(', ') || '-'}</div>
           </div>
-        )}
+        </div>
       </div>
 
-      {isCodexCli && cliMode === 'headless' && (
-        <div className="space-y-2 text-xs">
-          <h5 className="text-xs font-semibold text-text-main">Codex CLI Headless Template</h5>
-          <div className="text-[10px] text-text-dim">推荐 exec 参数（JSON 输出，适合自动化测试）</div>
-          <div className="text-[10px] font-mono text-text-main bg-black/30 rounded px-2 py-1 border border-white/10">
-            {CODEX_EXEC_PRESET.join(' ')}
+      {provider.interviewStatus && (
+        <div className="space-y-3">
+          <h5 className="text-xs font-semibold text-text-main flex items-center gap-2">
+            <UserCheck className="size-3.5 text-accent" />
+            面试记录
+          </h5>
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-[10px] uppercase font-semibold rounded border ${INTERVIEW_BADGES[provider.interviewStatus]}`}>
+              {provider.interviewStatus.toUpperCase()}
+            </span>
+            {provider.lastInterviewAt && (
+              <span className="flex items-center gap-1 text-[10px] text-text-dim">
+                <Clock className="size-3" />
+                {new Date(provider.lastInterviewAt).toLocaleString()}
+              </span>
+            )}
           </div>
+          {provider.interviewDetails?.role && (
+            <div className="text-[10px] text-text-muted">
+              角色: <span className="text-text-main">{provider.interviewDetails.role}</span>
+            </div>
+          )}
+          {provider.interviewDetails?.runId && (
+            <div className="text-[10px] text-text-muted">
+              运行ID: <span className="text-text-main font-mono">{provider.interviewDetails.runId}</span>
+            </div>
+          )}
         </div>
       )}
 
-      {isCodexCli && cliMode === 'tui' && (
-        <div className="space-y-2 text-xs">
-          <h5 className="text-xs font-semibold text-text-main">Codex CLI TUI 快速参考</h5>
-          <div className="text-[10px] text-text-dim">TUI Slash Commands：</div>
-          <div className="text-[10px] text-text-main font-mono">
-            {CODEX_SLASH_COMMANDS.join(' ')}
-          </div>
-          <div className="text-[9px] text-text-dim">{'\u5b9e\u9645\u53ef\u7528\u547d\u4ee4\u4ee5 Codex CLI \u7684 / \u5217\u8868\u4e3a\u51c6\uff0c/approvals \u4ecd\u53ef\u4f5c\u4e3a /permissions \u7684\u522b\u540d\u3002'}</div>
-        </div>
-      )}
-
-      {/* Test Results */}
       {provider.lastTest && (
         <div className="space-y-3">
-          <h5 className="text-xs font-semibold text-text-main">Last Test</h5>
+          <h5 className="text-xs font-semibold text-text-main flex items-center gap-2">
+            <Clock className="size-3.5 text-cyan-400" />
+            上次测试
+          </h5>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-text-muted">Time:</span>
+              <span className="text-text-muted">时间:</span>
               <span className="text-text-main">{new Date(provider.lastTest.at).toLocaleString()}</span>
             </div>
             {provider.lastTest.latencyMs && (
               <div className="flex justify-between">
-                <span className="text-text-muted">Latency:</span>
+                <span className="text-text-muted">延迟:</span>
                 <span className="text-text-main">{provider.lastTest.latencyMs}ms</span>
               </div>
             )}
             {provider.lastTest.usage && (
               <div className="flex justify-between">
-                <span className="text-text-muted">Tokens:</span>
+                <span className="text-text-muted">令牌:</span>
                 <span className="text-text-main">
                   {provider.lastTest.usage.totalTokens} {provider.lastTest.usage.estimated ? '(est.)' : ''}
                 </span>
@@ -271,15 +308,14 @@ export function SimpleModelCard({
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex items-center gap-2 pt-3 border-t border-white/10">
         <button
           onClick={onTest}
           disabled={provider.status === 'testing'}
-          className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-accent/40 disabled:opacity-60 flex items-center gap-1"
+          className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-cyan-400/40 disabled:opacity-60 flex items-center gap-1"
         >
           <PlayCircle className="size-3" />
-          Test
+          测试
         </button>
         
         {isCLIConnection(provider.conn) && cliMode === 'tui' && onOpenTuiBrowser && (
@@ -288,7 +324,7 @@ export function SimpleModelCard({
             className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-cyan-400/40 flex items-center gap-1"
           >
             <Terminal className="size-3" />
-            TUI Browser
+            TUI 浏览器
           </button>
         )}
         
@@ -298,7 +334,7 @@ export function SimpleModelCard({
             className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-accent/40 flex items-center gap-1"
           >
             <Eye className="size-3" />
-            View Report
+            查看报告
           </button>
         )}
         
@@ -307,7 +343,7 @@ export function SimpleModelCard({
           className="px-3 py-1.5 text-[10px] border border-white/10 rounded hover:border-accent/40 flex items-center gap-1"
         >
           <Edit3 className="size-3" />
-          Edit
+          编辑
         </button>
         
         <button
@@ -315,23 +351,27 @@ export function SimpleModelCard({
           className="px-3 py-1.5 text-[10px] border border-red-500/30 rounded hover:border-red-500/40 text-red-400 flex items-center gap-1"
         >
           <Trash2 className="size-3" />
-          Delete
+          删除
         </button>
       </div>
 
-      {/* Advanced Options */}
-      <div className="space-y-3">
-        <h5 className="text-xs font-semibold text-text-main">Advanced Options</h5>
-        <textarea
-          value={advancedJson}
-          onChange={(e) => setAdvancedJson(e.target.value)}
-          placeholder='{"timeout": 60, "retries": 3, "headers": {...}}'
-          className="w-full bg-black/30 text-text-main px-3 py-2 rounded border border-white/10 text-xs font-mono h-20"
-        />
-        <p className="text-[9px] text-text-dim">
-          JSON overrides for provider-specific settings (timeout, retries, headers, etc.)
-        </p>
-      </div>
+      {isCLIConnection(provider.conn) && provider.conn.command && (
+        <div className="space-y-2 text-xs border-t border-white/10 pt-4">
+          <h5 className="text-xs font-semibold text-text-muted">命令</h5>
+          <div className="font-mono text-[10px] text-text-main bg-black/30 rounded px-3 py-2 border border-white/10">
+            {provider.conn.command} {(provider.conn.args || []).join(' ')}
+          </div>
+        </div>
+      )}
+
+      {isHTTPConnection(provider.conn) && provider.conn.baseUrl && (
+        <div className="space-y-2 text-xs border-t border-white/10 pt-4">
+          <h5 className="text-xs font-semibold text-text-muted">基础URL</h5>
+          <div className="font-mono text-[10px] text-text-main bg-black/30 rounded px-3 py-2 border border-white/10 break-all">
+            {provider.conn.baseUrl}
+          </div>
+        </div>
+      )}
     </div>
   );
 

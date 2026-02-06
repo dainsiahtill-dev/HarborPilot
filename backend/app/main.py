@@ -31,11 +31,9 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     app.include_router(lancedb.router)
     app.include_router(memos.router)
     app.include_router(history.router)
-    app.include_router(history.router)
     app.include_router(websocket.router)
     app.include_router(anthropomorphic.router)
     app.include_router(llm.router)
     app.include_router(turbo.router)
     app.include_router(arsenal.router)
-    
     return app

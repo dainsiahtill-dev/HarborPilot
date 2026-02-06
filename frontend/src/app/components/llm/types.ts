@@ -70,6 +70,15 @@ export const COST_CLASSES = {
 
 export type CostClass = typeof COST_CLASSES[keyof typeof COST_CLASSES];
 
+// Interview Status
+export const INTERVIEW_STATUS = {
+  NOT_TESTED: 'not_tested' as const,
+  PASSED: 'passed' as const,
+  FAILED: 'failed' as const
+} as const;
+
+export type InterviewStatus = typeof INTERVIEW_STATUS[keyof typeof INTERVIEW_STATUS];
+
 // Model Listing Methods
 export const MODEL_LISTING_METHODS = {
   API: 'API' as const,
@@ -150,6 +159,13 @@ export interface SimpleProvider {
   };
   costClass?: CostClass;
   outputPath?: string;
+  interviewStatus?: InterviewStatus;
+  lastInterviewAt?: string;
+  interviewDetails?: {
+    role?: string;
+    runId?: string;
+    note?: string;
+  };
 }
 
 // Validation Result
@@ -374,4 +390,10 @@ export const STATUS_BADGES: StatusBadges = {
   [PROVIDER_STATUS.TESTING]: 'bg-blue-500/20 text-blue-200 border-blue-500/30 animate-pulse',
   [PROVIDER_STATUS.READY]: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30',
   [PROVIDER_STATUS.FAILED]: 'bg-red-500/20 text-red-200 border-red-500/30'
+};
+
+export const INTERVIEW_BADGES: StatusBadges = {
+  [INTERVIEW_STATUS.NOT_TESTED]: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  [INTERVIEW_STATUS.PASSED]: 'bg-green-500/20 text-green-300 border-green-500/30',
+  [INTERVIEW_STATUS.FAILED]: 'bg-red-500/20 text-red-300 border-red-500/30'
 };

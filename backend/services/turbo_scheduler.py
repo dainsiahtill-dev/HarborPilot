@@ -63,7 +63,7 @@ class TurboScheduler:
         if self.cluster:
             try:
                 self.cluster.close()
-            except:
+            except OSError:
                 pass # Sync close might fail in async context depending on version
             self.cluster = None
         self.is_active = False

@@ -42,7 +42,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     setNodes,
   } = useVisualLLMConfig({ config, status, onConfigChange });
 
-  const [rfInstance, setRfInstance] = useState<ReactFlowInstance<VisualNodeData, Edge> | null>(null);
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance<Node<VisualNodeData>, Edge> | null>(null);
   const [modelDraft, setModelDraft] = useState('');
   const [providerDraft, setProviderDraft] = useState('');
   const [showAddModel, setShowAddModel] = useState(false);
