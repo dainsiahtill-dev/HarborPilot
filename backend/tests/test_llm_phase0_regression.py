@@ -115,13 +115,28 @@ class TestLLMConfigAtomicWrite:
                     "api_key": "test_key_123",
                     "model": "test-model",
                     "description": "包含中文描述的配置"
-                }
+                },
+                "codex_cli": {"type": "codex_cli"},
+                "ollama": {"type": "ollama"},
+                "openai_compat": {"type": "openai_compat"}
             },
             "roles": {
                 "pm": {
                     "provider_id": "test_provider",
                     "model": "test-model",
                     "profile": "测试角色配置"
+                },
+                "director": {
+                    "provider_id": "ollama",
+                    "model": "test-model"
+                },
+                "qa": {
+                    "provider_id": "ollama",
+                    "model": "test-model"
+                },
+                "docs": {
+                    "provider_id": "openai_compat",
+                    "model": "test-model"
                 }
             }
         }
@@ -144,8 +159,29 @@ class TestLLMConfigAtomicWrite:
 
         test_config = {
             "schema_version": 1,
-            "providers": {},
-            "roles": {}
+            "providers": {
+                "codex_cli": {"type": "codex_cli"},
+                "ollama": {"type": "ollama"},
+                "openai_compat": {"type": "openai_compat"}
+            },
+            "roles": {
+                "pm": {
+                    "provider_id": "codex_cli",
+                    "model": "test-model"
+                },
+                "director": {
+                    "provider_id": "ollama",
+                    "model": "test-model"
+                },
+                "qa": {
+                    "provider_id": "ollama",
+                    "model": "test-model"
+                },
+                "docs": {
+                    "provider_id": "openai_compat",
+                    "model": "test-model"
+                }
+            }
         }
 
         config_path = llm_config_path(mock_workspace, mock_workspace)
@@ -161,6 +197,245 @@ class TestLLMConfigAtomicWrite:
         with open(config_path, "r", encoding="utf-8") as f:
             loaded = json.load(f)
         assert loaded["schema_version"] == 1
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+
+
+class TestLLMConfigValidation:
+    """Test validate_llm_config function for Phase 1 SSOT."""
+
+    def test_valid_config_returns_no_errors(self):
+        """Valid config should pass validation."""
+        from app.llm.config import build_default_config, validate_llm_config
+
+        config = build_default_config()
+        is_valid, errors, warnings = validate_llm_config(config)
+
+        assert is_valid, f"Valid config failed validation with errors: {errors}"
+        assert len(errors) == 0, f"Expected no errors, got: {errors}"
+
+    def test_missing_provider_type_returns_error(self):
+        """Config with missing provider type should fail validation."""
+        from app.llm.config import validate_llm_config
+
+        config = {
+            "schema_version": 1,
+            "providers": {
+                "bad_provider": {
+                    "name": "Bad Provider"
+                }
+            },
+            "roles": {}
+        }
+
+        is_valid, errors, warnings = validate_llm_config(config)
+
+        assert not is_valid, "Config with missing provider type should fail validation"
+        assert any("missing 'type' field" in e for e in errors), \
+            f"Expected error about missing type field, got: {errors}"
+
+    def test_role_references_nonexistent_provider_returns_error(self):
+        """Role referencing non-existent provider should fail validation."""
+        from app.llm.config import validate_llm_config
+
+        config = {
+            "schema_version": 1,
+            "providers": {
+                "existing_provider": {"type": "openai_compat"}
+            },
+            "roles": {
+                "pm": {
+                    "provider_id": "nonexistent_provider",
+                    "model": "test-model"
+                }
+            }
+        }
+
+        is_valid, errors, warnings = validate_llm_config(config)
+
+        assert not is_valid, "Config with invalid provider reference should fail"
+        assert any("non-existent provider" in e for e in errors), \
+            f"Expected error about non-existent provider, got: {errors}"
+
+    def test_required_role_not_defined_returns_error(self):
+        """Required role not in roles should fail validation."""
+        from app.llm.config import validate_llm_config
+
+        config = {
+            "schema_version": 1,
+            "providers": {
+                "test_provider": {"type": "openai_compat"}
+            },
+            "roles": {
+                "pm": {"provider_id": "test_provider", "model": "test"}
+            },
+            "policies": {
+                "required_ready_roles": ["director", "qa"]
+            }
+        }
+
+        is_valid, errors, warnings = validate_llm_config(config)
+
+        assert not is_valid, "Config with missing required roles should fail"
+        assert any("not defined in roles" in e for e in errors), \
+            f"Expected error about missing required role, got: {errors}"
+
+    def test_non_dict_config_returns_error(self):
+        """Non-dict config should fail validation."""
+        from app.llm.config import validate_llm_config
+
+        is_valid, errors, warnings = validate_llm_config("not a dict")
+
+        assert not is_valid, "Non-dict config should fail validation"
+        assert any("must be a dictionary" in e for e in errors), \
+            f"Expected error about dict type, got: {errors}"
+
+    def test_provider_id_matches_type_field(self):
+        """Provider ID should match the provider's type field."""
+        from app.llm.config import build_default_config, validate_llm_config
+
+        config = build_default_config()
+
+        mismatched_providers = []
+        for provider_id, provider_cfg in config.get("providers", {}).items():
+            provider_type = provider_cfg.get("type")
+            if provider_type and provider_type != provider_id:
+                mismatched_providers.append((provider_id, provider_type))
+
+        assert len(mismatched_providers) == 0, \
+            f"Found providers where ID doesn't match type field: {mismatched_providers}"
+
+    def test_all_roles_have_valid_provider_reference(self):
+        """All roles should reference valid providers."""
+        from app.llm.config import build_default_config, validate_llm_config
+
+        config = build_default_config()
+
+        roles = config.get("roles", {})
+        providers = config.get("providers", {})
+
+        invalid_role_refs = []
+        for role_id, role_cfg in roles.items():
+            if isinstance(role_cfg, dict):
+                provider_id = role_cfg.get("provider_id")
+                if provider_id and provider_id not in providers:
+                    invalid_role_refs.append((role_id, provider_id))
+
+        assert len(invalid_role_refs) == 0, \
+            f"Roles with invalid provider references: {invalid_role_refs}"
+
+
+class TestLLMConfigStandardProviders:
+    """Test that standard providers are properly configured."""
+
+    def test_all_required_providers_present(self):
+        """Ensure all required providers are defined."""
+        from app.llm.config import build_default_config
+
+        config = build_default_config()
+        providers = config.get("providers", {})
+
+        required_providers = ["ollama", "openai_compat"]
+        for required in required_providers:
+            assert required in providers, f"Required provider '{required}' not found"
+
+    def test_standard_openai_compat_config(self):
+        """Verify openai_compat provider has correct base structure."""
+        from app.llm.config import build_default_config
+
+        config = build_default_config()
+        provider = config.get("providers", {}).get("openai_compat")
+
+        assert provider is not None, "openai_compat provider not found"
+        assert provider.get("type") == "openai_compat", \
+            f"Expected type 'openai_compat', got '{provider.get('type')}'"
+        assert "api_path" in provider, "openai_compat missing api_path"
+        assert "models_path" in provider, "openai_compat missing models_path"
+
+    def test_no_duplicate_minimax_entries(self):
+        """Ensure no duplicate minimax-related entries exist."""
+        from app.llm.config import build_default_config
+
+        config = build_default_config()
+        providers = config.get("providers", {})
+
+        minimax_entries = [k for k in providers.keys() if "minimax" in k.lower()]
+        minimax_types = [v.get("type") for v in providers.values() if "minimax" in str(v.get("type", "")).lower()]
+
+        assert len(minimax_entries) <= 1, \
+            f"Found multiple minimax entries: {minimax_entries}"
+        assert len(minimax_types) <= 1, \
+            f"Found multiple minimax types: {minimax_types}"
+
+
+class TestLLMSaveConfigValidation:
+    """Test that save_llm_config validates config before saving."""
+
+    def test_save_invalid_config_raises_error(self, mock_workspace):
+        """Invalid config should raise ValueError during save."""
+        from app.llm.config import save_llm_config
+
+        invalid_config = {
+            "schema_version": 1,
+            "providers": {
+                "bad_provider": {"name": "No type"}
+            },
+            "roles": {}
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            save_llm_config(mock_workspace, mock_workspace, invalid_config)
+
+        assert "Invalid LLM configuration" in str(exc_info.value)
+        assert "missing 'type' field" in str(exc_info.value)
+
+    def test_save_config_with_invalid_role_reference_raises_error(self, mock_workspace):
+        """Config with invalid provider reference should raise ValueError."""
+        from app.llm.config import save_llm_config
+
+        invalid_config = {
+            "schema_version": 1,
+            "providers": {
+                "codex_cli": {"type": "codex_cli"},
+                "ollama": {"type": "ollama"},
+                "openai_compat": {"type": "openai_compat"}
+            },
+            "roles": {
+                "pm": {"provider_id": "nonexistent", "model": "test"}
+            }
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            save_llm_config(mock_workspace, mock_workspace, invalid_config)
+
+        assert "non-existent provider" in str(exc_info.value)
+
+    def test_save_valid_config_succeeds(self, mock_workspace):
+        """Valid config should be saved without errors."""
+        from app.llm.config import save_llm_config, load_llm_config
+
+        valid_config = {
+            "schema_version": 1,
+            "providers": {
+                "codex_cli": {"type": "codex_cli"},
+                "ollama": {"type": "ollama"},
+                "openai_compat": {"type": "openai_compat"}
+            },
+            "roles": {
+                "pm": {"provider_id": "codex_cli", "model": "test"},
+                "director": {"provider_id": "ollama", "model": "test"},
+                "qa": {"provider_id": "ollama", "model": "test"},
+                "docs": {"provider_id": "openai_compat", "model": "test"}
+            }
+        }
+
+        result = save_llm_config(mock_workspace, mock_workspace, valid_config)
+
+        assert result is not None
+        loaded = load_llm_config(mock_workspace, mock_workspace)
+        assert loaded.get("schema_version") == 1
 
 
 if __name__ == "__main__":

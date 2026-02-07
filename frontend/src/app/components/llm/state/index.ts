@@ -1,43 +1,88 @@
 /**
- * State Management Exports
+ * State Management Module - Index
+ * LLM Settings State Architecture
  * 
- * Complete state management system with:
- * - Provider Context for React state management
- * - Optimized Data Managers for performance
- * - View Adapters for data transformation
+ * Export Pattern:
+ * - Types: All state-related type definitions
+ * - Canonical: Single source of truth state
+ * - Manager: Unified data manager
+ * - Adapters: View adapters for different views
+ * - Hooks: React integration hooks
  */
 
 // ============================================================================
-// Provider Reducer & Actions
+// Core Types
 // ============================================================================
 
-export { 
-  providerReducer, 
-  initialProviderState, 
-  ProviderActions 
-} from './providerReducer';
-
-export type { 
-  ProviderState, 
-  ProviderAction,
-  ConnectivityStatus,
-  TestStatus,
-  ConfigView,
-  DeepView,
-  InterviewMode,
-  ActiveTab,
-  ConnectionMethodId,
-  InterviewPanelState,
-  TestPanelState,
-  ConnectivityResultStrict,
-} from './providerReducer';
+export type {
+  // Entity types
+  ProviderEntity,
+  RoleAssignment,
+  RoleRequirement,
+  
+  // Visual graph types
+  VisualNodePosition,
+  VisualViewport,
+  VisualNodeState,
+  VisualEdgeState,
+  VisualGraphState,
+  
+  // UI state types
+  UIState,
+  AsyncOperationState,
+  
+  // Canonical state
+  LlmSettingsState,
+} from './canonicalState';
 
 // ============================================================================
-// Provider Context & Hooks
+// Canonical State
 // ============================================================================
 
-export { 
-  ProviderContextProvider, 
+export {
+  createInitialState,
+  canonicalSelectors,
+} from './canonicalState';
+
+// ============================================================================
+// Unified Data Manager V2
+// ============================================================================
+
+export {
+  // Manager class
+  UnifiedLlmDataManagerV2,
+  
+  // View adapters
+  ListViewAdapter,
+  VisualGraphViewAdapter,
+  
+  // Factory & singleton
+  getDefaultManager,
+  resetDefaultManager,
+  
+  // React hooks
+  useViewData,
+} from './UnifiedLlmDataManagerV2';
+
+// View adapter types
+export type {
+  ViewAdapter,
+  ViewAdapterWithOperations,
+  ListViewData,
+  VisualGraphViewData,
+  ProviderDetailViewData,
+} from './UnifiedLlmDataManagerV2';
+
+// ============================================================================
+// Legacy Exports (Backward Compatibility)
+// ============================================================================
+
+// Re-export from legacy modules for compatibility during migration
+export type { ConnectivityStatus } from './providerReducer';
+
+// Re-export hooks from ProviderContext
+export {
+  ProviderContextProvider,
   useProviderContext,
   useSelectedRole,
   useSelectedProvider,
@@ -46,7 +91,6 @@ export {
   useInterviewPanelState,
   useConnectivityStatus,
   useIsProviderExpanded,
-  // 新的统一编辑状态 Selectors
   useEditingProviderId,
   useEditFormState,
   useHasPendingChanges,
@@ -55,76 +99,50 @@ export {
   useGlobalPendingChangesCount,
 } from './ProviderContext';
 
-// ============================================================================
-// Unified Edit State Hooks (New)
-// ============================================================================
-
+// Re-export form hooks
 export {
   useProviderForm,
   useProviderFormList,
-  type UseProviderFormOptions,
-  type UseProviderFormReturn,
 } from './useProviderForm';
 
-// ============================================================================
-// Optimized Data Managers (Phase 1-4)
-// ============================================================================
-
-// Phase 1.1: Cache Layer Enhancement
-export { OptimizedDataManager } from './OptimizedDataManager';
-export type { CacheStats } from './OptimizedDataManager';
-
-// Phase 1.2 & 1.3: Batch & Lazy Loading (extends OptimizedDataManager)
-// Note: These use inheritance - import directly from module if needed
-// export { BatchDataManager } from './BatchDataManager';
-// export { LazyDataManager } from './LazyDataManager';
-
-// Phase 2: State Synchronization (extends LazyDataManager)
-// export { ReactiveDataManager } from './ReactiveDataManager';
-// export { ConflictAwareDataManager } from './ConflictAwareDataManager';
-// export type { StateChangeEvent, StateChangeSubscriber, Subscription } from './ReactiveDataManager';
-// export type { ConflictInfo, ConflictResolution, ConflictResolutionStrategy, UpdateResult } from './ConflictAwareDataManager';
-
-// Phase 3: UX Optimizations (extends ConflictAwareDataManager)
-// export { OptimisticDataManager } from './OptimisticDataManager';
-// export type { LoadingState, OptimisticUpdate, OptimisticResult } from './OptimisticDataManager';
-
-// Phase 4: Debug Tools (extends OptimisticDataManager)
-// export { DebuggableDataManager } from './DebuggableDataManager';
-// export type { DebugInfo, PerformanceMetrics, StateSnapshot } from './DebuggableDataManager';
-
-// Re-export base data manager
-export { UnifiedLlmDataManager } from './UnifiedLlmDataManager';
-
-// ============================================================================
-// Connectivity Store
-// ============================================================================
-
+// Re-export from connectivityStore
 export {
   useConnectivityStore,
-  useRoleProviderConnectivity,
-  useProviderReadiness,
-  type InterviewProviderSummary,
-  type ConnectivityResult,
-  type InterviewRoleSummary,
+  type RoleId,
 } from './connectivityStore';
 
+// Re-export from providerReducer
+export {
+  type ConnectionMethodId,
+  type ProviderState,
+  ProviderActions,
+  providerReducer,
+  initialProviderState,
+} from './providerReducer';
+
+// Re-export from ReactiveDataManager
+export type { StateChangeEvent } from './ReactiveDataManager';
+
+// Re-export from ConflictAwareDataManager
+export type { ConflictResolution, ConflictResolutionStrategy } from './ConflictAwareDataManager';
+
 // ============================================================================
-// Utilities
+// Bridge Layer (Phase 3)
 // ============================================================================
 
 export {
-  calculateConnectivityStatus,
-  formatConnectivityStatus,
-  getConnectivityStatusColor,
-  getConnectivityStatusBgColor,
-  getConnectivityStatusDotColor,
-  isCacheExpired,
-  type ConnectivityResult as SimpleConnectivityResult,
-} from '../utils/connectivity';
+  // Bridge Provider
+  CanonicalBridgeProvider,
+  useCanonicalBridge,
+  
+  // Canonical state access
+  useCanonicalState,
+  useListViewData,
+  useVisualGraphViewData,
+} from './CanonicalProviderBridge';
 
 // ============================================================================
-// Types
+// Version
 // ============================================================================
 
-export type { RoleId } from '../interview/InterviewHall';
+export const STATE_MODULE_VERSION = '2.0.0';

@@ -199,25 +199,25 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
             "timeout": 60,
             "retries": 0,
         },
-        "minimax_openai": {
-            "type": "openai_compat",
-            "name": "MiniMax (OpenAI API)",
-            "base_url": "https://api.minimax.io/v1",
-            "api_key_ref": "keychain:llm:minimax",
-            "api_path": "/v1/chat/completions",
-            "models_path": "/v1/models",
-            "timeout": 60,
-            "retries": 0,
-        },
-        "minimax_anthropic": {
+        "anthropic_compat": {
             "type": "anthropic_compat",
-            "name": "MiniMax (Anthropic)",
-            "base_url": "https://api.minimax.io/anthropic",
-            "api_key_ref": "keychain:llm:minimax_anthropic",
+            "name": "Anthropic Compatible",
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key_ref": "keychain:anthropic",
             "api_path": "/v1/messages",
             "models_path": "/v1/models",
             "timeout": 60,
-            "retries": 0,
+            "retries": 3,
+        },
+        "kimi": {
+            "type": "kimi",
+            "name": "Kimi",
+            "base_url": "https://api.moonshot.cn/v1",
+            "api_key_ref": "keychain:kimi",
+            "api_path": "/chat/completions",
+            "models_path": "/v1/models",
+            "timeout": 60,
+            "retries": 3,
         },
     }
 
@@ -263,6 +263,15 @@ def load_llm_config(workspace: str, cache_root: str, settings: Optional[Settings
 
 def save_llm_config(workspace: str, cache_root: str, payload: Dict[str, Any], settings: Optional[Settings] = None) -> Dict[str, Any]:
     normalized = normalize_llm_config(payload, settings=settings)
+    is_valid, errors, warnings = validate_llm_config(normalized)
+    if not is_valid:
+        error_msg = "; ".join(errors)
+        raise ValueError(f"Invalid LLM configuration: {error_msg}")
+    if warnings:
+        import logging
+        logger = logging.getLogger(__name__)
+        for warning in warnings:
+            logger.warning(f"LLM config validation warning: {warning}")
     path = llm_config_path(workspace, cache_root)
     _write_json(path, normalized)
     return normalized
@@ -306,6 +315,58 @@ def normalize_llm_config(payload: Dict[str, Any], settings: Optional[Settings] =
         "policies": {**base.get("policies", {}), **policies},
     }
     return merged
+
+
+def validate_llm_config(config: Dict[str, Any]) -> tuple[bool, list[str], list[str]]:
+    """
+    Validate LLM configuration.
+    
+    Args:
+        config: LLM configuration dictionary
+        
+    Returns:
+        Tuple of (is_valid, errors, warnings)
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    
+    if not isinstance(config, dict):
+        errors.append("Config must be a dictionary")
+        return False, errors, warnings
+    
+    providers = config.get("providers")
+    if isinstance(providers, dict):
+        for provider_id, provider_cfg in providers.items():
+            if not isinstance(provider_cfg, dict):
+                warnings.append(f"Provider '{provider_id}' config is not a dictionary")
+                continue
+            provider_type = provider_cfg.get("type")
+            if not provider_type:
+                errors.append(f"Provider '{provider_id}' missing 'type' field")
+    
+    roles = config.get("roles")
+    if isinstance(roles, dict):
+        required_roles = config.get("policies", {}).get("required_ready_roles", [])
+        for role_id in required_roles:
+            if role_id not in roles:
+                errors.append(f"Required role '{role_id}' not defined in roles")
+        
+        for role_id, role_cfg in roles.items():
+            if not isinstance(role_cfg, dict):
+                warnings.append(f"Role '{role_id}' config is not a dictionary")
+                continue
+            provider_id = role_cfg.get("provider_id")
+            if provider_id:
+                if not isinstance(providers, dict):
+                    errors.append(f"Role '{role_id}' references provider '{provider_id}' but providers not defined")
+                elif provider_id not in providers:
+                    errors.append(f"Role '{role_id}' references non-existent provider '{provider_id}'")
+    
+    schema_version = config.get("schema_version")
+    if schema_version is not None and not isinstance(schema_version, int):
+        warnings.append(f"Invalid schema_version '{schema_version}', expected integer")
+    
+    return len(errors) == 0, errors, warnings
 
 
 def redact_llm_config(payload: Dict[str, Any]) -> Dict[str, Any]:

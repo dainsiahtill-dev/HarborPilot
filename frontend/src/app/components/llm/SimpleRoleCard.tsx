@@ -7,7 +7,7 @@ import {
   Settings
 } from 'lucide-react';
 import { useState } from 'react';
-import type { SimpleProvider } from './SimpleModelCard';
+import type { SimpleProvider } from './types';
 
 export interface SimpleRole {
   role: 'pm' | 'director' | 'qa' | 'docs';

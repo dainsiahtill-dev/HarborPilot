@@ -8,7 +8,7 @@ import { Loader2, Settings, ChevronDown, ChevronUp, Zap, Key, Shield, HelpCircle
 import type { ProviderConfig } from '../types';
 import type { ConnectivityStatus } from '../state';
 import { useProviderContext, useIsProviderExpanded } from '../state';
-import type { SimpleProvider } from '../types/strict';
+import type { SimpleProviderStrict } from '../types/strict';
 import { isCLIProviderType, requiresApiKey } from '../types';
 
 interface ProviderCardProps {

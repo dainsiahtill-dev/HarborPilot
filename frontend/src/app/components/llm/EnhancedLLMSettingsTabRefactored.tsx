@@ -481,7 +481,7 @@ function EnhancedLLMSettingsTabInner({
   onCancelTestProvider,
   onCancelInterview,
 }: EnhancedLLMSettingsTabProps) {
-  const { state, switchTab, startTest, completeTest, closeTestPanel } = useProviderContext();
+  const { state, switchTab, startTest, completeTest, closeTestPanel, setConfigView } = useProviderContext();
   const { activeTab, configView, testPanel } = state;
   
   const { events, addEvent, resetEvents } = useTestEvents();
@@ -609,7 +609,7 @@ function EnhancedLLMSettingsTabInner({
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 rounded-lg border border-cyan-500/20 bg-black/40 p-1">
                 <button
-                  onClick={() => switchTab('config')}
+                  onClick={() => setConfigView('list')}
                   className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
                     configView === 'list'
                       ? 'bg-cyan-500/20 text-cyan-200'
@@ -619,7 +619,7 @@ function EnhancedLLMSettingsTabInner({
                   列表视图
                 </button>
                 <button
-                  onClick={() => switchTab('config')}
+                  onClick={() => setConfigView('visual')}
                   className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
                     configView === 'visual'
                       ? 'bg-fuchsia-500/20 text-fuchsia-200'

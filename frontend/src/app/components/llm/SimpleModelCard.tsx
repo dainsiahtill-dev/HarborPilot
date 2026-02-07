@@ -393,18 +393,18 @@ export function SimpleModelCard({
             value={editForm.kind}
             onChange={(e) => {
               const newKind = e.target.value as ProviderKind;
-              setEditForm(prev => {
+              setEditForm((prev: SimpleProvider) => {
                 const baseProvider = { ...prev, kind: newKind, cliMode: isCLIProvider(newKind) ? 'headless' : undefined };
                 if (newKind === 'codex_cli' || newKind === 'gemini_cli') {
                   return {
                     ...baseProvider,
                     conn: { kind: newKind, command: '', args: [], env: {} }
-                  };
+                  } as SimpleProvider;
                 } else {
                   return {
                     ...baseProvider,
                     conn: { kind: 'http', baseUrl: '' }
-                  };
+                  } as SimpleProvider;
                 }
               });
             }}
