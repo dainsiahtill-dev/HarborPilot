@@ -2269,6 +2269,7 @@ def run_once(args: argparse.Namespace, iteration: int = 1) -> int:
             events_seq_start=events_seq_start,
             events_size_start=events_size_start,
             memory_path=memory_path,
+            director_result_path=director_result_full,
         )
     except Exception as e:
         print(f"[SENTINEL] Error: {e}")

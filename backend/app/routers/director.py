@@ -1,5 +1,7 @@
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
+import os
+import re
 from ..state import AppState, Auth
 from ..config import DEFAULT_DIRECTOR_SUBPROCESS_LOG
 from ..utils import require_lancedb, resolve_artifact_path, build_cache_root
@@ -89,3 +91,38 @@ def director_status_endpoint(request: Request) -> Dict[str, Any]:
         "started_at": state.director.started_at,
         "status": status_data,
     }
+
+
+@router.get("/director/failure/{run_id}", dependencies=[Depends(require_auth)])
+def director_failure_hops(request: Request, run_id: str) -> Dict[str, Any]:
+    if not re.match(r"^[a-zA-Z0-9_.:-]+$", run_id or ""):
+        raise HTTPException(status_code=400, detail="invalid run_id")
+
+    state = get_state(request)
+    workspace = state.settings.workspace
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", workspace)
+
+    failure_path = resolve_artifact_path(
+        workspace,
+        cache_root,
+        f".harborpilot/runtime/artifacts/runs/{run_id}/failure_hops.json",
+    )
+    if not os.path.isfile(failure_path):
+        raise HTTPException(status_code=404, detail="failure_hops not found")
+
+    try:
+        with open(failure_path, "r", encoding="utf-8") as handle:
+            payload = handle.read()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    import json
+
+    try:
+        data = json.loads(payload)
+    except Exception:
+        raise HTTPException(status_code=500, detail="invalid failure_hops payload")
+    if isinstance(data, dict):
+        data.setdefault("failure_hops_path", failure_path)
+        return data
+    raise HTTPException(status_code=500, detail="invalid failure_hops payload")

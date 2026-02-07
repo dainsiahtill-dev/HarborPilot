@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -495,6 +496,17 @@ def llm_status(request: Request) -> Dict[str, Any]:
 
     interview_summary = load_interview_history_summary(state.settings)
 
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
+    config_path = llm_config.llm_config_path(state.settings.workspace, cache_root)
+    last_updated: Optional[str] = None
+    if os.path.isfile(config_path):
+        try:
+            mtime = os.path.getmtime(config_path)
+            dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            last_updated = dt.isoformat()
+        except Exception:
+            pass
+
     return {
         "roles": roles_status,
         "providers": providers_status,
@@ -503,6 +515,7 @@ def llm_status(request: Request) -> Dict[str, Any]:
         "unsupported_roles": unsupported,
         "state": global_state,
         "interviews": interview_summary,
+        "last_updated": last_updated,
     }
 
 

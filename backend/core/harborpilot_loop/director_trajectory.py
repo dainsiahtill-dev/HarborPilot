@@ -62,6 +62,7 @@ def write_trajectory(
             "ollama_response_path": getattr(state, "ollama_full", ""),
             "reviewer_response_path": getattr(state, "reviewer_full", ""),
             "evidence_path": evidence_path,
+            "failure_hops_path": result_payload.get("failure_hops_path") or "",
             "events_path": getattr(state, "events_full", ""),
         },
         "event_span": {

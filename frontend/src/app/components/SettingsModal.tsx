@@ -4,7 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { apiFetch } from '@/api';
 import { PtyDrawer } from '@/app/components/PtyDrawer';
-import { EnhancedLLMSettingsTab } from '@/app/components/llm/EnhancedLLMSettingsTab';
+import { EnhancedLLMSettingsTabRefactored } from '@/app/components/llm/EnhancedLLMSettingsTabRefactored';
 import { TurboSettingsTab } from './turbo/TurboSettingsTab';
 import { ArsenalPanel } from './arsenal/ArsenalPanel';
 
@@ -2118,7 +2118,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             </TabsContent>
 
             <TabsContent value="llm" className="mt-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
-              <EnhancedLLMSettingsTab
+              <EnhancedLLMSettingsTabRefactored
                 llmConfig={llmConfig}
                 llmStatus={llmStatus}
                 llmLoading={llmLoading}

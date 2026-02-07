@@ -305,6 +305,8 @@ export const requiresApiKeyForType = (providerType?: string): boolean => {
   return !isCLIProviderType(providerType);
 };
 
+export const requiresApiKey = requiresApiKeyForType;
+
 export const usesBaseUrlForType = (providerType?: string): boolean => {
   return (
     providerType === PROVIDER_KINDS.CODEX_SDK ||
@@ -402,3 +404,246 @@ export const INTERVIEW_BADGES: StatusBadges = {
   [INTERVIEW_STATUS.PASSED]: 'bg-green-500/20 text-green-300 border-green-500/30',
   [INTERVIEW_STATUS.FAILED]: 'bg-red-500/20 text-red-300 border-red-500/30'
 };
+
+// ============================================================================
+// Unified Data Model (Single Source of Truth)
+// ============================================================================
+
+// --- Shared Core Types ---
+
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export interface NodeStyle {
+  color?: string;
+  icon?: string;
+  size?: 'small' | 'medium' | 'large';
+  shape?: 'circle' | 'rectangle';
+}
+
+export interface EdgeMetadata {
+  style?: 'straight' | 'curved' | 'step';
+  label?: string;
+  color?: string;
+}
+
+export interface ViewportState {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface InterviewReference {
+  id: string;
+  timestamp: string;
+  status: 'passed' | 'failed';
+  score?: number;
+}
+
+export interface CapabilityAssessment {
+  score: number;
+  confidence: number;
+  last_assessed: string;
+  notes?: string;
+}
+
+export interface TestHistory {
+  total_runs: number;
+  success_rate: number;
+  last_run?: string;
+}
+
+// --- Unified Entities ---
+
+export interface UnifiedProviderAttributes {
+  // Core
+  cost_class: CostClass;
+  provider_category: ProviderCategory;
+  
+  // Status
+  connectivity_status: 'unknown' | 'success' | 'failed' | 'testing';
+  last_test_timestamp?: string;
+  
+  // Capabilities
+  supported_features: string[];
+  thinking_capability?: {
+    supported: boolean;
+    confidence?: number;
+    format?: string;
+  };
+  
+  // Visual Extension
+  visual?: {
+    position?: Position;
+    style?: NodeStyle;
+    icon?: string;
+    color?: string;
+  };
+  
+  // Testing Extension
+  testing?: {
+    last_interview?: InterviewReference;
+    capability_scores?: Record<string, number>;
+    test_history?: TestHistory;
+  };
+}
+
+export interface UnifiedProvider {
+  id: string;
+  name: string;
+  type: string;
+  config: ProviderConfig;
+  attributes: UnifiedProviderAttributes;
+}
+
+export interface UnifiedRoleAttributes {
+  // Status
+  readiness_status: 'unknown' | 'ready' | 'not_ready';
+  last_interview?: InterviewReference;
+  
+  // Visual Extension
+  visual?: {
+    position?: Position;
+    style?: NodeStyle;
+    color?: string;
+  };
+  
+  // Testing Extension
+  testing?: {
+    interview_history?: InterviewReference[];
+    capability_assessments?: Record<string, CapabilityAssessment>;
+  };
+}
+
+export interface UnifiedRole {
+  id: string;
+  name: string;
+  description: string;
+  
+  requirements: {
+    requires_thinking: boolean;
+    min_confidence: number;
+    preferred_capabilities: string[];
+  };
+  
+  assignment?: {
+    provider_id: string;
+    model: string;
+    assigned_at: string;
+    confidence: number;
+  };
+  
+  attributes: UnifiedRoleAttributes;
+}
+
+// --- Extensions & Relations ---
+
+export interface UnifiedRelationships {
+  provider_to_models: Record<string, string[]>;
+  role_to_provider_model: Record<string, {
+    provider_id: string;
+    model: string;
+    confidence?: number;
+  }>;
+  model_connectivity: Record<string, {
+    status: 'success' | 'failed' | 'unknown';
+    last_checked: string;
+    latency_ms?: number;
+  }>;
+}
+
+export interface InterviewResult {
+  id: string;
+  role_id: string;
+  provider_id: string;
+  model: string;
+  session_type: 'interactive' | 'auto';
+  status: 'passed' | 'failed' | 'running' | 'cancelled';
+  start_time: string;
+  end_time?: string;
+  overall_score?: number;
+  summary?: {
+    total_questions: number;
+    passed_questions: number;
+    recommendation: string;
+  };
+}
+
+export interface ConnectivityTest {
+  id: string;
+  provider_id: string;
+  model: string;
+  timestamp: string;
+  status: 'success' | 'failed' | 'running';
+  latency_ms?: number;
+  error?: string;
+}
+
+export interface CapabilityScore {
+  score: number;
+  confidence: number;
+  last_updated: string;
+}
+
+export interface TestPreferences {
+  auto_run_connectivity: boolean;
+  auto_run_interviews: boolean;
+  concurrency: number;
+}
+
+export interface UnifiedExtensions {
+  // Visual View Data
+  visual?: {
+    node_positions: Record<string, Position>;
+    node_styles: Record<string, NodeStyle>;
+    edge_metadata: Record<string, EdgeMetadata>;
+    viewport_state: ViewportState;
+  };
+  
+  // Testing View Data
+  testing?: {
+    interview_results: Record<string, InterviewResult>;
+    connectivity_tests: Record<string, ConnectivityTest>;
+    capability_scores: Record<string, CapabilityScore>;
+    test_preferences: TestPreferences;
+  };
+  
+  // UI State
+  ui?: {
+    expanded_nodes: string[];
+    selected_nodes: string[];
+    view_preferences: {
+      show_minimap: boolean;
+      show_grid: boolean;
+      theme: 'dark' | 'light' | 'cyberpunk';
+    };
+  };
+}
+
+export interface UnifiedMetadata {
+  created_at: string;
+  updated_at: string;
+  version: string;
+  integrity_hash: string;
+}
+
+// --- Root Configuration ---
+
+export interface UnifiedLlmConfig {
+  schema_version: number;
+  
+  // Entities
+  providers: Record<string, UnifiedProvider>;
+  roles: Record<string, UnifiedRole>;
+  
+  // Relations
+  relationships: UnifiedRelationships;
+  
+  // Extensions (View-specific data)
+  extensions: UnifiedExtensions;
+  
+  // Metadata
+  metadata: UnifiedMetadata;
+}

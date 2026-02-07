@@ -128,6 +128,35 @@ def _check_memory_refs(memory_path: str, run_id: str) -> Optional[Dict[str, Any]
     }
 
 
+def _check_failure_hops_ready(director_result_path: str) -> Optional[Dict[str, Any]]:
+    if not director_result_path or not os.path.isfile(director_result_path):
+        return None
+    try:
+        with open(director_result_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("status") or "").strip().lower()
+    acceptance = payload.get("acceptance")
+    is_failure = status in ("fail", "blocked") or acceptance is False
+    if not is_failure:
+        return None
+    ready = bool(payload.get("failure_hops_ready"))
+    if ready:
+        return None
+    return {
+        "code": "FAILURE_3HOPS_MISSING",
+        "message": "Failed Director result missing failure_hops readiness",
+        "details": {
+            "director_result_path": director_result_path,
+            "status": status,
+            "acceptance": acceptance,
+        },
+    }
+
+
 def run_invariant_sentinel(
     *,
     events_path: str,
@@ -138,6 +167,7 @@ def run_invariant_sentinel(
     events_seq_start: int = 0,
     events_size_start: int = 0,
     memory_path: str = "",
+    director_result_path: str = "",
 ) -> Dict[str, Any]:
     violations: List[Dict[str, Any]] = []
     contract_violation = _check_contract_immutable(
@@ -156,6 +186,9 @@ def run_invariant_sentinel(
     memory_violation = _check_memory_refs(memory_path, run_id)
     if memory_violation:
         violations.append(memory_violation)
+    failure_hops_violation = _check_failure_hops_ready(director_result_path)
+    if failure_hops_violation:
+        violations.append(failure_hops_violation)
 
     refs = {"run_id": run_id, "step": step, "phase": "sentinel"}
     emit_event(

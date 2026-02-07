@@ -8,7 +8,7 @@ import time
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from io_utils import emit_event
+from io_utils import emit_event, resolve_run_dir, write_text_atomic
 
 
 DEFAULT_READ_RADIUS = 80
@@ -56,6 +56,53 @@ def _append_log(log_path: str, text: str) -> None:
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def _sanitize_tool_name(name: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(name or "").strip())
+    return cleaned or "tool"
+
+
+def _persist_tool_raw_output(
+    state: Any,
+    tool: str,
+    *,
+    stdout_text: str = "",
+    stderr_text: str = "",
+    error_text: str = "",
+) -> Dict[str, str]:
+    run_id = str(getattr(state, "current_run_id", "") or "").strip()
+    if not run_id:
+        return {}
+    run_dir = resolve_run_dir(
+        str(getattr(state, "workspace_full", "") or ""),
+        str(getattr(state, "cache_root_full", "") or ""),
+        run_id,
+    )
+    if not run_dir:
+        return {}
+
+    output_dir = os.path.join(run_dir, "tool_output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    seq = safe_int(getattr(state, "_tool_output_seq", 0), 0) + 1
+    setattr(state, "_tool_output_seq", seq)
+    prefix = f"{seq:05d}_{_sanitize_tool_name(tool)}"
+
+    paths: Dict[str, str] = {}
+    if stdout_text:
+        stdout_path = os.path.join(output_dir, f"{prefix}.stdout.log")
+        write_text_atomic(stdout_path, stdout_text)
+        paths["tool_stdout_path"] = stdout_path
+    if stderr_text:
+        stderr_path = os.path.join(output_dir, f"{prefix}.stderr.log")
+        write_text_atomic(stderr_path, stderr_text)
+        paths["tool_stderr_path"] = stderr_path
+    if error_text:
+        error_path = os.path.join(output_dir, f"{prefix}.error.log")
+        write_text_atomic(error_path, error_text)
+        paths["tool_error_path"] = error_path
+    return paths
 
 
 def _build_refs(state: Any, phase: str) -> Dict[str, Any]:
@@ -847,6 +894,12 @@ def run_tool_plan(
             )
             stdout = result.stdout or ""
             stderr = result.stderr or ""
+            raw_output_paths = _persist_tool_raw_output(
+                state,
+                tool,
+                stdout_text=stdout,
+                stderr_text=stderr,
+            )
             try:
                 parsed = json.loads(stdout) if stdout.strip() else {}
             except Exception as exc:
@@ -862,6 +915,8 @@ def run_tool_plan(
                 parsed.setdefault("tool", tool)
                 parsed.setdefault("exit_code", result.returncode)
                 parsed.setdefault("cache_hit", False)
+                for key, value in raw_output_paths.items():
+                    parsed.setdefault(key, value)
             if stderr:
                 _append_log(log_path, "[TOOL] STDERR:\n" + stderr + "\n")
             tool_cache[key] = parsed if isinstance(parsed, dict) else {}
@@ -877,7 +932,10 @@ def run_tool_plan(
                     ok=bool(parsed.get("ok", True)),
                     output=compact,
                     truncation=truncation,
-                    meta={"cache_hit": parsed.get("cache_hit", False)},
+                    meta={
+                        "cache_hit": parsed.get("cache_hit", False),
+                        "raw_output_paths": raw_output_paths,
+                    },
                     duration_ms=int((time.time() - start_ts) * 1000),
                 )
             return parsed if isinstance(parsed, dict) else {
@@ -886,8 +944,32 @@ def run_tool_plan(
                 "error": "Invalid tool output",
                 "exit_code": result.returncode,
             }
-        except subprocess.TimeoutExpired:
-            timeout_result = {"ok": False, "tool": tool, "error": "timeout", "exit_code": -1, "cache_hit": False}
+        except subprocess.TimeoutExpired as exc:
+            timeout_stdout = ""
+            timeout_stderr = ""
+            if isinstance(exc.stdout, bytes):
+                timeout_stdout = exc.stdout.decode("utf-8", errors="replace")
+            elif isinstance(exc.stdout, str):
+                timeout_stdout = exc.stdout
+            if isinstance(exc.stderr, bytes):
+                timeout_stderr = exc.stderr.decode("utf-8", errors="replace")
+            elif isinstance(exc.stderr, str):
+                timeout_stderr = exc.stderr
+            raw_output_paths = _persist_tool_raw_output(
+                state,
+                tool,
+                stdout_text=timeout_stdout,
+                stderr_text=timeout_stderr,
+                error_text="timeout",
+            )
+            timeout_result = {
+                "ok": False,
+                "tool": tool,
+                "error": "timeout",
+                "exit_code": -1,
+                "cache_hit": False,
+                **raw_output_paths,
+            }
             emit_event(
                 events_path,
                 kind="observation",
@@ -898,11 +980,24 @@ def run_tool_plan(
                 ok=False,
                 output=timeout_result,
                 truncation={"truncated": False},
+                meta={"raw_output_paths": raw_output_paths},
                 error="timeout",
             )
             return timeout_result
         except Exception as exc:
-            error_result = {"ok": False, "tool": tool, "error": str(exc), "exit_code": -1, "cache_hit": False}
+            raw_output_paths = _persist_tool_raw_output(
+                state,
+                tool,
+                error_text=str(exc),
+            )
+            error_result = {
+                "ok": False,
+                "tool": tool,
+                "error": str(exc),
+                "exit_code": -1,
+                "cache_hit": False,
+                **raw_output_paths,
+            }
             emit_event(
                 events_path,
                 kind="observation",
@@ -913,6 +1008,7 @@ def run_tool_plan(
                 ok=False,
                 output=error_result,
                 truncation={"truncated": False},
+                meta={"raw_output_paths": raw_output_paths},
                 error=str(exc),
             )
             return error_result

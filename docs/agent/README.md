@@ -23,6 +23,7 @@
 | [拟人化设计](anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind | 工程师 |
 | [Context Engine v2 计划](context_engine_v2_plan.md) | 升级路线与落地阶段 | 工程师 |
 | [Sniper Mode v2.0 计划](sniper_mode_v2_plan.md) | 上下文工程优化与成本感知路线图 | 工程师 |
+| [3-Hops 失败定位实现](failure_3hops_implementation.md) | Phase→Evidence→Tool Output 工程落地与测试 | 工程师 |
 
 ---
 
@@ -49,6 +50,7 @@
 
 - **合同不可变**：`PM_TASKS.json` 的 goal/AC 只能追加证据
 - **事实流 Append-Only**：`events.jsonl` 只追加，不回写
+- **数据即真相，视图即表现**：事实源/规范化配置是唯一真相，UI/报表/看板仅做投影
 - **Run ID 全局唯一**：所有产物/引用必须携带 run_id
 - **UI Read-Only**：运行态 UI 不写入任务/代码
 - **可回放**：仅依赖 events + trajectory + artifacts paths

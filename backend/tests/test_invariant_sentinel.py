@@ -35,6 +35,7 @@ def test_invariant_sentinel_contract_violation(tmp_path):
         events_seq_start=0,
         events_size_start=0,
         memory_path="",
+        director_result_path="",
     )
     codes = [v.get("code") for v in result.get("violations", [])]
     assert "CONTRACT_IMMUTABLE" in codes
@@ -52,6 +53,7 @@ def test_invariant_sentinel_events_violation(tmp_path):
         events_seq_start=5,
         events_size_start=999,
         memory_path="",
+        director_result_path="",
     )
     codes = [v.get("code") for v in result.get("violations", [])]
     assert "EVENTS_APPEND_ONLY" in codes
@@ -74,6 +76,31 @@ def test_invariant_sentinel_memory_refs(tmp_path):
         events_seq_start=0,
         events_size_start=0,
         memory_path=str(memory_path),
+        director_result_path="",
     )
     codes = [v.get("code") for v in result.get("violations", [])]
     assert "MEMORY_REFS" in codes
+
+
+def test_invariant_sentinel_failure_hops_missing(tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    events_path.write_text("", encoding="utf-8")
+    director_result_path = tmp_path / "DIRECTOR_RESULT.json"
+    director_result_path.write_text(
+        json.dumps({"status": "fail", "acceptance": False, "run_id": "run-4"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = run_invariant_sentinel(
+        events_path=str(events_path),
+        run_id="run-4",
+        step=1,
+        pm_task_path="",
+        contract_fingerprint="",
+        events_seq_start=0,
+        events_size_start=0,
+        memory_path="",
+        director_result_path=str(director_result_path),
+    )
+    codes = [v.get("code") for v in result.get("violations", [])]
+    assert "FAILURE_3HOPS_MISSING" in codes

@@ -60,6 +60,12 @@ Director 在单次提示词中模拟多角色视角 (Creative Director, Designer
 
 HarborPilot 采用"事实源 + 投影层"的设计模式。
 
+### 2.0 统一设计原则：数据即真相，视图即表现
+
+- **数据即真相**：系统状态以事实源与规范化配置为准（如 `events.jsonl`、`DIRECTOR_RESULT.json`、LLM config）。
+- **视图即表现**：UI、对话叙事、报表与各种看板均属于投影层，不维护第二份业务真相。
+- **工程收益**：单一数据源减少同步冲突；新增视图仅需新增投影/适配器，不改核心数据模型。
+
 ### 2.1 事实源 (Truth Sources)
 
 - **`events.jsonl` (Action/Observation Stream)**

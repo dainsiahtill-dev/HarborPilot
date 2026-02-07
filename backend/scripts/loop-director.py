@@ -126,6 +126,7 @@ try:
         run_tool_plan,
     )
     from director_evidence import build_evidence_summary, summarize_tool_outputs, write_evidence_package
+    from failure_hops import build_failure_hops, write_failure_index
     from director_trajectory import write_trajectory
     from director_memory import update_memory_snapshot
     from director_exec import (
@@ -294,6 +295,32 @@ def write_director_result(state: State, payload: Dict[str, Any]) -> None:
     if not state.director_result_full:
         return
     try:
+        run_id = str(payload.get("run_id") or getattr(state, "current_run_id", "") or "").strip()
+        event_seq_start = 0
+        event_seq_end = get_event_seq()
+        try:
+            event_seq_start = int(payload.get("event_seq_start") or 0)
+        except Exception:
+            event_seq_start = 0
+        try:
+            event_seq_end = int(payload.get("event_seq_end") or event_seq_end)
+        except Exception:
+            event_seq_end = get_event_seq()
+        failure_code = str(payload.get("failure_code") or payload.get("error_code") or "").strip()
+        if run_id and ("failure_hops" not in payload):
+            failure_hops = build_failure_hops(
+                state.events_full,
+                run_id=run_id,
+                event_seq_start=event_seq_start,
+                event_seq_end=event_seq_end,
+                fallback_failure_code=failure_code,
+            )
+            run_dir = resolve_run_dir(state.workspace_full, state.cache_root_full, run_id)
+            failure_hops_path = write_failure_index(run_dir, failure_hops) if run_dir else ""
+            payload["failure_hops"] = failure_hops
+            payload["failure_hops_path"] = failure_hops_path
+            payload["failure_hops_ready"] = bool(failure_hops.get("ready"))
+
         # Aggregate usage
         usage_summary = aggregate_usage(state.events_full)
         payload["usage_summary"] = usage_summary
@@ -727,6 +754,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         failure_code: str = "",
         duration: Optional[float] = None,
         repair_attempts: int = 0,
+        event_seq_end: Optional[int] = None,
     ) -> Dict[str, Any]:
         return {
             "schema_version": 1,
@@ -748,6 +776,8 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "duration": duration,
             "repair_attempts": repair_attempts,
             "changed_files": changed_files or [],
+            "event_seq_start": event_seq_start,
+            "event_seq_end": event_seq_end if event_seq_end is not None else get_event_seq(),
         }
 
     if director_stop_requested(state.workspace_full):
@@ -1700,6 +1730,19 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
         repair_attempts=repair_attempts,
     )
     event_seq_end = get_event_seq()
+    result_payload["event_seq_end"] = event_seq_end
+    failure_hops = build_failure_hops(
+        state.events_full,
+        run_id=state.current_run_id,
+        event_seq_start=event_seq_start,
+        event_seq_end=event_seq_end,
+        fallback_failure_code=failure_code,
+    )
+    run_dir = resolve_run_dir(state.workspace_full, state.cache_root_full, state.current_run_id)
+    failure_hops_path = write_failure_index(run_dir, failure_hops) if run_dir else ""
+    result_payload["failure_hops"] = failure_hops
+    result_payload["failure_hops_path"] = failure_hops_path
+    result_payload["failure_hops_ready"] = bool(failure_hops.get("ready"))
     trajectory_path = write_trajectory(
         state,
         run_id=state.current_run_id,
@@ -1740,6 +1783,7 @@ def invoke_iteration(state: State, index: int, is_last: bool) -> Dict[str, Any]:
             "evidence_path": evidence_path,
             "tool_results_summary": tool_output_summary,
             "events_path": state.events_full,
+            "failure_hops_path": failure_hops_path,
             "policy": {
                 "auto_repair": state.auto_repair,
                 "max_repair_attempts": state.repair_rounds,
@@ -2045,6 +2089,7 @@ def main() -> int:
                         events_seq_start=int(result.get("event_seq_start") or 0),
                         events_size_start=int(result.get("events_size_start") or 0),
                         memory_path=memory_path,
+                        director_result_path=state.director_result_full,
                     )
                 except Exception as e:
                     append_log(state.log_full, f"[SENTINEL] Error: {e}\n")
@@ -2086,6 +2131,7 @@ def main() -> int:
                         events_seq_start=int(result.get("event_seq_start") or 0),
                         events_size_start=int(result.get("events_size_start") or 0),
                         memory_path=memory_path,
+                        director_result_path=state.director_result_full,
                     )
                 except Exception as e:
                     append_log(state.log_full, f"[SENTINEL] Error: {e}\n")

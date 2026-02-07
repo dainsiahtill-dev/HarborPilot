@@ -5,7 +5,7 @@
 
 import type { RoleIdStrict, ProviderConfigStrict, ConnectivityResultStrict, InterviewSuiteReportStrict } from '../types/strict';
 export type { ConnectivityResultStrict } from '../types/strict';
-import type { ProviderConfig } from '../types';
+import type { ProviderConfig, UnifiedLlmConfig } from '../types';
 
 // ============================================================================
 // State Types
@@ -60,9 +60,19 @@ export interface ProviderState {
   deepView: DeepView;
   interviewMode: InterviewMode;
   
-  // Provider 编辑状态
+  // Provider 编辑状态 (Legacy - 将逐步迁移到新的 editFormState)
   editingProvider: string | null;
   expandedProviders: Set<string>;
+  
+  // === 新的统一编辑状态 ===
+  // 当前正在编辑的 provider ID
+  editingProviderId: string | null;
+  // 编辑表单状态 - 存储每个 provider 的编辑中数据 (work-in-progress)
+  editFormState: Record<string, ProviderConfig>;
+  // 标记哪些 provider 有未保存的更改
+  pendingChanges: Set<string>;
+  // 保存中状态
+  savingProvider: string | null;
   
   // 测试状态
   testPanel: TestPanelState;
@@ -75,9 +85,14 @@ export interface ProviderState {
   interviewPanel: InterviewPanelState;
   interviewRunning: boolean;
   interviewCancelled: boolean;
+
+  // Unified Configuration
+  unifiedConfig: UnifiedLlmConfig | null;
   
   // 错误状态
   globalError: string | null;
+  // 每个 provider 的错误信息
+  providerErrors: Record<string, string | undefined>;
 }
 
 // ============================================================================
@@ -96,12 +111,30 @@ export type ProviderAction =
   | { type: 'SET_DEEP_VIEW'; payload: DeepView }
   | { type: 'SET_INTERVIEW_MODE'; payload: InterviewMode }
   
-  // Provider 编辑
+  // Provider 编辑 (Legacy)
   | { type: 'START_EDIT_PROVIDER'; payload: string }
   | { type: 'STOP_EDIT_PROVIDER' }
   | { type: 'TOGGLE_EXPAND_PROVIDER'; payload: string }
   | { type: 'EXPAND_ALL_PROVIDERS' }
   | { type: 'COLLAPSE_ALL_PROVIDERS' }
+  
+  // === 新的统一编辑状态 Actions ===
+  // 开始编辑 - 初始化表单状态
+  | { type: 'START_EDIT'; payload: { providerId: string; initialConfig: ProviderConfig } }
+  // 更新编辑表单字段
+  | { type: 'UPDATE_EDIT_FORM'; payload: { providerId: string; updates: Partial<ProviderConfig> } }
+  // 保存编辑 - 开始保存流程
+  | { type: 'SAVE_EDIT_START'; payload: string }
+  // 保存成功
+  | { type: 'SAVE_EDIT_SUCCESS'; payload: string }
+  // 保存失败
+  | { type: 'SAVE_EDIT_FAILURE'; payload: { providerId: string; error: string } }
+  // 取消编辑 - 丢弃更改
+  | { type: 'CANCEL_EDIT'; payload: string }
+  // 设置 provider 错误
+  | { type: 'SET_PROVIDER_ERROR'; payload: { providerId: string; error: string | null | undefined } }
+  // 清除 provider 错误
+  | { type: 'CLEAR_PROVIDER_ERROR'; payload: string }
   
   // 测试相关
   | { type: 'OPEN_TEST_PANEL'; payload: string }
@@ -129,7 +162,10 @@ export type ProviderAction =
   | { type: 'CLEAR_ERROR' }
   
   // 批量更新（用于初始化或外部更新）
-  | { type: 'HYDRATE_STATE'; payload: Partial<ProviderState> };
+  | { type: 'HYDRATE_STATE'; payload: Partial<ProviderState> }
+
+  // Unified Config Update
+  | { type: 'UPDATE_UNIFIED_CONFIG'; payload: UnifiedLlmConfig };
 
 // ============================================================================
 // Initial State
@@ -145,8 +181,15 @@ export const initialProviderState: ProviderState = {
   deepView: 'hall',
   interviewMode: 'interactive',
   
+  // Legacy edit state
   editingProvider: null,
   expandedProviders: new Set(),
+  
+  // 新的统一编辑状态
+  editingProviderId: null,
+  editFormState: {},
+  pendingChanges: new Set(),
+  savingProvider: null,
   
   testPanel: {
     selectedProviderId: null,
@@ -166,8 +209,11 @@ export const initialProviderState: ProviderState = {
   },
   interviewRunning: false,
   interviewCancelled: false,
+
+  unifiedConfig: null,
   
   globalError: null,
+  providerErrors: {},
 };
 
 // ============================================================================
@@ -279,6 +325,142 @@ export function providerReducer(state: ProviderState, action: ProviderAction): P
       return {
         ...state,
         expandedProviders: new Set(),
+      };
+    }
+    
+    // === 新的统一编辑状态 Reducer Cases ===
+    case 'START_EDIT': {
+      const { providerId, initialConfig } = action.payload;
+      return {
+        ...state,
+        editingProviderId: providerId,
+        // 深拷贝初始配置到 editFormState
+        editFormState: {
+          ...state.editFormState,
+          [providerId]: JSON.parse(JSON.stringify(initialConfig)),
+        },
+        // 清除之前的未保存标记
+        pendingChanges: (() => {
+          const newPending = new Set(state.pendingChanges);
+          newPending.delete(providerId);
+          return newPending;
+        })(),
+        // 清除之前的错误
+        providerErrors: {
+          ...state.providerErrors,
+          [providerId]: undefined as unknown as string,
+        },
+      };
+    }
+    
+    case 'UPDATE_EDIT_FORM': {
+      const { providerId, updates } = action.payload;
+      const currentForm = state.editFormState[providerId];
+      if (!currentForm) return state;
+      
+      const updatedForm = { ...currentForm, ...updates };
+      // 检查是否有实际变化
+      const hasChanges = JSON.stringify(currentForm) !== JSON.stringify(updatedForm);
+      
+      return {
+        ...state,
+        editFormState: {
+          ...state.editFormState,
+          [providerId]: updatedForm,
+        },
+        pendingChanges: (() => {
+          const newPending = new Set(state.pendingChanges);
+          if (hasChanges) {
+            newPending.add(providerId);
+          } else {
+            newPending.delete(providerId);
+          }
+          return newPending;
+        })(),
+      };
+    }
+    
+    case 'SAVE_EDIT_START': {
+      return {
+        ...state,
+        savingProvider: action.payload,
+      };
+    }
+    
+    case 'SAVE_EDIT_SUCCESS': {
+      const providerId = action.payload;
+      return {
+        ...state,
+        savingProvider: null,
+        editingProviderId: null,
+        pendingChanges: (() => {
+          const newPending = new Set(state.pendingChanges);
+          newPending.delete(providerId);
+          return newPending;
+        })(),
+        // 清除保存成功的 provider 的 editFormState
+        editFormState: (() => {
+          const newFormState = { ...state.editFormState };
+          delete newFormState[providerId];
+          return newFormState;
+        })(),
+      };
+    }
+    
+    case 'SAVE_EDIT_FAILURE': {
+      const { providerId, error } = action.payload;
+      return {
+        ...state,
+        savingProvider: null,
+        providerErrors: {
+          ...state.providerErrors,
+          [providerId]: error,
+        },
+      };
+    }
+    
+    case 'CANCEL_EDIT': {
+      const providerId = action.payload;
+      return {
+        ...state,
+        editingProviderId: null,
+        pendingChanges: (() => {
+          const newPending = new Set(state.pendingChanges);
+          newPending.delete(providerId);
+          return newPending;
+        })(),
+        // 清除 editFormState
+        editFormState: (() => {
+          const newFormState = { ...state.editFormState };
+          delete newFormState[providerId];
+          return newFormState;
+        })(),
+        // 清除错误
+        providerErrors: {
+          ...state.providerErrors,
+          [providerId]: undefined as unknown as string,
+        },
+      };
+    }
+    
+    case 'SET_PROVIDER_ERROR': {
+      const { providerId, error } = action.payload;
+      return {
+        ...state,
+        providerErrors: {
+          ...state.providerErrors,
+          [providerId]: error ?? undefined,
+        },
+      };
+    }
+    
+    case 'CLEAR_PROVIDER_ERROR': {
+      const providerId = action.payload;
+      const newErrors = { ...state.providerErrors };
+      delete newErrors[providerId];
+      return {
+        ...state,
+        providerErrors: newErrors,
       };
     }
     
@@ -481,6 +663,13 @@ export function providerReducer(state: ProviderState, action: ProviderAction): P
         ...action.payload,
       };
     }
+
+    case 'UPDATE_UNIFIED_CONFIG': {
+      return {
+        ...state,
+        unifiedConfig: action.payload
+      };
+    }
     
     default: {
       return state;
@@ -502,10 +691,45 @@ export const ProviderActions = {
   setDeepView: (view: DeepView): ProviderAction => ({ type: 'SET_DEEP_VIEW', payload: view }),
   setInterviewMode: (mode: InterviewMode): ProviderAction => ({ type: 'SET_INTERVIEW_MODE', payload: mode }),
   
+  // Legacy edit actions
   startEditProvider: (id: string): ProviderAction => ({ type: 'START_EDIT_PROVIDER', payload: id }),
   stopEditProvider: (): ProviderAction => ({ type: 'STOP_EDIT_PROVIDER' }),
   toggleExpandProvider: (id: string): ProviderAction => ({ type: 'TOGGLE_EXPAND_PROVIDER', payload: id }),
   collapseAllProviders: (): ProviderAction => ({ type: 'COLLAPSE_ALL_PROVIDERS' }),
+  
+  // === 新的统一编辑状态 Action Creators ===
+  startEdit: (providerId: string, initialConfig: ProviderConfig): ProviderAction => ({
+    type: 'START_EDIT',
+    payload: { providerId, initialConfig },
+  }),
+  updateEditForm: (providerId: string, updates: Partial<ProviderConfig>): ProviderAction => ({
+    type: 'UPDATE_EDIT_FORM',
+    payload: { providerId, updates },
+  }),
+  saveEditStart: (providerId: string): ProviderAction => ({
+    type: 'SAVE_EDIT_START',
+    payload: providerId,
+  }),
+  saveEditSuccess: (providerId: string): ProviderAction => ({
+    type: 'SAVE_EDIT_SUCCESS',
+    payload: providerId,
+  }),
+  saveEditFailure: (providerId: string, error: string): ProviderAction => ({
+    type: 'SAVE_EDIT_FAILURE',
+    payload: { providerId, error },
+  }),
+  cancelEdit: (providerId: string): ProviderAction => ({
+    type: 'CANCEL_EDIT',
+    payload: providerId,
+  }),
+  setProviderError: (providerId: string, error: string | null | undefined): ProviderAction => ({
+    type: 'SET_PROVIDER_ERROR',
+    payload: { providerId, error },
+  }),
+  clearProviderError: (providerId: string): ProviderAction => ({
+    type: 'CLEAR_PROVIDER_ERROR',
+    payload: providerId,
+  }),
   
   openTestPanel: (id: string): ProviderAction => ({ type: 'OPEN_TEST_PANEL', payload: id }),
   closeTestPanel: (): ProviderAction => ({ type: 'CLOSE_TEST_PANEL' }),
@@ -537,4 +761,9 @@ export const ProviderActions = {
   
   setError: (error: string | null): ProviderAction => ({ type: 'SET_ERROR', payload: error }),
   clearError: (): ProviderAction => ({ type: 'CLEAR_ERROR' }),
+  
+  updateUnifiedConfig: (config: UnifiedLlmConfig): ProviderAction => ({
+    type: 'UPDATE_UNIFIED_CONFIG',
+    payload: config
+  }),
 } as const;

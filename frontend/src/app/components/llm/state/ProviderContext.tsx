@@ -8,17 +8,17 @@ import type { ReactNode } from 'react';
 import type { 
   ProviderState, 
   ProviderAction, 
-  RoleIdStrict, 
   ConnectivityResultStrict,
-  InterviewSuiteReportStrict,
   TestStatus,
   ConnectivityStatus,
 } from './providerReducer';
+import type { RoleIdStrict, InterviewSuiteReportStrict } from '../types/strict';
 import { 
   providerReducer, 
   initialProviderState, 
   ProviderActions 
 } from './providerReducer';
+import type { ProviderConfig, UnifiedLlmConfig } from '../types';
 
 // ============================================================================
 // Context Type
@@ -39,11 +39,29 @@ interface ProviderContextValue {
   setDeepView: (view: 'hall' | 'session') => void;
   setInterviewMode: (mode: 'interactive' | 'auto') => void;
   
-  // Actions - Provider Edit
+  // Actions - Provider Edit (Legacy)
   startEditProvider: (id: string) => void;
   stopEditProvider: () => void;
   toggleExpandProvider: (id: string) => void;
   collapseAllProviders: () => void;
+  
+  // === 新的统一编辑状态 Actions ===
+  // 开始编辑 - 初始化表单状态
+  startEdit: (providerId: string, initialConfig: ProviderConfig) => void;
+  // 更新编辑表单字段
+  updateEditForm: (providerId: string, updates: Partial<ProviderConfig>) => void;
+  // 保存编辑 - 开始保存流程
+  saveEditStart: (providerId: string) => void;
+  // 保存成功
+  saveEditSuccess: (providerId: string) => void;
+  // 保存失败
+  saveEditFailure: (providerId: string, error: string) => void;
+  // 取消编辑 - 丢弃更改
+  cancelEdit: (providerId: string) => void;
+  // 设置 provider 错误
+  setProviderError: (providerId: string, error: string | null | undefined) => void;
+  // 清除 provider 错误
+  clearProviderError: (providerId: string) => void;
   
   // Actions - Test
   openTestPanel: (id: string) => void;
@@ -67,6 +85,9 @@ interface ProviderContextValue {
   // Actions - Error
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Actions - Unified Config
+  updateUnifiedConfig: (config: UnifiedLlmConfig) => void;
   
   // Direct dispatch (for complex cases)
   dispatch: React.Dispatch<ProviderAction>;
@@ -131,7 +152,7 @@ export function ProviderContextProvider({
   }, []);
 
   // ==========================================================================
-  // Provider Edit Actions
+  // Provider Edit Actions (Legacy)
   // ==========================================================================
   const startEditProvider = useCallback((id: string) => {
     dispatch(ProviderActions.startEditProvider(id));
@@ -147,6 +168,41 @@ export function ProviderContextProvider({
 
   const collapseAllProviders = useCallback(() => {
     dispatch(ProviderActions.collapseAllProviders());
+  }, []);
+
+  // ==========================================================================
+  // 新的统一编辑状态 Actions
+  // ==========================================================================
+  const startEdit = useCallback((providerId: string, initialConfig: ProviderConfig) => {
+    dispatch(ProviderActions.startEdit(providerId, initialConfig));
+  }, []);
+
+  const updateEditForm = useCallback((providerId: string, updates: Partial<ProviderConfig>) => {
+    dispatch(ProviderActions.updateEditForm(providerId, updates));
+  }, []);
+
+  const saveEditStart = useCallback((providerId: string) => {
+    dispatch(ProviderActions.saveEditStart(providerId));
+  }, []);
+
+  const saveEditSuccess = useCallback((providerId: string) => {
+    dispatch(ProviderActions.saveEditSuccess(providerId));
+  }, []);
+
+  const saveEditFailure = useCallback((providerId: string, error: string) => {
+    dispatch(ProviderActions.saveEditFailure(providerId, error));
+  }, []);
+
+  const cancelEdit = useCallback((providerId: string) => {
+    dispatch(ProviderActions.cancelEdit(providerId));
+  }, []);
+
+  const setProviderError = useCallback((providerId: string, error: string | null | undefined) => {
+    dispatch(ProviderActions.setProviderError(providerId, error));
+  }, []);
+
+  const clearProviderError = useCallback((providerId: string) => {
+    dispatch(ProviderActions.clearProviderError(providerId));
   }, []);
 
   // ==========================================================================
@@ -222,6 +278,13 @@ export function ProviderContextProvider({
   }, []);
 
   // ==========================================================================
+  // Unified Config Actions
+  // ==========================================================================
+  const updateUnifiedConfig = useCallback((config: UnifiedLlmConfig) => {
+    dispatch(ProviderActions.updateUnifiedConfig(config));
+  }, []);
+
+  // ==========================================================================
   // Memoized Value
   // ==========================================================================
   const value = useMemo<ProviderContextValue>(
@@ -238,6 +301,15 @@ export function ProviderContextProvider({
       stopEditProvider,
       toggleExpandProvider,
       collapseAllProviders,
+      // 新的统一编辑状态 Actions
+      startEdit,
+      updateEditForm,
+      saveEditStart,
+      saveEditSuccess,
+      saveEditFailure,
+      cancelEdit,
+      setProviderError,
+      clearProviderError,
       openTestPanel,
       closeTestPanel,
       startTest,
@@ -253,6 +325,7 @@ export function ProviderContextProvider({
       cancelInterview,
       setError,
       clearError,
+      updateUnifiedConfig,
       dispatch,
     }),
     [
@@ -268,6 +341,15 @@ export function ProviderContextProvider({
       stopEditProvider,
       toggleExpandProvider,
       collapseAllProviders,
+      // 新的统一编辑状态 Actions dependencies
+      startEdit,
+      updateEditForm,
+      saveEditStart,
+      saveEditSuccess,
+      saveEditFailure,
+      cancelEdit,
+      setProviderError,
+      clearProviderError,
       openTestPanel,
       closeTestPanel,
       startTest,
@@ -283,6 +365,7 @@ export function ProviderContextProvider({
       cancelInterview,
       setError,
       clearError,
+      updateUnifiedConfig,
       dispatch,
     ]
   );
@@ -348,4 +431,38 @@ export function useConnectivityStatus(providerId: string): ConnectivityStatus {
 export function useIsProviderExpanded(providerId: string): boolean {
   const { state } = useProviderContext();
   return state.expandedProviders.has(providerId);
+}
+
+// ============================================================================
+// 新的统一编辑状态 Selectors
+// ============================================================================
+
+export function useEditingProviderId(): string | null {
+  const { state } = useProviderContext();
+  return state.editingProviderId;
+}
+
+export function useEditFormState(providerId: string): ProviderConfig | undefined {
+  const { state } = useProviderContext();
+  return state.editFormState[providerId];
+}
+
+export function useHasPendingChanges(providerId: string): boolean {
+  const { state } = useProviderContext();
+  return state.pendingChanges.has(providerId);
+}
+
+export function useIsSavingProvider(providerId: string): boolean {
+  const { state } = useProviderContext();
+  return state.savingProvider === providerId;
+}
+
+export function useProviderError(providerId: string): string | undefined {
+  const { state } = useProviderContext();
+  return state.providerErrors[providerId];
+}
+
+export function useGlobalPendingChangesCount(): number {
+  const { state } = useProviderContext();
+  return state.pendingChanges.size;
 }

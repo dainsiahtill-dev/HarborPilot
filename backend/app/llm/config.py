@@ -199,9 +199,9 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
             "timeout": 60,
             "retries": 0,
         },
-        "minimax": {
+        "minimax_openai": {
             "type": "openai_compat",
-            "name": "MiniMax",
+            "name": "MiniMax (OpenAI API)",
             "base_url": "https://api.minimax.io/v1",
             "api_key_ref": "keychain:llm:minimax",
             "api_path": "/v1/chat/completions",
