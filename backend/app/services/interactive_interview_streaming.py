@@ -46,6 +46,7 @@ from .interactive_interview import (
     _new_test_run_id,
     _utc_now,
 )
+from .streaming_tag_parser import StreamingTagParser, create_tag_parser
 
 _ACTIVE_PROCESS_LOCK = threading.Lock()
 _ACTIVE_CODEX_PROCESSES: Dict[str, subprocess.Popen] = {}
@@ -619,17 +620,28 @@ async def _run_standard_streaming(
             
             # Stream the output content
             if output:
-                # For non-Codex providers, we get the full output at once
-                # But we can simulate streaming by sending it in chunks
-                chunk_size = 50  # characters per chunk
-                for i in range(0, len(output), chunk_size):
-                    chunk = output[i:i + chunk_size]
-                    await output_queue.put({
-                        "type": "token",
-                        "data": {"token": chunk}
-                    })
-                    # Small delay to simulate streaming effect
-                    await asyncio.sleep(0.01)
+                parser = create_tag_parser(flush_threshold=20)
+
+                if parser.detect_tag_mode(output):
+                    chunk_size = 10
+                    for i in range(0, len(output), chunk_size):
+                        chunk = output[i : i + chunk_size]
+                        events = parser.process_chunk(chunk)
+                        for event in events:
+                            await output_queue.put(event.to_dict())
+                        await asyncio.sleep(0.01)
+
+                    pending_events = parser.flush()
+                    for event in pending_events:
+                        await output_queue.put(event.to_dict())
+                else:
+                    chunk_size = 50
+                    for i in range(0, len(output), chunk_size):
+                        chunk = output[i : i + chunk_size]
+                        await output_queue.put(
+                            {"type": "token", "data": {"token": chunk}}
+                        )
+                        await asyncio.sleep(0.01)
         else:
             output = ""
             error = f"Unknown provider type: {provider_type}"

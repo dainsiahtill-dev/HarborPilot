@@ -1,6 +1,6 @@
 import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
-import { type ProviderConfig } from '../types';
+import { type ProviderConfig, type ProviderValidateFn } from '../types';
 
 const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
 const cyberTextareaClasses = "flex w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[80px] resize-y";
@@ -8,7 +8,7 @@ const cyberTextareaClasses = "flex w-full min-w-0 rounded-md border border-white
 interface CodexSDKProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
-  onValidate: () => any;
+  onValidate: ProviderValidateFn;
 }
 
 export function CodexSDKProviderSettings({

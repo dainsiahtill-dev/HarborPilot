@@ -9,6 +9,23 @@ export interface StreamEvent {
 
 export type RealtimeThinkingKind = 'reasoning' | 'command_execution' | 'agent_message';
 
+export type StreamingTagEventType =
+  | 'thinking_start'
+  | 'thinking_chunk'
+  | 'thinking_end'
+  | 'answer_start'
+  | 'answer_chunk'
+  | 'answer_end';
+
+export interface StreamingTagEvent {
+  type: StreamingTagEventType;
+  data: {
+    content?: string;
+    timestamp: string;
+    isComplete?: boolean;
+  };
+}
+
 export interface RealtimeThinkingEvent {
   id: string;
   kind: RealtimeThinkingKind;
@@ -39,10 +56,11 @@ export interface UseInterviewStreamOptions {
   onComplete?: (result: InterviewStreamResult) => void;
   onError?: (error: string) => void;
   onThinkingEvent?: (event: RealtimeThinkingEvent) => void;
+  onTagEvent?: (event: StreamingTagEvent) => void;
 }
 
 export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
-  const { onEvent, onStart, onComplete, onError, onThinkingEvent } = options;
+  const { onEvent, onStart, onComplete, onError, onThinkingEvent, onTagEvent } = options;
   const [isStreaming, setIsStreaming] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -241,7 +259,23 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
                 case 'ping':
                   // Heartbeat, ignore
                   break;
-                  
+
+                case 'thinking_start':
+                case 'thinking_chunk':
+                case 'thinking_end':
+                case 'answer_start':
+                case 'answer_chunk':
+                case 'answer_end':
+                  onTagEvent?.({
+                    type: currentEvent as StreamingTagEventType,
+                    data: {
+                      content: typeof data.content === 'string' ? data.content : undefined,
+                      timestamp: typeof data.timestamp === 'string' ? data.timestamp : new Date().toISOString(),
+                      isComplete: typeof data.is_complete === 'boolean' ? data.is_complete : undefined,
+                    },
+                  });
+                  break;
+
                 default:
                   onEvent?.({
                     type: 'stdout',
@@ -278,7 +312,7 @@ export function useInterviewStream(options: UseInterviewStreamOptions = {}) {
       eventSourceRef.current = null;
       activeSessionIdRef.current = null;
     }
-  }, [isStreaming, onEvent, onStart, onComplete, onError]);
+  }, [isStreaming, onEvent, onStart, onComplete, onError, onTagEvent]);
 
   const stopStream = useCallback((sessionIdOverride?: string | null) => {
     abortControllerRef.current?.abort();

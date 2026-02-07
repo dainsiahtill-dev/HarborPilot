@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { RefreshCw, AlertCircle, Key } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
-import { type ProviderConfig } from '../types';
+import { type ProviderConfig, type ProviderValidateFn } from '../types';
 
 interface KimiProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
-  onValidate: () => any;
+  onValidate: ProviderValidateFn;
 }
 
 interface ModelInfo {

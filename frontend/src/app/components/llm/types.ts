@@ -1,6 +1,12 @@
 // Unified LLM Provider Types
 // This file centralizes all type definitions to avoid duplication and inconsistency
 
+import type {
+  SDKParams,
+  RequestOverrides,
+  ModelSpecificConfig,
+} from './types/strict';
+
 // Provider Categories
 export const PROVIDER_CATEGORIES = {
   AGENT: 'AGENT' as const,
@@ -132,16 +138,16 @@ export interface ProviderConfig {
   default_model?: string;
   thinking_mode?: boolean;
   streaming?: boolean;
-  sdk_params?: Record<string, any>;
-  request_overrides?: Record<string, any>;
+  sdk_params?: SDKParams;
+  request_overrides?: RequestOverrides;
   cli_mode?: CLIMode;
   thinking_extraction?: {
     enabled: boolean;
     patterns: string[];
     confidence_threshold: number;
   };
-  model_specific?: Record<string, any>;
-  [key: string]: any;
+  model_specific?: ModelSpecificConfig;
+  [key: string]: unknown;
 }
 
 // Simple Provider (for UI)
@@ -178,6 +184,8 @@ export interface ValidationResult {
   warnings: string[];
   normalized_config?: ProviderConfig;
 }
+
+export type ProviderValidateFn = () => ValidationResult;
 
 // Role Config
 export interface RoleConfig {
@@ -270,10 +278,10 @@ export interface ProviderSettingsProps {
     retries?: number;
     temperature?: number;
     max_tokens?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   onUpdate: (updates: Partial<ProviderConfig>) => void;
-  onValidate: () => ValidationResult;
+  onValidate: ProviderValidateFn;
   children?: React.ReactNode;
 }
 

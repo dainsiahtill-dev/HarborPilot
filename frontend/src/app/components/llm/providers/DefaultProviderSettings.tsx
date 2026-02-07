@@ -1,11 +1,11 @@
 import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
-import { type ProviderConfig } from '../types';
+import { type ProviderConfig, type ProviderValidateFn } from '../types';
 
 interface DefaultProviderSettingsProps {
   provider: ProviderConfig;
   onUpdate: (updates: Partial<ProviderConfig>) => void;
-  onValidate: () => any;
+  onValidate: ProviderValidateFn;
 }
 
 export function DefaultProviderSettings({
