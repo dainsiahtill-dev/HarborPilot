@@ -267,13 +267,13 @@ export function CanonicalBridgeProvider({
   
   const selectMethod = useCallback((method: 'sdk' | 'api' | 'cli') => {
     // Method selection stored in UI state if needed
-    console.log('[Bridge] selectMethod:', method);
+    // Method selection stored in UI state if needed
   }, []);
   
   // View Actions
   const switchTab = useCallback((tab: 'config' | 'deepTest') => {
     // Tab switching handled by component state
-    console.log('[Bridge] switchTab:', tab);
+    // Tab switching handled by component state
   }, []);
   
   const setConfigView = useCallback((view: 'list' | 'visual') => {
@@ -281,11 +281,11 @@ export function CanonicalBridgeProvider({
   }, [manager]);
   
   const setDeepView = useCallback((view: 'hall' | 'session') => {
-    console.log('[Bridge] setDeepView:', view);
+
   }, []);
   
   const setInterviewMode = useCallback((mode: 'interactive' | 'auto') => {
-    console.log('[Bridge] setInterviewMode:', mode);
+
   }, []);
   
   // Provider Edit Actions (Legacy)
@@ -315,12 +315,12 @@ export function CanonicalBridgeProvider({
   const startEdit = useCallback((providerId: string, initialConfig: ProviderConfig) => {
     manager.updateAsyncOps({ savingProviderId: providerId });
     // Store form state in legacy format for compatibility
-    console.log('[Bridge] startEdit:', providerId, initialConfig);
+    // Store form state in legacy format for compatibility
   }, [manager]);
   
   const updateEditForm = useCallback((providerId: string, updates: Partial<ProviderConfig>) => {
     // Form updates handled locally in component during edit
-    console.log('[Bridge] updateEditForm:', providerId, updates);
+    // Form updates handled locally in component during edit
   }, []);
   
   const saveEditStart = useCallback((providerId: string) => {
@@ -413,7 +413,7 @@ export function CanonicalBridgeProvider({
   
   // Interview Actions
   const openInterviewPanel = useCallback(() => {
-    console.log('[Bridge] openInterviewPanel');
+
   }, []);
   
   const closeInterviewPanel = useCallback(() => {
@@ -421,12 +421,12 @@ export function CanonicalBridgeProvider({
   }, [manager]);
   
   const startInterview = useCallback(() => {
-    console.log('[Bridge] startInterview');
+
   }, []);
   
   const completeInterview = useCallback((report: InterviewSuiteReportStrict) => {
     manager.updateAsyncOps({ interviewingRoleId: undefined });
-    console.log('[Bridge] completeInterview:', report);
+
   }, [manager]);
   
   const failInterview = useCallback((error: string) => {

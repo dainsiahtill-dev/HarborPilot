@@ -124,11 +124,8 @@ export {
   initialProviderState,
 } from './providerReducer';
 
-// Re-export from ReactiveDataManager
-export type { StateChangeEvent } from './ReactiveDataManager';
+// Legacy exports removed
 
-// Re-export from ConflictAwareDataManager
-export type { ConflictResolution, ConflictResolutionStrategy } from './ConflictAwareDataManager';
 
 // ============================================================================
 // Bridge Layer (Phase 3)

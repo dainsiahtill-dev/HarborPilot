@@ -45,7 +45,6 @@ export function useProviderForm({
     // 只有当provider ID发生变化时才重置表单（比如切换到不同的提供商）
     // 这避免了因为其他状态变化导致的意外重置
     if (provider.id !== originalProvider.current.id) {
-      console.log('useProviderForm: Provider ID changed, resetting form');
       originalProvider.current = provider;
       setFormState(provider);
       setFieldChanges({});
@@ -82,7 +81,6 @@ export function useProviderForm({
     field: K,
     value: ProviderConfig[K]
   ) => {
-    console.log(`useProviderForm: Setting ${field} to:`, value);
     
     // 立即更新本地状态
     setFormState(prev => ({ ...prev, [field]: value }));
@@ -95,7 +93,6 @@ export function useProviderForm({
 
     // 防抖更新父组件状态
     debounceTimer.current = setTimeout(() => {
-      console.log(`useProviderForm: Debounced update for ${field}:`, value);
       onUpdate({ [field]: value });
       setPendingUpdates(prev => ({ ...prev, [field]: value }));
     }, debounceMs);
