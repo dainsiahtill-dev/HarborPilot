@@ -55,6 +55,29 @@ const extractTaggedBlock = (text: string | undefined, tags: string[]): string | 
   return undefined;
 };
 
+// Strip XML tags from text for display
+const stripXmlTags = (text: string | undefined): string => {
+  if (!text) return '';
+  return text.replace(/<[^>]+>/g, '').trim();
+};
+
+// Remove system prompt leakage (common patterns)
+const cleanModelOutput = (text: string | undefined): string => {
+  if (!text) return '';
+  const patterns = [
+    /The user is asking me to[\s\S]*?this approach demonstrates these competencies[\s\S]*?/gi,
+    /According to my instructions:[\s\S]*?-\s*I must answer RIGHT NOW[\s\S]*?-\s*I cannot ask for clarification[\s\S]*?/gi,
+    /ROLE: You are a job CANDIDATE[\s\S]*?/gi,
+    /IMMEDIATE ACTION REQUIRED:[\s\S]*?/gi,
+    /FORBIDDEN RESPONSES[\s\S]*?/gi,
+  ];
+  let cleaned = text;
+  patterns.forEach(pattern => {
+    cleaned = cleaned.replace(pattern, '');
+  });
+  return cleaned.trim();
+};
+
 export function RealtimeThinkingDisplay({
   events,
   enabled = false,
@@ -142,7 +165,22 @@ export function RealtimeThinkingDisplay({
                 </div>
 
                 {event.kind === 'reasoning' ? (
-                  <div className="text-text-main whitespace-pre-wrap">{event.text}</div>
+                  <div className="space-y-2">
+                    {derivedThinking ? (
+                      <div className="rounded border border-amber-500/20 bg-amber-500/5 p-2">
+                        <div className="text-[9px] uppercase tracking-wide text-amber-300 mb-1">Thinking</div>
+                        <div className="text-text-main whitespace-pre-wrap">{cleanModelOutput(derivedThinking)}</div>
+                      </div>
+                    ) : null}
+                    {derivedAnswer ? (
+                      <div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
+                        <div className="text-[9px] uppercase tracking-wide text-emerald-300 mb-1">Answer</div>
+                        <div className="text-text-main whitespace-pre-wrap">{derivedAnswer}</div>
+                      </div>
+                    ) : event.text ? (
+                      <div className="text-text-main whitespace-pre-wrap">{cleanModelOutput(stripXmlTags(event.text))}</div>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 {event.kind === 'command_execution' ? (
@@ -166,18 +204,18 @@ export function RealtimeThinkingDisplay({
                 {event.kind === 'agent_message' ? (
                   <div className="space-y-2">
                     {derivedThinking ? (
-                      <div className="rounded border border-white/10 bg-black/30 p-2">
-                        <div className="text-[9px] uppercase tracking-wide text-text-dim mb-1">Thinking</div>
-                        <div className="text-text-main whitespace-pre-wrap">{derivedThinking}</div>
+                      <div className="rounded border border-amber-500/20 bg-amber-500/5 p-2">
+                        <div className="text-[9px] uppercase tracking-wide text-amber-300 mb-1">Thinking</div>
+                        <div className="text-text-main whitespace-pre-wrap">{cleanModelOutput(derivedThinking)}</div>
                       </div>
                     ) : null}
                     {derivedAnswer ? (
                       <div className="rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
-                        <div className="text-[9px] uppercase tracking-wide text-text-dim mb-1">Answer</div>
+                        <div className="text-[9px] uppercase tracking-wide text-emerald-300 mb-1">Answer</div>
                         <div className="text-text-main whitespace-pre-wrap">{derivedAnswer}</div>
                       </div>
                     ) : event.raw ? (
-                      <div className="text-text-main whitespace-pre-wrap">{event.raw}</div>
+                      <div className="text-text-main whitespace-pre-wrap">{cleanModelOutput(stripXmlTags(event.raw))}</div>
                     ) : null}
                   </div>
                 ) : null}

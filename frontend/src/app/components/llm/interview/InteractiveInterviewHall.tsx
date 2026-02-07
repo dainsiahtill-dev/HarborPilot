@@ -5,7 +5,8 @@ import { TerminalOutput } from '../test/TerminalOutput';
 import { useTestEvents } from '../test/hooks/useTestEvents';
 import type { TestEvent } from '../test/types';
 import { RealtimeThinkingDisplay } from './RealtimeThinkingDisplay';
-import { useInterviewStream, type RealtimeThinkingEvent } from './useInterviewStream';
+import { StreamingTagDisplay } from './StreamingTagDisplay';
+import { useInterviewStream, type RealtimeThinkingEvent, type StreamingTagEvent } from './useInterviewStream';
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
 
@@ -273,6 +274,7 @@ export function InteractiveInterviewHall({
   const [sessionStatus, setSessionStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const { events: sessionEvents, addEvent: addSessionEvent, resetEvents: resetSessionEvents } = useTestEvents();
   const [thinkingEvents, setThinkingEvents] = useState<RealtimeThinkingEvent[]>([]);
+  const [tagEvents, setTagEvents] = useState<StreamingTagEvent[]>([]);
   const [debugMode, setDebugMode] = useState(false);
   const [useStreamingMode, setUseStreamingMode] = useState(true); // Enable streaming by default
   const handleThinkingEvent = useCallback((event: RealtimeThinkingEvent) => {
@@ -292,12 +294,22 @@ export function InteractiveInterviewHall({
     });
   }, []);
   const clearThinkingEvents = useCallback(() => setThinkingEvents([]), []);
+  const handleTagEvent = useCallback((event: StreamingTagEvent) => {
+    setTagEvents((prev) => {
+      const next = [...prev, event];
+      const maxEvents = 500;
+      if (next.length <= maxEvents) return next;
+      return next.slice(next.length - maxEvents);
+    });
+  }, []);
+  const clearTagEvents = useCallback(() => setTagEvents([]), []);
 
   const { isStreaming: isStreamConnecting, startStream, stopStream } = useInterviewStream({
     onEvent: (event) => {
       pushSessionEvent(event);
     },
     onThinkingEvent: handleThinkingEvent,
+    onTagEvent: handleTagEvent,
     onStart: (streamSessionId) => {
       if (!sessionId) {
         setSessionId(streamSessionId);
@@ -820,6 +832,7 @@ export function InteractiveInterviewHall({
     setUseStreamingMode(true);
     resetSessionEvents();
     clearThinkingEvents();
+    clearTagEvents();
   };
 
   if (view === 'report' && report) {
@@ -916,9 +929,9 @@ export function InteractiveInterviewHall({
       </div>
 
       {/* Main content area - 响应式布局 */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.2fr_1.5fr_1fr] gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.2fr_1.6fr_1fr] gap-6 flex-1 min-h-0 overflow-hidden">
         {/* Left Panel - Role Selection */}
-        <div className="grid grid-rows-[auto_1fr_auto_1fr] gap-4 min-h-0">
+        <div className="grid grid-rows-[auto_1fr_auto_1fr] gap-4 min-h-0 overflow-hidden">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🎯 面试岗位</div>
           <div className="space-y-2 min-h-0 overflow-auto pr-1">
             {roles.map((role) => {
@@ -997,7 +1010,7 @@ export function InteractiveInterviewHall({
         </div>
 
         {/* Second Panel - Question Templates */}
-        <div className="flex flex-col gap-4 min-h-0">
+        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">📋 问题模板库</div>
           <div className="space-y-3 flex-1 min-h-0 overflow-auto pr-1">
             {templatesByCategory.length === 0 ? (
@@ -1047,28 +1060,40 @@ export function InteractiveInterviewHall({
         </div>
 
         {/* Center Panel - Real-time Conversation */}
-        <div className="flex flex-col gap-4 min-h-0">
-          <div className="text-xs font-semibold text-text-main uppercase tracking-wide">💬 实时对话区</div>
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3 flex-1 min-h-0 flex flex-col">
+        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+          <div className="text-xs font-semibold text-text-main uppercase tracking-wide flex-shrink-0">💬 实时对话区</div>
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3 flex-1 min-h-0 flex flex-col overflow-hidden">
             <div className="text-[11px] text-text-dim flex-shrink-0">
               当前组合：{activeRole?.label || '未选择'} / {activeProvider?.name || '未选择'}{' '}
               {selectedModel ? `• ${selectedModel}` : ''}
             </div>
 
             {showThinkingPanel ? (
-              <RealtimeThinkingDisplay
-                events={thinkingEvents}
-                enabled={thinkingEnabled}
-                isStreaming={responding && thinkingEnabled}
-                onClear={clearThinkingEvents}
-                className="flex-shrink-0"
-              />
+              <div className="flex-shrink-0 space-y-2 max-h-40 overflow-hidden">
+                <div className="max-h-20 overflow-y-auto">
+                  <RealtimeThinkingDisplay
+                    events={thinkingEvents}
+                    enabled={thinkingEnabled}
+                    isStreaming={responding && thinkingEnabled}
+                    onClear={clearThinkingEvents}
+                    className=""
+                  />
+                </div>
+                <div className="max-h-20 overflow-y-auto">
+                  <StreamingTagDisplay
+                    events={tagEvents}
+                    isStreaming={responding}
+                    onClear={clearTagEvents}
+                    className=""
+                  />
+                </div>
+              </div>
             ) : null}
 
             {messages.length === 0 ? (
-              <div className="text-xs text-text-dim flex-1 flex items-center justify-center">暂无对话记录，请从左侧选择问题。</div>
+              <div className="text-xs text-text-dim flex-1 flex items-center justify-center min-h-0">暂无对话记录，请从左侧选择问题。</div>
             ) : (
-              <div className="space-y-3 flex-1 min-h-0 overflow-auto pr-2">
+              <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-2">
                 {qaPairs.map((pair, index) => {
                   const question = pair.question;
                   const answer = pair.answer;
@@ -1085,53 +1110,53 @@ export function InteractiveInterviewHall({
                     {question ? (
                       <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
                         <div className="text-[10px] uppercase tracking-wide text-text-dim mb-1">Question</div>
-                        <div className="text-text-main whitespace-pre-wrap">{question.content}</div>
+                        <div className="text-text-main whitespace-pre-wrap break-words">{question.content}</div>
                       </div>
                     ) : null}
 
                     {answer ? (
                       <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
                         <div className="text-[10px] uppercase tracking-wide text-text-dim mb-1">Answer</div>
-                        <div className="text-text-main whitespace-pre-wrap">{answer.content}</div>
+                        <div className="text-text-main whitespace-pre-wrap break-words">{answer.content}</div>
                         {answer.thinking ? (
-                          <div className="text-[11px] text-text-dim whitespace-pre-wrap">
+                          <div className="text-[11px] text-text-dim whitespace-pre-wrap break-words">
                             <span className="text-[10px] uppercase tracking-wide">Thinking</span>
                             <div>{answer.thinking}</div>
                           </div>
                         ) : null}
 
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
+                        <div className="space-y-2 pt-2 border-t border-white/10">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => updateEvaluation(answer.id, { userRating: 'pass' })}
-                              className={`px-2 py-1 text-[10px] rounded border ${
+                              className={`px-2 py-1 text-[10px] rounded border flex items-center gap-1 ${
                                 answer.evaluation?.userRating === 'pass'
                                   ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                                  : 'border-white/10 text-text-dim'
+                                  : 'border-white/10 text-text-dim hover:border-emerald-500/30'
                               }`}
                             >
-                              <Check className="size-3 inline-block mr-1" />
+                              <Check className="size-3" />
                               通过
                             </button>
                             <button
                               onClick={() => updateEvaluation(answer.id, { userRating: 'fail' })}
-                              className={`px-2 py-1 text-[10px] rounded border ${
+                              className={`px-2 py-1 text-[10px] rounded border flex items-center gap-1 ${
                                 answer.evaluation?.userRating === 'fail'
                                   ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
-                                  : 'border-white/10 text-text-dim'
+                                  : 'border-white/10 text-text-dim hover:border-rose-500/30'
                               }`}
                             >
-                              <XCircle className="size-3 inline-block mr-1" />
+                              <XCircle className="size-3" />
                               失败
                             </button>
                           </div>
 
                           {criteria.length > 0 ? (
                             <div className="space-y-1 text-[10px] text-text-dim">
-                              <div className="uppercase tracking-wide">评估指标</div>
-                              <div className="flex flex-wrap gap-2">
+                              <div className="uppercase tracking-wide text-[10px]">评估指标</div>
+                              <div className="flex flex-wrap gap-x-3 gap-y-1">
                                 {criteria.map((item) => (
-                                  <label key={item} className="flex items-center gap-1">
+                                  <label key={item} className="flex items-center gap-1 cursor-pointer hover:text-text-main">
                                     <input
                                       type="checkbox"
                                       checked={Boolean(answer.evaluation?.criteriaAssessment?.[item])}
@@ -1143,8 +1168,9 @@ export function InteractiveInterviewHall({
                                           }
                                         });
                                       }}
+                                      className="h-3 w-3 rounded border-white/20 bg-black/40"
                                     />
-                                    {item}
+                                    <span className="break-words">{item}</span>
                                   </label>
                                 ))}
                               </div>
@@ -1155,7 +1181,7 @@ export function InteractiveInterviewHall({
                             value={answer.evaluation?.notes || ''}
                             onChange={(event) => updateEvaluation(answer.id, { notes: event.target.value })}
                             placeholder="备注（可选）"
-                            className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px]"
+                            className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px] text-text-main"
                           />
                         </div>
                       </div>
@@ -1176,14 +1202,14 @@ export function InteractiveInterviewHall({
               </div>
             ) : null}
 
-            <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2 flex-shrink-0">
+            <div className="rounded-lg border border-white/10 bg-black/60 p-3 space-y-2 flex-shrink-0">
               <div className="text-[10px] uppercase tracking-wide text-text-dim">继续追问</div>
               <textarea
                 value={quickQuestion}
                 onChange={(event) => setQuickQuestion(event.target.value)}
                 placeholder="在这里输入追问问题..."
                 rows={2}
-                className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-[10px] text-text-main"
+                className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-[10px] text-text-main resize-none"
               />
               <button
                 onClick={() => handleSendQuestion(undefined, quickQuestion)}
@@ -1203,7 +1229,7 @@ export function InteractiveInterviewHall({
               onChange={(event) => setUserNotes(event.target.value)}
               placeholder="面试官备注（可选）"
               rows={2}
-              className="w-full rounded-lg border border-white/10 bg-black/40 p-2 text-xs text-text-main"
+              className="w-full rounded-lg border border-white/10 bg-black/40 p-2 text-xs text-text-main resize-none"
             />
             <div className="flex flex-col gap-2">
               <button
@@ -1234,7 +1260,7 @@ export function InteractiveInterviewHall({
         </div>
 
         {/* Right Panel - Testing Panel */}
-        <div className="flex flex-col gap-4 min-h-0">
+        <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
           <div className="text-xs font-semibold text-text-main uppercase tracking-wide">🖥️ 测试面板</div>
           <div className="relative bg-black/30 bg-gradient-to-br from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-xl border border-cyan-400/30 shadow-[0_0_20px_rgba(34,211,238,0.18),0_0_40px_rgba(168,85,247,0.12)] backdrop-blur-xl overflow-hidden flex-1 min-h-0 flex flex-col">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-cyan-400/60 via-fuchsia-400/50 to-pink-400/60" />
