@@ -592,14 +592,15 @@ async def _run_standard_streaming(
     from ..llm.providers.provider_registry import provider_manager
     
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
-    merged_cfg = {**provider_cfg, "api_key": api_key} if api_key else provider_cfg
+    # Enable streaming for interview
+    merged_cfg = {**provider_cfg, "api_key": api_key, "streaming": True} if api_key else {**provider_cfg, "streaming": True}
     provider_instance = provider_manager.get_provider_instance(provider_type)
     
     start_time = asyncio.get_event_loop().time()
     
     await output_queue.put({
         "type": "stdout",
-        "data": {"line": "Running standard provider..."}
+        "data": {"line": "Running standard provider with streaming..."}
     })
     
     try:
@@ -608,6 +609,27 @@ async def _run_standard_streaming(
             output = result_obj.output
             error = result_obj.error
             ok = result_obj.ok
+            
+            # Stream thinking content if available
+            if result_obj.thinking:
+                await output_queue.put({
+                    "type": "thinking",
+                    "data": {"text": result_obj.thinking}
+                })
+            
+            # Stream the output content
+            if output:
+                # For non-Codex providers, we get the full output at once
+                # But we can simulate streaming by sending it in chunks
+                chunk_size = 50  # characters per chunk
+                for i in range(0, len(output), chunk_size):
+                    chunk = output[i:i + chunk_size]
+                    await output_queue.put({
+                        "type": "token",
+                        "data": {"token": chunk}
+                    })
+                    # Small delay to simulate streaming effect
+                    await asyncio.sleep(0.01)
         else:
             output = ""
             error = f"Unknown provider type: {provider_type}"

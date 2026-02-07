@@ -60,9 +60,9 @@
 ### 1. Parent Component Integration
 ```typescript
 // In your main LLM settings component
-import { EnhancedLLMSettingsTabRefactored } from './EnhancedLLMSettingsTabRefactored';
+import { LLMSettingsTab } from './LLMSettingsTab';
 
-<EnhancedLLMSettingsTabRefactored
+<LLMSettingsTab
   llmConfig={llmConfig}
   llmStatus={llmStatus}
   llmLoading={llmLoading}

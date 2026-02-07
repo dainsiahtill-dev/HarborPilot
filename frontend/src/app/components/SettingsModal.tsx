@@ -4,7 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { apiFetch } from '@/api';
 import { PtyDrawer } from '@/app/components/PtyDrawer';
-import { EnhancedLLMSettingsTabRefactored } from '@/app/components/llm/EnhancedLLMSettingsTabRefactored';
+import { LLMSettingsTab } from '@/app/components/llm/LLMSettingsTab';
 import { TurboSettingsTab } from './turbo/TurboSettingsTab';
 import { ArsenalPanel } from './arsenal/ArsenalPanel';
 
@@ -1346,6 +1346,16 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       return null;
     }
     const providerCfg = llmConfig.providers?.[providerId];
+    console.log('[runInterview] providerCfg:', {
+      providerId,
+      providerCfg: providerCfg ? {
+        model: providerCfg.model,
+        model_id: providerCfg.model_id,
+        default_model: providerCfg.default_model,
+        type: providerCfg.type,
+        name: providerCfg.name,
+      } : null,
+    });
     if (!providerCfg) {
       emitEvent('error', '提供商未配置，无法开始面试');
       return null;
@@ -1359,8 +1369,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
           : typeof providerCfg?.default_model === 'string'
             ? providerCfg.default_model
             : '';
+    console.log('[runInterview] providerModel:', providerModel, 'modelOverride:', modelOverride, 'roleModel:', roleModel);
     const shouldSyncRoleModel = isRoleDefaultProvider && Boolean(providerModel) && roleModel !== providerModel && !modelOverride;
     let model = modelOverride || providerModel || roleModel;
+    console.log('[runInterview] final model:', model);
     if (providerModel && roleModel && providerModel !== roleModel && !modelOverride) {
       emitEvent(
         'stderr',
@@ -2150,7 +2162,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
             </TabsContent>
 
             <TabsContent value="llm" className="mt-6 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
-              <EnhancedLLMSettingsTabRefactored
+              <LLMSettingsTab
                 llmConfig={llmConfig}
                 llmStatus={llmStatus}
                 llmLoading={llmLoading}

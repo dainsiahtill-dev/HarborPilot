@@ -1,81 +1,67 @@
-import { Loader2, CheckCircle2, AlertTriangle, Plus, Settings, PlayCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+/**
+ * LLMSettingsTab
+ * LLM 设置主组件，使用 Context + Reducer 模式
+ */
+
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { InterviewHall } from './interview/InterviewHall';
-import { InterviewSession } from './interview/InterviewSession';
-import { SimpleModelCard } from './SimpleModelCard';
-import type { SimpleProvider } from './types';
+import { Loader2, CheckCircle2, AlertTriangle, PlayCircle } from 'lucide-react';
+
+import { 
+  ProviderContextProvider, 
+  useProviderContext,
+  useSelectedRole,
+  useConnectivityStore,
+  type RoleId,
+} from './state';
+import type { ProviderState } from './state';
+import { ProviderListManager } from './providers';
+
+import type { 
+  ProviderConfig, 
+  ProviderKind, 
+  SimpleProvider,
+} from './types';
+import { PROVIDER_KINDS, isCLIProviderType } from './types';
+import type { TestEvent, TestResult } from './test/types';
 import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
-import type { TestEvent, TestResult } from './test/types';
+import { useProviderRegistry } from './ProviderRegistry';
 import { LLMVisualEditor } from './visual/LLMVisualEditor';
-import { CodexModelBrowser } from './model-browser/CodexModelBrowser';
-import {
-  COST_CLASSES,
-  PROVIDER_KINDS,
-  isCLIConnection,
-  isCLIProviderType,
-  type CostClass,
-  type ProviderKind
-} from './types';
+import type { VisualGraphConfig, VisualGraphStatus } from './visual/types/visual';
 
-interface LlmProviderConfig {
-  type?: string;
-  name?: string;
-  command?: string;
-  args?: string[];
-  cli_mode?: 'tui' | 'headless';
-  codex_exec?: Record<string, unknown>;
-  env?: Record<string, string>;
-  base_url?: string;
-  api_key_ref?: string;
-  list_args?: string[];
-  tui_args?: string[];
-  output_path?: string;
-  timeout?: number;
-  retries?: number;
-  api_path?: string;
-  models_path?: string;
-  headers?: Record<string, string>;
-  temperature?: number;
-  model?: string;
-  model_id?: string;
-  default_model?: string;
-}
+import { 
+  InterviewHall, 
+  type ConnectivityResult as InterviewConnectivityResult,
+} from './interview/InterviewHall';
+import { InterviewSession } from './interview/InterviewSession';
+import { 
+  InteractiveInterviewHall, 
+  type InteractiveInterviewAnswer,
+  type InteractiveInterviewReport,
+} from './interview/InteractiveInterviewHall';
 
-interface LlmRoleConfig {
-  provider_id?: string;
-  model?: string;
-  profile?: string;
-}
-
-interface RoleRequirement {
-  requires_thinking?: boolean;
-  min_confidence?: number;
-  error_message?: string;
-}
+// ============================================================================
+// Types
+// ============================================================================
 
 interface LlmConfig {
   schema_version: number;
-  providers: Record<string, LlmProviderConfig>;
-  roles: Record<string, LlmRoleConfig>;
+  providers: Record<string, ProviderConfig>;
+  roles: Record<string, {
+    provider_id?: string;
+    model?: string;
+    profile?: string;
+  }>;
   policies?: {
     required_ready_roles?: string[];
     test_required_suites?: string[];
-    role_requirements?: Record<string, RoleRequirement>;
+    role_requirements?: Record<string, {
+      requires_thinking?: boolean;
+      min_confidence?: number;
+      error_message?: string;
+    }>;
   };
-}
-
-interface LlmStatusRole {
-  provider_id?: string;
-  model?: string;
-  profile?: string;
-  ready?: boolean;
-  grade?: string;
-  last_run_id?: string | null;
-  timestamp?: string | null;
-  suites?: Record<string, unknown> | null;
-  runtime_supported?: boolean;
 }
 
 interface LlmStatus {
@@ -83,25 +69,46 @@ interface LlmStatus {
   required_ready_roles: string[];
   blocked_roles: string[];
   unsupported_roles: string[];
-  roles: Record<string, LlmStatusRole>;
-}
-
-type RoleId = 'pm' | 'director' | 'qa' | 'docs';
-
-interface InterviewSuiteReport {
-  status?: string;
-  final_score?: number;
-  thinking?: {
-    supports_thinking?: boolean;
-    confidence?: number;
-    format?: string;
-    thinking_text?: string;
-  };
-  cases?: Array<Record<string, unknown>>;
-  details?: {
-    recommendation?: string;
-    reason?: string;
-    threshold?: number;
+  roles: Record<string, {
+    provider_id?: string;
+    model?: string;
+    profile?: string;
+    ready?: boolean;
+    grade?: string;
+    last_run_id?: string | null;
+    timestamp?: string | null;
+    suites?: Record<string, unknown> | null;
+    runtime_supported?: boolean;
+  }>;
+  providers?: Record<string, {
+    ready?: boolean | null;
+    grade?: string;
+    last_run_id?: string | null;
+    timestamp?: string | null;
+    suites?: Record<string, unknown> | null;
+    model?: string | null;
+    role?: string | null;
+  }>;
+  interviews?: {
+    lastUpdated: string | null;
+    latest_by_provider: Record<string, {
+      id: string;
+      role: string;
+      provider_id: string;
+      model: string;
+      status: 'passed' | 'failed';
+      timestamp: string;
+      report_path: string;
+    }>;
+    latest_by_role_provider_model: Record<string, {
+      id: string;
+      role: string;
+      provider_id: string;
+      model: string;
+      status: 'passed' | 'failed';
+      timestamp: string;
+      report_path: string;
+    }>;
   };
 }
 
@@ -111,472 +118,483 @@ interface LLMSettingsTabProps {
   llmLoading: boolean;
   llmSaving: boolean;
   llmError: string | null;
+  deletingProviders?: Record<string, boolean>;
   onSaveConfig: () => void;
-  onRunInterview: (role: RoleId, onEvent?: (event: TestEvent) => void) => Promise<Record<string, unknown> | null>;
-  onRunReadiness: (role: RoleId) => Promise<Record<string, unknown> | null>;
-  onAddProvider?: (provider: SimpleProvider) => void;
-  onUpdateProvider?: (id: string, updates: Partial<SimpleProvider>) => void;
-  onDeleteProvider?: (id: string) => void;
-  onUpdateConfig?: (config: LlmConfig) => void;
-  onTestProvider?: (
-    provider: SimpleProvider,
+  onRunInterview: (
+    role: RoleId,
+    providerId: string,
+    model: string,
     onEvent?: (event: TestEvent) => void
-  ) => Promise<TestResult | null>;
+  ) => Promise<Record<string, unknown> | null>;
+  onRunConnectivityTest: (
+    role: RoleId,
+    providerId: string,
+    model: string
+  ) => Promise<Record<string, unknown> | null>;
+  onAskInteractiveInterview: (payload: {
+    roleId: RoleId;
+    providerId: string;
+    model: string;
+    question: string;
+    expectedCriteria?: string[];
+    expectsThinking?: boolean;
+    sessionId?: string | null;
+    context?: Array<{ question: string; answer: string }>;
+    debug?: boolean;
+  }) => Promise<InteractiveInterviewAnswer | null>;
+  onSaveInteractiveInterview: (payload: {
+    roleId: RoleId;
+    providerId: string;
+    model: string;
+    report: InteractiveInterviewReport;
+  }) => Promise<{ saved: boolean; report_path?: string } | null>;
+  resolveProviderEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
+  onAddProvider?: (providerId: string, provider: ProviderConfig) => void;
+  onUpdateProvider?: (providerId: string, updates: Partial<ProviderConfig>) => void;
+  onDeleteProvider?: (providerId: string) => void | Promise<void>;
+  onUpdateConfig?: (config: LlmConfig) => void;
+  onTestProvider?: (provider: SimpleProvider, onEvent?: (event: TestEvent) => void) => Promise<TestResult | null>;
   onCancelTestProvider?: () => void;
+  onCancelInterview?: () => void;
 }
 
-const ROLE_META: Record<RoleId, { label: string; description: string; badge: string }> = {
-  pm: {
-    label: 'PM 项目经理',
-    description: '负责项目管理、任务规划和进度跟踪',
-    badge: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30'
-  },
-  director: {
-    label: 'Director 导演',
-    description: '负责代码执行、技术实现和系统架构',
-    badge: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'
-  },
-  qa: {
-    label: 'QA 质量保证',
-    description: '负责代码审查、测试和质量控制',
-    badge: 'bg-blue-500/20 text-blue-200 border-blue-500/30'
-  },
-  docs: {
-    label: 'Docs 文档',
-    description: '负责文档生成和维护',
-    badge: 'bg-amber-500/20 text-amber-200 border-amber-500/30'
-  }
-};
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
-const DEFAULT_ROLE_REQUIREMENTS: Record<RoleId, RoleRequirement> = {
-  pm: {
-    requires_thinking: true,
-    min_confidence: 0.7,
-    error_message: 'PM 角色需要支持思考功能的LLM模型'
-  },
-  director: {
-    requires_thinking: true,
-    min_confidence: 0.7,
-    error_message: 'Director 角色需要支持思考功能的LLM模型'
-  },
-  qa: {
-    requires_thinking: false,
-    min_confidence: 0.5,
-    error_message: 'QA 角色需要可用的LLM模型'
-  },
-  docs: {
-    requires_thinking: false,
-    min_confidence: 0.5,
-    error_message: 'Docs 角色需要可用的LLM模型'
-  }
-};
-
-const PROVIDER_KIND_VALUES = new Set(Object.values(PROVIDER_KINDS));
-
-const DEFAULT_COST_CLASS_BY_KIND: Record<ProviderKind, CostClass> = {
-  [PROVIDER_KINDS.CODEX_CLI]: COST_CLASSES.FIXED,
-  [PROVIDER_KINDS.CODEX_SDK]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.GEMINI_CLI]: COST_CLASSES.FIXED,
-  [PROVIDER_KINDS.OLLAMA]: COST_CLASSES.LOCAL,
-  [PROVIDER_KINDS.OPENAI_COMPAT]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.ANTHROPIC_COMPAT]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.CUSTOM_HTTPS]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.MINIMAX]: COST_CLASSES.METERED,
-  [PROVIDER_KINDS.GEMINI_API]: COST_CLASSES.METERED
-};
-
-const resolveProviderKind = (
-  raw?: string,
-  fallback?: { command?: string; base_url?: string }
-): ProviderKind => {
-  const candidate = String(raw || '').trim();
-  if (candidate && PROVIDER_KIND_VALUES.has(candidate as ProviderKind)) {
-    return candidate as ProviderKind;
-  }
-  if (fallback?.command) {
-    return PROVIDER_KINDS.CODEX_CLI;
-  }
-  return PROVIDER_KINDS.OPENAI_COMPAT;
-};
-
-const resolveCostClass = (kind: ProviderKind, current?: CostClass): CostClass => {
-  if (current) return current;
-  return DEFAULT_COST_CLASS_BY_KIND[kind] || COST_CLASSES.METERED;
-};
-
-const extractProviderModel = (
+function buildSimpleProvider(
   providerId: string,
-  cfg: LlmProviderConfig,
-  roles?: Record<string, LlmRoleConfig>
-): string => {
-  const direct = typeof cfg.model === 'string' ? cfg.model.trim() : '';
-  if (direct) return direct;
-  const legacy = typeof cfg.model_id === 'string' ? cfg.model_id.trim() : '';
-  if (legacy) return legacy;
-  const fallback = typeof cfg.default_model === 'string' ? cfg.default_model.trim() : '';
-  if (fallback) return fallback;
-  if (!roles) return '';
-  for (const roleCfg of Object.values(roles)) {
-    if (!roleCfg || typeof roleCfg !== 'object') continue;
-    if (roleCfg.provider_id === providerId && roleCfg.model) {
-      return roleCfg.model;
-    }
-  }
-  return '';
-};
-
-const buildProviderFromConfig = (
-  providerId: string,
-  cfg: LlmProviderConfig,
-  roles: Record<string, LlmRoleConfig> | undefined,
-  previous?: SimpleProvider
-): SimpleProvider => {
-  const kind = resolveProviderKind(cfg.type, { command: cfg.command, base_url: cfg.base_url });
-  const isCli = Boolean(cfg.command) || isCLIProviderType(kind);
+  provider: ProviderConfig,
+  roles?: Record<string, { provider_id?: string; model?: string }>
+): SimpleProvider {
+  const kind = (provider.type || PROVIDER_KINDS.OPENAI_COMPAT) as ProviderKind;
+  const isCli = isCLIProviderType(provider.type) || Boolean(provider.command);
+  
   const conn = isCli
     ? {
-        kind: kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli',
-        command: cfg.command || (kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
-        args: cfg.args || [],
-        env: cfg.env || {}
+        kind: kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli' as const,
+        command: provider.command || (kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
+        args: provider.args || [],
+        env: provider.env || {},
       }
     : {
-        kind: 'http',
-        baseUrl: cfg.base_url || ''
+        kind: 'http' as const,
+        baseUrl: provider.base_url || '',
+        apiKey: provider.api_key,
       };
-  const modelId = extractProviderModel(providerId, cfg, roles);
-  const cliMode = cfg.cli_mode || previous?.cliMode;
-  const base: SimpleProvider = {
+
+  // 解析模型
+  let modelId = '';
+  if (typeof provider.model === 'string' && provider.model.trim()) {
+    modelId = provider.model.trim();
+  } else if (typeof provider.default_model === 'string' && provider.default_model.trim()) {
+    modelId = provider.default_model.trim();
+  }
+  
+  if (!modelId && roles) {
+    for (const roleCfg of Object.values(roles)) {
+      if (roleCfg?.provider_id === providerId && roleCfg.model) {
+        modelId = roleCfg.model;
+        break;
+      }
+    }
+  }
+
+  return {
     id: providerId,
-    name: cfg.name || providerId,
+    name: provider.name || providerId,
     kind,
     conn,
-    cliMode,
+    cliMode: provider.cli_mode,
     modelId,
-    status: previous?.status || 'untested',
-    costClass: resolveCostClass(kind, previous?.costClass),
-    outputPath: cfg.output_path,
-    lastError: previous?.lastError,
-    lastTest: previous?.lastTest
-  };
-  return base;
-};
-
-const mapProviderToConfig = (
-  provider: SimpleProvider,
-  existing?: LlmProviderConfig
-): LlmProviderConfig => {
-  const base: LlmProviderConfig = { ...(existing || {}) };
-  base.type = provider.kind;
-  base.name = provider.name;
-  base.model = provider.modelId;
-  if (provider.conn.kind === 'http') {
-    base.base_url = provider.conn.baseUrl;
-    delete base.command;
-    delete base.args;
-    delete base.env;
-  } else {
-    base.command = provider.conn.command;
-    base.args = provider.conn.args || [];
-    base.env = provider.conn.env || {};
-    base.cli_mode = provider.cliMode || 'headless';
-    delete base.base_url;
-  }
-  if (provider.outputPath !== undefined) {
-    base.output_path = provider.outputPath;
-  }
-  return base;
-};
-
-const CODEX_CLI_ARGS = [
-  'exec',
-  '--skip-git-repo-check',
-  '--color',
-  'never',
-  '--model',
-  '{model}',
-  '--sandbox',
-  'danger-full-access',
-  '--json',
-  '{prompt}',
-];
-
-const createCodexProvider = (): SimpleProvider => ({
-  id: `codex-cli-${Date.now()}`,
-  name: 'Codex CLI',
-  kind: 'codex_cli',
-  conn: { kind: 'codex_cli', command: 'codex', args: CODEX_CLI_ARGS },
-  cliMode: 'headless',
-  modelId: 'gpt-5.2-codex',
-  status: 'untested',
-  costClass: 'FIXED',
-});
-
-
-function extractThinkingMeta(suites?: Record<string, unknown> | null) {
-  if (!suites || typeof suites !== 'object') return null;
-  const suite = (suites as Record<string, unknown>).thinking as Record<string, unknown> | undefined;
-  if (!suite) return null;
-  const details = suite.details as Record<string, unknown> | undefined;
-  const thinking = (details?.thinking as Record<string, unknown>) || (suite.thinking as Record<string, unknown>);
-  if (!thinking) return null;
-  return {
-    supportsThinking: Boolean(thinking.supports_thinking),
-    confidence:
-      typeof thinking.confidence === 'number'
-        ? thinking.confidence
-        : thinking.confidence
-          ? Number(thinking.confidence)
-          : null,
-    format: typeof thinking.format === 'string' ? thinking.format : null,
-    thinkingText: typeof thinking.thinking_text === 'string' ? thinking.thinking_text : null
+    status: 'untested',
   };
 }
 
-function buildRoleRequirements(config: LlmConfig | null): Record<RoleId, RoleRequirement> {
-  const policies = config?.policies?.role_requirements || {};
-  return {
-    pm: { ...DEFAULT_ROLE_REQUIREMENTS.pm, ...(policies.pm || {}) },
-    director: { ...DEFAULT_ROLE_REQUIREMENTS.director, ...(policies.director || {}) },
-    qa: { ...DEFAULT_ROLE_REQUIREMENTS.qa, ...(policies.qa || {}) },
-    docs: { ...DEFAULT_ROLE_REQUIREMENTS.docs, ...(policies.docs || {}) }
-  };
+function resolveModelForSelection(
+  roleId: RoleId,
+  providerId: string,
+  config: LlmConfig | null
+): string {
+  if (!config) {
+    console.log('[resolveModelForSelection] config is null');
+    return '';
+  }
+  
+  const providerCfg = config.providers?.[providerId];
+  const roleCfg = config.roles?.[roleId];
+  
+  console.log('[resolveModelForSelection]', {
+    roleId,
+    providerId,
+    providerCfg: providerCfg ? {
+      model: providerCfg.model,
+      model_id: providerCfg.model_id,
+      default_model: providerCfg.default_model,
+      type: providerCfg.type,
+    } : null,
+    roleCfg: roleCfg ? { provider_id: roleCfg.provider_id, model: roleCfg.model } : null,
+  });
+  
+  // 检查多个可能的model字段（与原始版本保持一致）
+  if (providerCfg?.model) {
+    console.log('[resolveModelForSelection] using providerCfg.model:', providerCfg.model);
+    return providerCfg.model;
+  }
+  if (providerCfg?.model_id) {
+    console.log('[resolveModelForSelection] using providerCfg.model_id:', providerCfg.model_id);
+    return providerCfg.model_id;
+  }
+  if (providerCfg?.default_model) {
+    console.log('[resolveModelForSelection] using providerCfg.default_model:', providerCfg.default_model);
+    return providerCfg.default_model;
+  }
+  if (roleCfg?.provider_id === providerId && roleCfg.model) {
+    console.log('[resolveModelForSelection] using roleCfg.model:', roleCfg.model);
+    return roleCfg.model;
+  }
+  
+  console.log('[resolveModelForSelection] no model found, returning empty string');
+  return '';
 }
 
-export function LLMSettingsTab({
+// ============================================================================
+// Navigation Component
+// ============================================================================
+
+function TabNavigation({ 
+  globalReadiness 
+}: { 
+  globalReadiness: { state: string; color: string } 
+}) {
+  const { state, switchTab } = useProviderContext();
+  const { activeTab } = state;
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/20 bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(34,211,238,0.2)]">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => switchTab('config')}
+            className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wider rounded-lg border transition-all ${
+              activeTab === 'config'
+                ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.25)]'
+                : 'text-text-dim border-white/10 hover:border-cyan-400/40 hover:text-cyan-100'
+            }`}
+          >
+            CONFIG
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab('deepTest')}
+            className={`px-4 py-2 text-[11px] font-semibold uppercase tracking-wider rounded-lg border transition-all ${
+              activeTab === 'deepTest'
+                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 shadow-[0_0_16px_rgba(16,185,129,0.25)]'
+                : 'text-text-dim border-white/10 hover:border-emerald-400/40 hover:text-emerald-100'
+            }`}
+          >
+            DEEP TEST
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {globalReadiness.state === 'READY' ? (
+            <CheckCircle2 className="size-4 text-emerald-400" />
+          ) : (
+            <AlertTriangle className="size-4 text-yellow-400" />
+          )}
+          <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/40">
+            {globalReadiness.state}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Deep Test Panel
+// ============================================================================
+
+function DeepTestPanel({
+  llmConfig,
+  llmStatus,
+  onRunConnectivityTest,
+  onRunInterview,
+  onAskInteractiveInterview,
+  onSaveInteractiveInterview,
+  resolveProviderEnvOverrides,
+  onCancelInterview,
+}: {
+  llmConfig: LlmConfig | null;
+  llmStatus: LlmStatus | null;
+  onRunConnectivityTest: (role: RoleId, providerId: string, model: string) => Promise<Record<string, unknown> | null>;
+  onRunInterview: (role: RoleId, providerId: string, model: string, onEvent?: (event: TestEvent) => void) => Promise<Record<string, unknown> | null>;
+  onAskInteractiveInterview: LLMSettingsTabProps['onAskInteractiveInterview'];
+  onSaveInteractiveInterview: LLMSettingsTabProps['onSaveInteractiveInterview'];
+  resolveProviderEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
+  onCancelInterview?: () => void;
+}) {
+  const { state, setInterviewMode, setDeepView, selectRole, selectProvider } = useProviderContext();
+  const { interviewMode, deepView, interviewPanel, interviewRunning, connectivityRunning, connectivityRunningKey } = state;
+  const selectedRole = useSelectedRole();
+  const { buildProviderSummaries, buildConnectivityMap, getRoleProviderConnectivity } = useConnectivityStore();
+
+  const providers = useMemo(() => {
+    if (!llmConfig?.providers) return [];
+    return buildProviderSummaries(llmConfig.providers);
+  }, [llmConfig?.providers, buildProviderSummaries]);
+
+  const connectivityResults = useMemo(() => {
+    return buildConnectivityMap();
+  }, [buildConnectivityMap]);
+
+  const selectedProviderId = state.selectedProviderId;
+
+  // 简化的角色配置
+  const roles = useMemo(() => {
+    const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
+    const roleMeta: Record<RoleId, { label: string; description: string }> = {
+      pm: { label: 'PM 项目经理', description: '负责项目管理、任务规划和进度跟踪' },
+      director: { label: 'Director 导演', description: '负责代码执行、技术实现和系统架构' },
+      qa: { label: 'QA 质量保证', description: '负责代码审查、测试和质量控制' },
+      docs: { label: 'Docs 文档', description: '负责文档生成和维护' },
+    };
+    
+    return roleIds.map((roleId) => {
+      const roleCfg = llmConfig?.roles?.[roleId];
+      const status = llmStatus?.roles?.[roleId];
+      
+      return {
+        id: roleId,
+        label: roleMeta[roleId].label,
+        description: roleMeta[roleId].description,
+        requiresThinking: roleId === 'pm' || roleId === 'director',
+        minConfidence: 0.5,
+        candidate: {
+          providerId: roleCfg?.provider_id || '',
+          providerName: roleCfg?.provider_id 
+            ? (llmConfig?.providers?.[roleCfg.provider_id]?.name || roleCfg.provider_id)
+            : 'Unassigned',
+          model: roleCfg?.model || '',
+        },
+        readiness: {
+          ready: status?.ready,
+          grade: status?.grade,
+        },
+      };
+    });
+  }, [llmConfig, llmStatus]);
+
+  const selectedMeta = roles.find((r) => r.id === selectedRole);
+
+  const handleRunConnectivity = useCallback(async (roleId: RoleId, providerId: string) => {
+    const model = resolveModelForSelection(roleId, providerId, llmConfig);
+    if (!model) return;
+    await onRunConnectivityTest(roleId, providerId, model);
+  }, [llmConfig, onRunConnectivityTest]);
+
+  const handleStartInterview = useCallback(async (roleId: RoleId, providerId: string) => {
+    const model = resolveModelForSelection(roleId, providerId, llmConfig);
+    if (!model) return;
+    await onRunInterview(roleId, providerId, model);
+  }, [llmConfig, onRunInterview]);
+
+  return (
+    <div className="flex flex-col gap-4 w-full flex-1 min-h-0">
+      <div className="rounded-2xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_60%)] p-4 shadow-[0_0_30px_rgba(16,185,129,0.18)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-emerald-200">Deep Test Chamber</div>
+            <div className="text-[10px] text-text-dim mt-1">
+              深度测试用于验证角色与模型适配度，输出详细能力报告。
+            </div>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/40 p-1">
+            <button
+              onClick={() => setInterviewMode('interactive')}
+              className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                interviewMode === 'interactive'
+                  ? 'bg-emerald-500/20 text-emerald-200'
+                  : 'text-text-dim hover:text-emerald-100'
+              }`}
+            >
+              INTERACTIVE
+            </button>
+            <button
+              onClick={() => {
+                setInterviewMode('auto');
+                setDeepView('hall');
+              }}
+              className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                interviewMode === 'auto'
+                  ? 'bg-cyan-500/20 text-cyan-200'
+                  : 'text-text-dim hover:text-cyan-100'
+              }`}
+            >
+              AUTO
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="w-full flex-1 min-h-0">
+        {interviewMode === 'interactive' ? (
+          <InteractiveInterviewHall
+            roles={roles}
+            providers={providers}
+            selectedRole={selectedRole}
+            selectedProvider={selectedProviderId}
+            selectedModel={llmConfig?.roles?.[selectedRole]?.model || ''}
+            onSelectRole={selectRole}
+            onSelectProvider={selectProvider}
+            onAskQuestion={onAskInteractiveInterview}
+            onSaveReport={onSaveInteractiveInterview}
+            resolveEnvOverrides={resolveProviderEnvOverrides}
+          />
+        ) : deepView === 'hall' ? (
+          <InterviewHall
+            roles={roles}
+            selectedRole={selectedRole}
+            providers={providers}
+            selectedProvider={selectedProviderId}
+            onSelectRole={selectRole}
+            onSelectProvider={selectProvider}
+            onRunConnectivityTest={handleRunConnectivity}
+            onRunInterview={handleStartInterview}
+            connectivityResults={connectivityResults}
+            interviewRunning={interviewRunning}
+            connectivityRunning={connectivityRunning}
+            onSkipConnectivityTest={() => {}}
+          />
+        ) : (
+          <InterviewSession
+            roleLabel={selectedMeta?.label || selectedRole}
+            roleId={selectedRole}
+            report={interviewPanel.report || null}
+            running={interviewRunning}
+            error={interviewPanel.error}
+            onBack={() => setDeepView('hall')}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
+function LLMSettingsTabInner({
   llmConfig,
   llmStatus,
   llmLoading,
   llmSaving,
   llmError,
+  deletingProviders,
   onSaveConfig,
   onRunInterview,
-  onRunReadiness,
+  onRunConnectivityTest,
+  onAskInteractiveInterview,
+  onSaveInteractiveInterview,
+  resolveProviderEnvOverrides,
   onAddProvider,
   onUpdateProvider,
   onDeleteProvider,
   onUpdateConfig,
   onTestProvider,
-  onCancelTestProvider
+  onCancelTestProvider,
+  onCancelInterview,
 }: LLMSettingsTabProps) {
-  const [selectedRole, setSelectedRole] = useState<RoleId>('pm');
-  const [view, setView] = useState<'config' | 'hall' | 'session'>('config');
-  const [configView, setConfigView] = useState<'list' | 'visual'>('list');
-  const [interviewReport, setInterviewReport] = useState<InterviewSuiteReport | null>(null);
-  const [interviewError, setInterviewError] = useState<string | null>(null);
-  const [interviewRunning, setInterviewRunning] = useState(false);
-  const [readinessRunning, setReadinessRunning] = useState(false);
-  const [providers, setProviders] = useState<SimpleProvider[]>([]);
-  const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
-  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
-  const [testCancelled, setTestCancelled] = useState(false);
+  const { state, switchTab, startTest, completeTest, closeTestPanel, setConfigView } = useProviderContext();
+  const { activeTab, configView, testPanel } = state;
+  
   const { events, addEvent, resetEvents } = useTestEvents();
-  const [panelHost, setPanelHost] = useState<HTMLElement | null>(null);
+  const panelHostRef = useRef<HTMLElement | null>(null);
 
-  const updateProviderState = (id: string, updates: Partial<SimpleProvider>) => {
-    setProviders((prev) => prev.map((provider) => (provider.id === id ? { ...provider, ...updates } : provider)));
-  };
-
-  const syncProvidersToConfig = (nextProviders: SimpleProvider[]) => {
-    if (!llmConfig || !onUpdateConfig) return;
-    const nextConfigs: Record<string, LlmProviderConfig> = {};
-    nextProviders.forEach((provider) => {
-      const existing = llmConfig.providers?.[provider.id];
-      nextConfigs[provider.id] = mapProviderToConfig(provider, existing);
-    });
-    onUpdateConfig({
-      ...llmConfig,
-      providers: nextConfigs
-    });
-  };
-
-  const applyProvidersUpdate = (nextProviders: SimpleProvider[]) => {
-    setProviders(nextProviders);
-    syncProvidersToConfig(nextProviders);
-  };
-
-
+  // 初始化 portal host
   useEffect(() => {
-    if (!llmConfig) return;
-    const entries = Object.entries(llmConfig.providers || {});
-    const roles = llmConfig.roles || {};
-    setProviders((prev) => {
-      const prevMap = new Map(prev.map((provider) => [provider.id, provider]));
-      return entries.map(([id, cfg]) =>
-        buildProviderFromConfig(id, cfg as LlmProviderConfig, roles, prevMap.get(id))
-      );
-    });
-  }, [llmConfig]);
-
-  const selectedTestProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedTestProviderId) || null,
-    [providers, selectedTestProviderId]
-  );
-
-  const openTestPanel = (providerId: string) => {
-    setSelectedTestProviderId(providerId);
-    setTestStatus('idle');
-    setTestCancelled(false);
-    resetEvents();
-  };
-
-  const closeTestPanel = () => {
-    setSelectedTestProviderId(null);
-    setTestStatus('idle');
-    setTestCancelled(false);
-    resetEvents();
-  };
-
-  const cancelTestRun = () => {
-    if (onCancelTestProvider) {
-      onCancelTestProvider();
+    if (typeof document !== 'undefined') {
+      panelHostRef.current = document.getElementById('llm-test-panel-slot');
     }
-    setTestCancelled(true);
-    addEvent({
-      type: 'error',
-      timestamp: new Date().toISOString(),
-      content: 'Test cancelled by user'
-    });
-    setTestStatus('failed');
-  };
-
-  const shouldSkipErrorEvent = (err: unknown): boolean => {
-    if (!err || typeof err !== 'object') return false;
-    return 'skipUiEvent' in err && Boolean((err as { skipUiEvent?: boolean }).skipUiEvent);
-  };
-
-  const roleRequirements = useMemo(() => buildRoleRequirements(llmConfig), [llmConfig]);
-
-  const roles = useMemo(() => {
-    const roleIds: RoleId[] = ['pm', 'director', 'qa', 'docs'];
-    return roleIds.map((roleId) => {
-      const roleCfg = llmConfig?.roles?.[roleId];
-      const providerId = roleCfg?.provider_id || '';
-      const providerCfg = providerId ? llmConfig?.providers?.[providerId] : undefined;
-      const status = llmStatus?.roles?.[roleId];
-      const thinkingMeta = extractThinkingMeta(status?.suites || null);
-      const requirement = roleRequirements[roleId];
-      return {
-        id: roleId,
-        label: ROLE_META[roleId].label,
-        description: ROLE_META[roleId].description,
-        requiresThinking: Boolean(requirement?.requires_thinking),
-        minConfidence: requirement?.min_confidence ?? 0.5,
-        thinkingConfidence: thinkingMeta?.confidence ?? null,
-        thinkingSupported: thinkingMeta?.supportsThinking ?? null,
-        candidate: {
-          providerId,
-          providerName: providerCfg?.name || providerId || 'Unassigned',
-          model: roleCfg?.model || ''
-        },
-        readiness: {
-          ready: status?.ready,
-          grade: status?.grade
-        }
-      };
-    });
-  }, [llmConfig, llmStatus, roleRequirements]);
-
-  const candidates = useMemo(() => {
-    return roles
-      .filter((role) => role.candidate?.model)
-      .map((role) => ({
-        id: `${role.id}-${role.candidate?.providerId || 'unknown'}-${role.candidate?.model || 'model'}`,
-        roleLabel: role.label,
-        providerName: role.candidate?.providerName || 'Unknown',
-        model: role.candidate?.model || 'Unassigned',
-        ready: role.readiness?.ready,
-        thinkingSupported: role.thinkingSupported ?? null,
-        thinkingConfidence: role.thinkingConfidence ?? null
-      }));
-  }, [roles]);
-
-  useEffect(() => {
-    if (!llmConfig) return;
-    if (!roles.find((role) => role.id === selectedRole)) {
-      setSelectedRole('pm');
-    }
-  }, [llmConfig, roles, selectedRole]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    setPanelHost(document.getElementById('llm-test-panel-slot'));
   }, []);
 
-  useEffect(() => {
-    if (!selectedTestProviderId) return;
-    if (!providers.find((provider) => provider.id === selectedTestProviderId)) {
-      closeTestPanel();
-    }
-  }, [providers, selectedTestProviderId]);
+  // Provider Registry
+  const {
+    loading: providersLoading,
+    error: providersError,
+    providers,
+    getProviderInfo,
+    getProviderDefaultConfig,
+    getProviderComponent,
+    getCostClass,
+  } = useProviderRegistry();
 
-  useEffect(() => {
-    if (view !== 'config' && selectedTestProviderId) {
-      closeTestPanel();
-    }
-  }, [view, selectedTestProviderId]);
-
+  // Global readiness
   const globalReadiness = useMemo(() => {
-    const state = llmStatus?.state || 'UNKNOWN';
-    if (state === 'READY') {
-      return { state: 'READY', color: 'text-emerald-400' };
-    }
-    if (state === 'BLOCKED') {
-      return { state: 'BLOCKED', color: 'text-amber-400' };
-    }
+    const s = llmStatus?.state || 'UNKNOWN';
+    if (s === 'READY') return { state: 'READY', color: 'text-emerald-400' };
+    if (s === 'BLOCKED') return { state: 'BLOCKED', color: 'text-amber-400' };
     return { state: 'UNKNOWN', color: 'text-gray-400' };
-  }, [llmStatus?.state]);
+  }, [llmStatus]);
 
-  const selectedMeta = roles.find((role) => role.id === selectedRole);
-  const canRunReadiness = Boolean(
-    selectedMeta?.candidate?.providerId && selectedMeta?.candidate?.model
-  );
-  let disabledReason: string | null = null;
-  if (!selectedMeta?.candidate?.providerId || !selectedMeta?.candidate?.model) {
-    disabledReason = '请选择LLM提供商和模型';
-  } else if (selectedMeta.requiresThinking) {
-    const confidence = selectedMeta.thinkingConfidence;
-    if (confidence !== null && confidence < selectedMeta.minConfidence) {
-      disabledReason =
-        roleRequirements[selectedRole]?.error_message ||
-        'Thinking 功能置信度不足';
-    }
-  }
+  // Visual config
+  const visualConfig = useMemo(() => {
+    if (!llmConfig) return null;
+    return {
+      providers: llmConfig.providers || {},
+      roles: llmConfig.roles || {},
+      visual_layout: (llmConfig as unknown as Record<string, unknown>).visual_layout as Record<string, { x: number; y: number }> || {},
+      policies: llmConfig.policies,
+    } as VisualGraphConfig;
+  }, [llmConfig]);
 
-  const handleStartInterview = async () => {
-    if (!selectedMeta) return;
-    setInterviewError(null);
-    setInterviewReport(null);
-    setInterviewRunning(true);
-    setView('session');
+  const visualStatus = useMemo(() => {
+    if (!llmStatus) return null;
+    const rolesStatus: Record<string, { ready?: boolean; grade?: string }> = {};
+    Object.entries(llmStatus.roles || {}).forEach(([roleId, role]) => {
+      rolesStatus[roleId] = { ready: role.ready, grade: role.grade };
+    });
+    return { roles: rolesStatus } as VisualGraphStatus;
+  }, [llmStatus]);
+
+  // Test handlers
+  const handleTestProvider = useCallback(async (providerId: string) => {
+    if (!onTestProvider || !llmConfig) return;
+    
+    const cfg = llmConfig.providers?.[providerId];
+    if (!cfg) return;
+
+    const simpleProvider = buildSimpleProvider(providerId, cfg, llmConfig.roles);
+    
+    startTest(providerId);
+    resetEvents();
+    
     try {
-      const report = await onRunInterview(selectedMeta.id);
-      const suiteReport = (report?.suites as Record<string, unknown> | undefined)?.interview;
-      if (suiteReport && typeof suiteReport === 'object') {
-        setInterviewReport(suiteReport as InterviewSuiteReport);
-      } else if (report && typeof report === 'object') {
-        setInterviewReport(report as InterviewSuiteReport);
-      } else {
-        setInterviewReport(null);
-      }
-    } catch (error) {
-      setInterviewError(error instanceof Error ? error.message : 'Interview failed');
-    } finally {
-      setInterviewRunning(false);
+      const result = await onTestProvider(simpleProvider, (event) => {
+        addEvent(event);
+      });
+      completeTest(providerId, result?.ready ?? false);
+    } catch {
+      completeTest(providerId, false);
     }
-  };
+  }, [llmConfig, onTestProvider, startTest, completeTest, addEvent, resetEvents]);
 
-  const handleRunReadiness = async () => {
-    if (!selectedMeta) return;
-    setReadinessRunning(true);
-    try {
-      await onRunReadiness(selectedMeta.id);
-    } finally {
-      setReadinessRunning(false);
-    }
-  };
+  // Handle visual config change
+  const handleVisualConfigChange = useCallback((nextConfig: VisualGraphConfig) => {
+    if (!onUpdateConfig || !llmConfig) return;
+    
+    onUpdateConfig({
+      ...llmConfig,
+      visual_layout: nextConfig.visual_layout,
+      visual_node_states: (nextConfig as unknown as Record<string, unknown>).visual_node_states,
+      visual_viewport: (nextConfig as unknown as Record<string, unknown>).visual_viewport,
+    });
+  }, [llmConfig, onUpdateConfig]);
 
-  if (llmLoading) {
+  // Loading state
+  if (llmLoading || providersLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex items-center gap-2 text-text-muted">
@@ -588,311 +606,129 @@ export function LLMSettingsTab({
   }
 
   return (
-    <div className="space-y-6">
-      {/* 步骤导航 */}
-      <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setView('config')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                view === 'config' 
-                  ? 'bg-accent/20 text-accent border border-accent/30' 
-                  : 'text-text-dim hover:text-text-main hover:bg-white/5'
-              }`}
-            >
-              <Settings className="size-4" />
-              1. 配置LLM
-            </button>
-            <button
-              onClick={() => setView('hall')}
-              disabled={providers.length === 0}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                view === 'hall' 
-                  ? 'bg-accent/20 text-accent border border-accent/30' 
-                  : providers.length === 0
-                    ? 'text-gray-500 cursor-not-allowed'
-                    : 'text-text-dim hover:text-text-main hover:bg-white/5'
-              }`}
-            >
-              <PlayCircle className="size-4" />
-              2. 测试模型
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {globalReadiness.state === 'READY' ? (
-              <CheckCircle2 className="size-4 text-emerald-400" />
-            ) : (
-              <AlertTriangle className="size-4 text-yellow-400" />
-            )}
-            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-white/10 bg-black/30">
-              {globalReadiness.state}
-            </span>
-          </div>
+    <div className="flex flex-col gap-6 h-full min-h-0">
+      <TabNavigation globalReadiness={globalReadiness} />
+
+      {(llmError || providersError) && (
+        <div className="text-xs text-status-error bg-status-error/10 border border-status-error/20 rounded p-2">
+          {llmError || providersError}
         </div>
+      )}
 
-        {llmError ? (
-          <div className="mt-3 text-xs text-status-error bg-status-error/10 border border-status-error/20 rounded p-2">
-            {llmError}
-          </div>
-        ) : null}
-      </div>
+      {llmSaving && (
+        <div className="flex items-center gap-2 text-[10px] text-text-dim">
+          <Loader2 className="size-3 animate-spin" />
+          <span>Saving LLM configuration...</span>
+        </div>
+      )}
 
-      {/* 配置视图 */}
-      {view === 'config' && (
+      {activeTab === 'config' && (
         <div className="space-y-4">
-          {providers.length === 0 ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
-                  <p className="text-[10px] text-text-dim">
-                    添加和配置LLM提供商（OpenAI、Ollama、Claude等）
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setConfigView('list')}
-                    className={`px-3 py-1 text-[10px] font-semibold rounded ${
-                      configView === 'list' ? 'bg-cyan-500/70 text-white' : 'text-text-dim hover:text-text-main'
-                    }`}
-                  >
-                    列表
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfigView('visual')}
-                    className={`px-3 py-1 text-[10px] font-semibold rounded ${
-                      configView === 'visual' ? 'bg-fuchsia-500/70 text-white' : 'text-text-dim hover:text-text-main'
-                    }`}
-                  >
-                    视觉
-                  </button>
-                </div>
-              </div>
-              {configView === 'visual' ? (
-                <LLMVisualEditor
-                  config={llmConfig}
-                  status={llmStatus}
-                  onConfigChange={onUpdateConfig}
-                  onSave={onSaveConfig}
-                />
-              ) : (
-                <div className="bg-white/5 rounded-xl p-8 border border-white/5 text-center">
-                  <Settings className="size-8 text-text-dim mx-auto mb-3" />
-                  <h4 className="text-sm font-medium text-text-main mb-2">尚未配置LLM提供商</h4>
-                  <p className="text-xs text-text-dim mb-4">
-                    请先添加至少一个LLM提供商，然后进行模型测试
-                  </p>
-                  <div className="flex items-center justify-center gap-3 flex-wrap">
-                    <button
-                      onClick={() => {
-                        const newProvider = createCodexProvider();
-                        const nextProviders = [...providers, newProvider];
-                        applyProvidersUpdate(nextProviders);
-                        onAddProvider?.(newProvider);
-                      }}
-                      className="px-4 py-2 text-xs font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors"
-                    >
-                      添加 Codex CLI
-                    </button>
-                    <button
-                      onClick={() => {
-                        const newProvider: SimpleProvider = {
-                          id: `provider-${Date.now()}`,
-                          name: 'OpenAI',
-                          kind: 'openai_compat',
-                          conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                          modelId: 'gpt-3.5-turbo',
-                          status: 'untested',
-                          costClass: 'METERED'
-                        };
-                        const nextProviders = [...providers, newProvider];
-                        applyProvidersUpdate(nextProviders);
-                        onAddProvider?.(newProvider);
-                      }}
-                      className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors"
-                    >
-                      添加OpenAI提供商
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
-                  <p className="text-[10px] text-text-dim">
-                    添加和配置LLM提供商（OpenAI、Ollama、Claude等）
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/30 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setConfigView('list')}
-                      className={`px-3 py-1 text-[10px] font-semibold rounded ${
-                        configView === 'list' ? 'bg-cyan-500/70 text-white' : 'text-text-dim hover:text-text-main'
-                      }`}
-                    >
-                      列表
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfigView('visual')}
-                      className={`px-3 py-1 text-[10px] font-semibold rounded ${
-                        configView === 'visual' ? 'bg-fuchsia-500/70 text-white' : 'text-text-dim hover:text-text-main'
-                      }`}
-                    >
-                      视觉
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const newProvider = createCodexProvider();
-                      const nextProviders = [...providers, newProvider];
-                      applyProvidersUpdate(nextProviders);
-                      onAddProvider?.(newProvider);
-                    }}
-                    className="px-3 py-1.5 text-[10px] font-semibold bg-emerald-500/70 hover:bg-emerald-500 text-white rounded transition-colors flex items-center gap-1"
-                  >
-                    <PlayCircle className="size-3" />
-                    添加 Codex CLI
-                  </button>
-                  <button
-                    onClick={() => {
-                      const newProvider: SimpleProvider = {
-                        id: `provider-${Date.now()}`,
-                        name: '新提供商',
-                        kind: 'openai_compat',
-                        conn: { kind: 'http', baseUrl: 'https://api.openai.com/v1' },
-                        modelId: 'gpt-3.5-turbo',
-                        status: 'untested',
-                        costClass: 'METERED'
-                      };
-                      setProviders([...providers, newProvider]);
-                      onAddProvider?.(newProvider);
-                    }}
-                    className="px-3 py-1.5 text-[10px] font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-1"
-                  >
-                    <Plus className="size-3" />
-                    添加提供商
-                  </button>
-                </div>
-              </div>
-
-              {configView === 'visual' ? (
-                <LLMVisualEditor
-                  config={llmConfig}
-                  status={llmStatus}
-                  onConfigChange={onUpdateConfig}
-                  onSave={onSaveConfig}
-                />
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    {providers.map((provider) => (
-                      <SimpleModelCard
-                        key={provider.id}
-                        provider={provider}
-                        renderModelBrowser={
-                          provider.kind === 'codex_cli' && isCLIConnection(provider.conn)
-                            ? ({ modelId, onSelect }) => (
-                                <CodexModelBrowser
-                                  providerId={provider.id}
-                                  command={provider.conn.command}
-                                  tuiArgs={provider.conn.tui_args}
-                                  env={provider.conn.env}
-                                  modelId={modelId}
-                                  onSelect={onSelect}
-                                />
-                              )
-                            : undefined
-                        }
-                        onUpdate={(updates) => {
-                          const updated = { ...provider, ...updates };
-                          const nextProviders = providers.map(p => p.id === provider.id ? updated : p);
-                          applyProvidersUpdate(nextProviders);
-                          onUpdateProvider?.(provider.id, updates);
-                        }}
-                        onDelete={() => {
-                          const nextProviders = providers.filter(p => p.id !== provider.id);
-                          applyProvidersUpdate(nextProviders);
-                          onDeleteProvider?.(provider.id);
-                        }}
-                        onTest={() => openTestPanel(provider.id)}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="flex justify-center">
-                    <button
-                      onClick={() => setView('hall')}
-                      className="px-4 py-2 text-xs font-semibold bg-accent/80 hover:bg-accent text-white rounded transition-colors flex items-center gap-2"
-                    >
-                      下一步：测试模型
-                      <PlayCircle className="size-3" />
-                    </button>
-                  </div>
-                </>
-              )}
+          {/* View Switcher */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-main mb-1">LLM 提供商配置</h3>
+              <p className="text-[10px] text-text-dim">
+                列表视图用于日常配置，视觉视图用于角色-模型连线。
+              </p>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-cyan-500/20 bg-black/40 p-1">
+                <button
+                  onClick={() => setConfigView('list')}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    configView === 'list'
+                      ? 'bg-cyan-500/20 text-cyan-200'
+                      : 'text-text-dim hover:text-cyan-100'
+                  }`}
+                >
+                  列表视图
+                </button>
+                <button
+                  onClick={() => setConfigView('visual')}
+                  className={`px-3 py-1.5 text-[10px] font-semibold rounded transition-all ${
+                    configView === 'visual'
+                      ? 'bg-fuchsia-500/20 text-fuchsia-200'
+                      : 'text-text-dim hover:text-fuchsia-100'
+                  }`}
+                >
+                  视觉视图
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {configView === 'visual' ? (
+            <LLMVisualEditor
+              config={visualConfig}
+              status={visualStatus}
+              onConfigChange={handleVisualConfigChange}
+              onSave={onSaveConfig}
+            />
+          ) : (
+            <ProviderListManager
+              providers={providers}
+              configuredProviders={llmConfig?.providers || {}}
+              llmStatus={llmStatus}
+              isSaving={llmSaving}
+              deletingProviders={deletingProviders}
+              getProviderInfo={(type) => getProviderInfo(type)}
+              getProviderComponent={getProviderComponent}
+              getCostClass={getCostClass}
+              onAddProvider={onAddProvider || (() => {})}
+              onUpdateProvider={onUpdateProvider || (() => {})}
+              onDeleteProvider={onDeleteProvider || (() => {})}
+              onTestProvider={handleTestProvider}
+              onEnterDeepTest={() => switchTab('deepTest')}
+            />
           )}
         </div>
       )}
 
-      {/* 测试视图 */}
-      {view === 'hall' && (
-        <InterviewHall
-          roles={roles}
-          candidates={candidates}
-          selectedRole={selectedRole}
-          onSelectRole={setSelectedRole}
-          onStartInterview={handleStartInterview}
-          onRunReadiness={readinessRunning || !canRunReadiness ? undefined : handleRunReadiness}
-          disabledReason={disabledReason}
-          running={interviewRunning}
+      {activeTab === 'deepTest' && (
+        <DeepTestPanel
+          llmConfig={llmConfig}
+          llmStatus={llmStatus}
+          onRunConnectivityTest={onRunConnectivityTest}
+          onRunInterview={onRunInterview}
+          onAskInteractiveInterview={onAskInteractiveInterview}
+          onSaveInteractiveInterview={onSaveInteractiveInterview}
+          resolveProviderEnvOverrides={resolveProviderEnvOverrides}
+          onCancelInterview={onCancelInterview}
         />
       )}
 
-      {/* 面试会话视图 */}
-      {view === 'session' && (
-        <InterviewSession
-          roleLabel={selectedMeta?.label || selectedRole}
-          roleId={selectedRole}
-          report={interviewReport}
-          running={interviewRunning}
-          error={interviewError}
-          onBack={() => setView('hall')}
-        />
+      {/* Test Panel Portal */}
+      {panelHostRef.current && testPanel.selectedProviderId && activeTab === 'config' && (
+        createPortal(
+          <TestPanel
+            provider={buildSimpleProvider(
+              testPanel.selectedProviderId,
+              llmConfig?.providers?.[testPanel.selectedProviderId] || {},
+              llmConfig?.roles
+            )}
+            events={events}
+            status={testPanel.status}
+            onClose={closeTestPanel}
+            onCancel={onCancelTestProvider || (() => {})}
+          />,
+          panelHostRef.current
+        )
       )}
-
-      {panelHost && selectedTestProvider && view === 'config'
-        ? createPortal(
-            <TestPanel
-              provider={selectedTestProvider}
-              events={events}
-              status={testStatus}
-              onClose={closeTestPanel}
-              onCancel={cancelTestRun}
-            />,
-            panelHost
-          )
-        : null}
     </div>
   );
 }
 
+// ============================================================================
+// Exported Component with Provider
+// ============================================================================
 
+export function LLMSettingsTab(props: LLMSettingsTabProps) {
+  return (
+    <ProviderContextProvider>
+      <LLMSettingsTabInner {...props} />
+    </ProviderContextProvider>
+  );
+}
 
-
-
-
-
-
-
-
+export default LLMSettingsTab;

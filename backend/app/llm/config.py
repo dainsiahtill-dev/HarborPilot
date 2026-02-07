@@ -110,14 +110,14 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
         "minimax": {
             "type": "minimax",
             "name": "MiniMax",
-            "base_url": "https://api.minimax.chat/v1",
+            "base_url": "https://api.minimaxi.com/v1",
             "api_key_ref": "keychain:minimax",
-            "api_path": "/text/chatcompletion_pro",
-            "models_path": "/query/model_list",
+            "api_path": "/text/chatcompletion_v2",
+            "models_path": "/v1/models",
             "timeout": 60,
             "retries": 3,
             "temperature": 0.7,
-            "max_tokens": 2048,
+            "max_tokens": 196608,
             "thinking_extraction": {
                 "enabled": True,
                 "patterns": [

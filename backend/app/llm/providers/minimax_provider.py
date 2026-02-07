@@ -67,7 +67,7 @@ class MiniMaxProvider(BaseProvider):
         if not api_key:
             errors.append("API key is required")
 
-        api_path = str(config.get("api_path") or "/text/chatcompletion_pro").strip()
+        api_path = str(config.get("api_path") or "/text/chatcompletion_v2").strip()
         if not api_path:
             errors.append("API path is required")
         else:
@@ -89,11 +89,15 @@ class MiniMaxProvider(BaseProvider):
         base = str(config.get("base_url") or "").strip()
         return base.rstrip("/")
 
-    def _headers(self, config: Dict[str, Any], api_key: Optional[str]) -> Dict[str, str]:
+    def _headers(self, config: Dict[str, Any], api_key: Optional[str], streaming: bool = False) -> Dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json"
         }
+        # 根据是否流式设置不同的 Accept 头
+        if streaming:
+            headers["Accept"] = "text/event-stream"  # 流式响应
+        else:
+            headers["Accept"] = "application/json"  # 普通响应
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
@@ -165,6 +169,20 @@ class MiniMaxProvider(BaseProvider):
         api_path = str(config.get("api_path", "/text/chatcompletion_v2")).strip()
         url = f"{base}{api_path}"
 
+        # 如果传入的model为空，尝试从配置获取或使用默认值
+        if not model:
+            model = str(config.get("model") or "MiniMax-M2.1").strip()
+
+        # ===== 调试日志：请求配置 =====
+        print(f"\n{'='*60}")
+        print("[MiniMax Debug] 请求配置:")
+        print(f"  - base_url (from config): {config.get('base_url', 'NOT SET')}")
+        print(f"  - api_path (from config): {config.get('api_path', 'NOT SET')}")
+        print(f"  - 最终URL: {url}")
+        print(f"  - model: {model}")
+        print(f"  - streaming (from config): {config.get('streaming', 'NOT SET')}")
+        print(f"{'='*60}\n")
+
         api_key = config.get("api_key")
         if not api_key:
             usage = estimate_usage(prompt, "")
@@ -183,12 +201,28 @@ class MiniMaxProvider(BaseProvider):
 
         while True:
             try:
+                is_streaming = bool(config.get("streaming", False))
+                headers = self._headers(config, api_key, streaming=is_streaming)
+                
+                # ===== 调试日志：实际请求 =====
+                print(f"\n[MiniMax Debug] 实际请求:")
+                print(f"  - URL: {url}")
+                print(f"  - Headers: {headers}")
+                print(f"  - Payload: {json.dumps(payload, ensure_ascii=False)}")
+                
                 response = requests.post(
                     url,
-                    headers=self._headers(config, api_key),
+                    headers=headers,
                     json=payload,
                     timeout=timeout if timeout > 0 else None,
                 )
+                
+                # ===== 调试日志：响应状态 =====
+                print(f"\n[MiniMax Debug] 响应状态:")
+                print(f"  - Status Code: {response.status_code}")
+                print(f"  - Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+                if response.status_code != 200:
+                    print(f"  - Response Text: {response.text[:500]}")
                 latency_ms = int((time.time() - start) * 1000)
 
                 if response.status_code != 200:
@@ -206,32 +240,105 @@ class MiniMaxProvider(BaseProvider):
                     output_parts = []
                     thinking_parts = []
                     full_response = []
-
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        line_str = line.decode('utf-8')
-                        if line_str.startswith('data: '):
-                            data_str = line_str[6:]
-                            if data_str.strip() == '[DONE]':
-                                break
-                            try:
-                                chunk_data = json.loads(data_str)
-                                full_response.append(chunk_data)
-                                choices = chunk_data.get("choices", [])
-                                if choices and isinstance(choices, list) and len(choices) > 0:
-                                    delta = choices[0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    if content:
-                                        output_parts.append(content)
-                                    reasoning = delta.get("reasoning_content", "")
-                                    if reasoning:
-                                        thinking_parts.append(reasoning)
-                            except json.JSONDecodeError:
+                    line_count = 0
+                    is_json_response = False
+                    
+                    # ===== 调试日志：开始流式解析 =====
+                    print(f"\n[MiniMax Debug] 开始解析流式响应...")
+                    
+                    # 检查响应类型 - MiniMax可能返回JSON而不是SSE
+                    content_type = response.headers.get('Content-Type', '')
+                    print(f"[MiniMax Debug] 响应Content-Type: {content_type}")
+                    
+                    # 如果返回的是JSON，直接解析
+                    if 'application/json' in content_type:
+                        print(f"[MiniMax Debug] 检测到JSON响应，切换到JSON解析模式")
+                        is_json_response = True
+                        try:
+                            json_data = response.json()
+                            print(f"[MiniMax Debug] JSON数据: {json.dumps(json_data, ensure_ascii=False)[:500]}")
+                            
+                            choices = json_data.get("choices", [])
+                            if choices and len(choices) > 0:
+                                message = choices[0].get("message", {})
+                                content = message.get("content", "")
+                                reasoning = message.get("reasoning_content", "")
+                                
+                                if content:
+                                    output_parts.append(content)
+                                if reasoning:
+                                    thinking_parts.append(reasoning)
+                                
+                                print(f"[MiniMax Debug] JSON解析成功: content={len(content)}, reasoning={len(reasoning)}")
+                                
+                                # 将JSON数据也存入full_response用于raw字段
+                                full_response.append(json_data)
+                        except Exception as e:
+                            print(f"[MiniMax Debug] JSON解析失败: {e}")
+                    else:
+                        # SSE流式解析
+                        for line in response.iter_lines():
+                            line_count += 1
+                            if not line:
                                 continue
+                            line_str = line.decode('utf-8')
+                            if line_str.startswith('data: '):
+                                data_str = line_str[6:]
+                                if data_str.strip() == '[DONE]':
+                                    break
+                                try:
+                                    chunk_data = json.loads(data_str)
+                                    full_response.append(chunk_data)
+                                    
+                                    # Try multiple possible response formats
+                                    choices = chunk_data.get("choices", [])
+                                    if choices and isinstance(choices, list) and len(choices) > 0:
+                                        choice = choices[0]
+                                        
+                                        # Format 1: OpenAI compatible (delta)
+                                        delta = choice.get("delta", {})
+                                        if delta:
+                                            content = delta.get("content", "")
+                                            if content:
+                                                output_parts.append(content)
+                                            reasoning = delta.get("reasoning_content", "")
+                                            if reasoning:
+                                                thinking_parts.append(reasoning)
+                                        
+                                        # Format 2: MiniMax specific (message)
+                                        message = choice.get("message", {})
+                                        if message:
+                                            content = message.get("content", "")
+                                            if content:
+                                                output_parts.append(content)
+                                            reasoning = message.get("reasoning_content", "")
+                                            if reasoning:
+                                                thinking_parts.append(reasoning)
+                                        
+                                        # Format 3: Direct text
+                                        text = choice.get("text", "")
+                                        if text:
+                                            output_parts.append(text)
+                                except json.JSONDecodeError:
+                                    continue
+                                except Exception:
+                                    continue
 
                     output = self._clean_content(''.join(output_parts))
                     thinking = self._clean_content(''.join(thinking_parts)) if thinking_parts else None
+                    
+                    # ===== 调试日志：流式解析完成 =====
+                    print(f"\n[MiniMax Debug] 流式解析完成:")
+                    if is_json_response:
+                        print(f"  - 响应类型: JSON (非流式)")
+                    else:
+                        print(f"  - 响应类型: SSE流式")
+                        print(f"  - 总行数: {line_count}")
+                    print(f"  - 内容片段数: {len(output_parts)}")
+                    print(f"  - 思考片段数: {len(thinking_parts)}")
+                    print(f"  - 输出长度: {len(output)}")
+                    print(f"{'='*60}\n")
+                    
                     if output:
                         return InvokeResult(
                             ok=True,
@@ -243,6 +350,28 @@ class MiniMaxProvider(BaseProvider):
                             thinking=thinking
                         )
                     else:
+                        # If streaming failed but we have raw response, try to extract from it
+                        if full_response:
+                            print(f"[MiniMax Streaming] Attempting recovery from {len(full_response)} chunks")
+                            # Try to extract from the last chunk's message
+                            last_chunk = full_response[-1]
+                            if isinstance(last_chunk, dict):
+                                choices = last_chunk.get("choices", [])
+                                if choices and len(choices) > 0:
+                                    msg = choices[0].get("message", {})
+                                    if msg:
+                                        content = msg.get("content", "")
+                                        if content:
+                                            return InvokeResult(
+                                                ok=True,
+                                                output=self._clean_content(content),
+                                                latency_ms=latency_ms,
+                                                usage=estimate_usage(prompt, content),
+                                                raw={"chunks": full_response},
+                                                streaming=True,
+                                                thinking=None
+                                            )
+                        
                         return InvokeResult(
                             ok=False,
                             output="",
