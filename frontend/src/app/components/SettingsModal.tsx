@@ -18,6 +18,7 @@ import type {
 } from '@/app/components/llm/types';
 import { isCLIProviderType } from '@/app/components/llm/types';
 import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
+import type { InteractiveInterviewReport } from '@/app/components/llm/interview/InteractiveInterviewHall';
 import { runStreamingTest } from '@/app/components/llm/test/streamingTest';
 
 const SETTINGS_MODAL_SIZE_KEY = 'harborpilot:ui:settings_modal:size';
@@ -1542,9 +1543,12 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const saveInteractiveInterview = async (payload: {
     roleId: string;
     providerId: string;
-    model: string;
-    report: Record<string, unknown>;
+    model: string | null;
+    report: InteractiveInterviewReport;
   }): Promise<{ saved: boolean; report_path?: string } | null> => {
+    if (!payload.model) {
+      throw new Error('Model is required to save interview report');
+    }
     const res = await apiFetch('/llm/interview/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1565,6 +1569,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   const runConnectivityTest = async (
+    role: string,
     providerId: string,
     model: string
   ): Promise<Record<string, unknown> | null> => {

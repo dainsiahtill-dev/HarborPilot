@@ -103,8 +103,8 @@ interface InterviewHallV2Props {
   selectedProvider: string | null;
   onSelectRole: (role: RoleId) => void;
   onSelectProvider: (providerId: string) => void;
-  onRunConnectivityTest: (role: RoleId, providerId: string) => void;
-  onRunInterview: (role: RoleId, providerId: string) => void;
+  onRunConnectivityTest: (payload: { role: RoleId; providerId: string; model: string }) => void;
+  onRunInterview: (payload: { role: RoleId; providerId: string; model: string }) => void;
   connectivityResults: Map<string, ConnectivityResult>;
   interviewRunning?: boolean;
   connectivityRunning?: boolean;
@@ -553,8 +553,12 @@ function InterviewHallV2({
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => {
-                  if (activeRole && activeProvider) {
-                    onRunConnectivityTest(activeRole.id, activeProvider.id);
+                  if (activeRole && activeProvider && activeProvider.model) {
+                    onRunConnectivityTest({ 
+                      role: activeRole.id, 
+                      providerId: activeProvider.id, 
+                      model: activeProvider.model 
+                    });
                   }
                 }}
                 disabled={!canRunConnectivity || connectivityRunning}
@@ -565,8 +569,12 @@ function InterviewHallV2({
               </button>
               <button
                 onClick={() => {
-                  if (activeRole && activeProvider) {
-                    onRunInterview(activeRole.id, activeProvider.id);
+                  if (activeRole && activeProvider && activeProvider.model) {
+                    onRunInterview({ 
+                      role: activeRole.id, 
+                      providerId: activeProvider.id, 
+                      model: activeProvider.model 
+                    });
                   }
                 }}
                 disabled={!canRunInterview || interviewRunning}

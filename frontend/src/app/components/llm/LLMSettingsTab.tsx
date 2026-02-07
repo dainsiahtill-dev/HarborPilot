@@ -144,7 +144,7 @@ interface LLMSettingsTabProps {
   onSaveInteractiveInterview: (payload: {
     roleId: RoleId;
     providerId: string;
-    model: string;
+    model: string | null;
     report: InteractiveInterviewReport;
   }) => Promise<{ saved: boolean; report_path?: string } | null>;
   resolveProviderEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
@@ -387,17 +387,13 @@ function DeepTestPanel({
 
   const selectedMeta = roles.find((r) => r.id === selectedRole);
 
-  const handleRunConnectivity = useCallback(async (roleId: RoleId, providerId: string) => {
-    const model = resolveModelForSelection(roleId, providerId, llmConfig);
-    if (!model) return;
-    await onRunConnectivityTest(roleId, providerId, model);
-  }, [llmConfig, onRunConnectivityTest]);
+  const handleRunConnectivity = useCallback(async (payload: { role: RoleId; providerId: string; model: string }) => {
+    await onRunConnectivityTest(payload.role, payload.providerId, payload.model);
+  }, [onRunConnectivityTest]);
 
-  const handleStartInterview = useCallback(async (roleId: RoleId, providerId: string) => {
-    const model = resolveModelForSelection(roleId, providerId, llmConfig);
-    if (!model) return;
-    await onRunInterview(roleId, providerId, model);
-  }, [llmConfig, onRunInterview]);
+  const handleStartInterview = useCallback(async (payload: { role: RoleId; providerId: string; model: string }) => {
+    await onRunInterview(payload.role, payload.providerId, payload.model);
+  }, [onRunInterview]);
 
   return (
     <div className="flex flex-col gap-4 w-full flex-1 min-h-0">
