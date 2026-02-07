@@ -15,6 +15,7 @@ from ..config import Settings
 from ..state import AppState, Auth
 from ..utils import build_cache_root, resolve_artifact_path
 from ..services.llm_tests import run_llm_tests, load_llm_test_index, reset_llm_test_index
+from ..services.llm_tests import run_llm_tests_streaming
 from ..services.interactive_interview import (
     run_interactive_interview_question,
     save_interactive_interview_report,
@@ -208,6 +209,91 @@ def llm_test(request: Request, payload: LlmTestPayload) -> Dict[str, Any]:
         prompt_override=payload.prompt_override,
     )
     return report
+
+
+@router.post("/llm/test/stream", dependencies=[Depends(require_auth)])
+async def llm_test_stream(request: Request, payload: LlmTestPayload):
+    """Stream LLM test results using Server-Sent Events (SSE)
+    
+    This endpoint provides real-time output from LLM tests as they execute,
+    allowing the client to see progress for each test suite as it completes.
+    """
+    state = get_state(request)
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
+    config = llm_config.load_llm_config(state.settings.workspace, cache_root, settings=state.settings)
+    role = payload.role.strip().lower()
+    role_cfg = config.get("roles", {}).get(role)
+    if not isinstance(role_cfg, dict):
+        raise HTTPException(status_code=404, detail="role not configured")
+    provider_id = payload.provider_id or role_cfg.get("provider_id")
+    model = payload.model or role_cfg.get("model")
+    if not provider_id or not model:
+        raise HTTPException(status_code=400, detail="provider_id/model required")
+    suites = payload.suites or config.get("policies", {}).get("test_required_suites") or []
+    
+    run_id = f"test-{uuid4().hex[:12]}"
+    
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+        
+        async def run_tests():
+            try:
+                result = await run_llm_tests_streaming(
+                    state.settings,
+                    role,
+                    str(provider_id),
+                    str(model),
+                    list(suites),
+                    payload.test_level or "quick",
+                    evaluation_mode=payload.evaluation_mode,
+                    api_key=payload.api_key,
+                    extra_headers=payload.headers,
+                    env_overrides=payload.env_overrides,
+                    prompt_override=payload.prompt_override,
+                    output_queue=queue,
+                )
+            except Exception as exc:
+                await queue.put({"type": "error", "data": {"error": str(exc)}})
+        
+        task = asyncio.create_task(run_tests())
+        
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=60.0)
+                    
+                    event_type = event.get("type", "message")
+                    event_data = event.get("data", {})
+                    
+                    if event_type == "complete":
+                        yield f"event: complete\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                        break
+                    elif event_type == "error":
+                        yield f"event: error\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                        break
+                    else:
+                        yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                        
+                except asyncio.TimeoutError:
+                    yield f"event: ping\ndata: {{}}\n\n"
+                    
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @router.post("/llm/interview/ask", dependencies=[Depends(require_auth)])

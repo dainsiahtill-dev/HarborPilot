@@ -18,6 +18,7 @@ import type {
 } from '@/app/components/llm/types';
 import { isCLIProviderType } from '@/app/components/llm/types';
 import type { TestEvent, TestResult, TestSuiteSummary, TestUsageSummary } from '@/app/components/llm/test/types';
+import { runStreamingTest } from '@/app/components/llm/test/streamingTest';
 
 const SETTINGS_MODAL_SIZE_KEY = 'harborpilot:ui:settings_modal:size';
 const clampNumber = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -1113,6 +1114,102 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     }
   };
 
+  const runProviderTestStreaming = async (
+    provider: SimpleProvider,
+    onEvent?: (event: TestEvent) => void
+  ): Promise<TestResult | null> => {
+    if (!llmConfig) return null;
+
+    const providerId = provider.id;
+    const providerCfg = llmConfig.providers?.[providerId];
+    let testRole = null;
+    let testModel = provider.modelId || 'test-model';
+
+    for (const [roleId, roleCfg] of Object.entries(llmConfig.roles || {})) {
+      if (roleCfg.provider_id === providerId && roleCfg.model) {
+        testRole = roleId;
+        testModel = roleCfg.model;
+        break;
+      }
+    }
+
+    if (!testRole) {
+      const fallbackRoles = Object.keys(llmConfig.roles || {});
+      testRole = fallbackRoles.find((role) => role === 'qa') || fallbackRoles[0] || null;
+    }
+
+    if (!testRole) {
+      onEvent?.({
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        content: '未找到可用角色，请先配置角色后再测试'
+      });
+      return null;
+    }
+
+    const apiKey = await resolveApiKey(providerId, providerCfg);
+    const envResult = await resolveEnvOverrides(providerId, providerCfg);
+    const suites = llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+    const controller = new AbortController();
+    testAbortRef.current = controller;
+
+    try {
+      const report = await runStreamingTest({
+        role: testRole,
+        providerId,
+        model: testModel,
+        suites,
+        testLevel: 'full',
+        evaluationMode: 'provider',
+        apiKey,
+        envOverrides: envResult?.env,
+        onEvent,
+        onSuiteComplete: (suite, ok) => {
+          if (!ok) {
+            const errorMsg = `Suite ${suite} failed`;
+            setLlmError(errorMsg);
+          }
+        },
+        onComplete: (result) => {
+          if (result && typeof result === 'object' && 'final' in result && (result as { final?: { ready?: boolean } }).final?.ready) {
+            loadLLMStatus();
+          }
+        },
+        onError: (error) => {
+          setLlmError(error);
+        },
+        signal: controller.signal
+      });
+
+      if (!report) {
+        return null;
+      }
+
+      const result: TestResult = {
+        ready: (report.final as { ready?: boolean })?.ready ?? false,
+        grade: (report.final as { grade?: string })?.grade || 'FAIL',
+        report,
+        suites: Object.entries(report.suites || {}).map(([name, suiteResult]) => ({
+          name,
+          ok: (suiteResult as { ok?: boolean })?.ok ?? false
+        }))
+      };
+
+      return result;
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        const message = err.message;
+        onEvent?.({ type: 'error', timestamp: new Date().toISOString(), content: message });
+        setLlmError(message);
+      }
+      return null;
+    } finally {
+      if (testAbortRef.current === controller) {
+        testAbortRef.current = null;
+      }
+    }
+  };
+
   const cancelProviderTest = () => {
     testAbortRef.current?.abort();
   };
@@ -1165,6 +1262,60 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       return null;
     } finally {
       setLlmTesting((prev) => ({ ...prev, [role]: false }));
+    }
+  };
+
+  const runLlmTestStreaming = async (
+    role: string,
+    level: 'quick' | 'full' = 'quick',
+    suites?: string[],
+    showReport: boolean = true,
+    overrides?: { providerId?: string; model?: string },
+  ): Promise<Record<string, unknown> | null> => {
+    if (!llmConfig) return null;
+    const roleCfg = llmConfig.roles?.[role];
+    const providerId = overrides?.providerId || roleCfg?.provider_id;
+    const model = overrides?.model || roleCfg?.model;
+    if (!providerId || !model) return null;
+
+    const providerCfg = llmConfig.providers?.[providerId];
+    const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    const envResult = providerCfg ? await resolveEnvOverrides(providerId, providerCfg) : null;
+
+    setLlmTesting((prev) => ({ ...prev, [role]: true }));
+
+    const controller = new AbortController();
+    testAbortRef.current = controller;
+
+    try {
+      const report = await runStreamingTest({
+        role,
+        providerId,
+        model,
+        suites: suites || llmConfig.policies?.test_required_suites,
+        testLevel: level,
+        evaluationMode: 'provider',
+        apiKey,
+        envOverrides: envResult?.env,
+        signal: controller.signal
+      });
+
+      if (report && showReport) {
+        setReportDrawer({ open: true, data: report });
+      }
+
+      await loadLLMStatus();
+      return report || null;
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setLlmError(err.message);
+      }
+      return null;
+    } finally {
+      setLlmTesting((prev) => ({ ...prev, [role]: false }));
+      if (testAbortRef.current === controller) {
+        testAbortRef.current = null;
+      }
     }
   };
 
@@ -1407,7 +1558,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     model: string
   ): Promise<Record<string, unknown> | null> => {
     const suites = ['connectivity', 'response'];
-    return (await runLlmTest(role, 'quick', suites, false, { providerId, model })) || null;
+    return (await runLlmTestStreaming(role, 'quick', suites, false, { providerId, model })) || null;
   };
 
   const resolveProviderEnvOverrides = async (providerId: string) => {
@@ -1981,7 +2132,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 onSaveInteractiveInterview={saveInteractiveInterview}
                 resolveProviderEnvOverrides={resolveProviderEnvOverrides}
                 onUpdateConfig={updateLLMConfigDraft}
-                onTestProvider={runProviderTest}
+                onTestProvider={runProviderTestStreaming}
                 onCancelTestProvider={cancelProviderTest}
                 onCancelInterview={cancelInterview}
                 onAddProvider={async (providerId, provider) => {

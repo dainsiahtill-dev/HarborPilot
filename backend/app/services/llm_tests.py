@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -269,6 +270,158 @@ def run_llm_tests(
     _write_report(settings, cache_root, run_id, report, transcript_entries)
     _update_index(settings, cache_root, role, report)
     _emit_event(events_path, "llm_test.complete", role, run_id, report["final"])
+    return report
+
+
+async def run_llm_tests_streaming(
+    settings: Settings,
+    role: str,
+    provider_id: str,
+    model: str,
+    suites: List[str],
+    test_level: str,
+    evaluation_mode: Optional[str] = None,
+    api_key: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
+    prompt_override: Optional[str] = None,
+    output_queue: Optional[asyncio.Queue] = None,
+) -> Dict[str, Any]:
+    """Run LLM tests with real-time streaming output
+    
+    This function runs test suites and streams progress events as each suite completes,
+    allowing clients to see real-time results without waiting for all suites to finish.
+    
+    Args:
+        settings: Application settings
+        role: Test role
+        provider_id: Provider identifier
+        model: Model name
+        suites: List of test suites to run
+        test_level: Test level (quick, full)
+        evaluation_mode: Evaluation mode
+        api_key: Optional API key
+        extra_headers: Optional extra headers
+        env_overrides: Optional environment overrides
+        prompt_override: Optional prompt override
+        output_queue: Optional async queue for streaming events
+        
+    Returns:
+        Final test report dictionary
+    """
+    workspace = settings.workspace
+    cache_root = build_cache_root(settings.ramdisk_root or "", workspace)
+    config = llm_config.load_llm_config(workspace, cache_root, settings=settings)
+    role = role.strip().lower()
+    suites = _normalize_suites(list(suites or []), role, config)
+    provider_cfg = _resolve_provider(config, provider_id)
+    
+    if not api_key and provider_cfg.get("api_key"):
+        api_key = str(provider_cfg.get("api_key") or "")
+    if extra_headers:
+        provider_cfg = {**provider_cfg, "headers": {**(provider_cfg.get("headers") or {}), **extra_headers}}
+    if env_overrides:
+        provider_cfg = {**provider_cfg, "env": {**(provider_cfg.get("env") or {}), **env_overrides}}
+    
+    run_id = _new_test_run_id()
+    timestamp = _utc_now()
+    
+    def emit(event_type: str, data: Any):
+        event = {"type": event_type, "data": data}
+        if output_queue:
+            asyncio.create_task(output_queue.put(event))
+        else:
+            print(f"[STREAM] {event_type}: {json.dumps(data, ensure_ascii=False)[:200]}")
+    
+    emit("start", {"run_id": run_id, "role": role, "provider_id": provider_id, "model": model, "suites": suites})
+    
+    report: Dict[str, Any] = {
+        "schema_version": 1,
+        "test_run_id": run_id,
+        "timestamp": timestamp,
+        "target": {"role": role, "provider_id": provider_id, "model": model},
+        "suites": {},
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "estimated": False},
+        "final": {"ready": False, "grade": "FAIL", "next_action": "adjust_profile_or_model"},
+    }
+    
+    events_path = _events_path(settings, workspace, cache_root)
+    _emit_event(events_path, "llm_test.start", role, run_id, {"role": role, "provider_id": provider_id, "model": model})
+    
+    suite_results: Dict[str, Any] = {}
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "estimated": False}
+    transcript_entries: List[str] = []
+    thinking_snapshot: Optional[Dict[str, Any]] = None
+    
+    for suite in suites:
+        suite = suite.strip().lower()
+        emit("suite_start", {"suite": suite})
+        
+        try:
+            if suite == "connectivity":
+                result = _run_connectivity_suite(provider_cfg, model, api_key)
+            elif suite == "response":
+                result = _run_response_suite(
+                    provider_cfg,
+                    model,
+                    api_key,
+                    role,
+                    events_path,
+                    run_id,
+                    prompt_override,
+                )
+            elif suite == "qualification":
+                result = _run_qualification_suite(provider_cfg, model, api_key, role, test_level, events_path, run_id)
+            elif suite == "thinking":
+                result = _run_thinking_suite(provider_cfg, model, api_key, role, events_path, run_id)
+                thinking_snapshot = _extract_thinking_snapshot(result)
+            elif suite == "interview":
+                result = _run_interview_suite(
+                    provider_cfg,
+                    model,
+                    api_key,
+                    role,
+                    test_level,
+                    events_path,
+                    run_id,
+                    thinking_snapshot,
+                    config,
+                )
+            else:
+                result = {"ok": False, "details": {"error": f"unknown suite: {suite}"}}
+            
+            suite_results[suite] = result
+            _emit_event(events_path, "llm_test.suite_result", role, run_id, {"suite": suite, "result": result})
+            _update_usage(usage_total, result)
+            transcript_entries.extend(_suite_transcript(suite, result))
+            
+            emit("suite_complete", {"suite": suite, "result": result})
+            
+        except Exception as exc:
+            error_result = {"ok": False, "details": {"error": str(exc)}}
+            suite_results[suite] = error_result
+            emit("suite_error", {"suite": suite, "error": str(exc)})
+    
+    evaluation_mode = (evaluation_mode or "").strip().lower()
+    if evaluation_mode in ("provider", "run_suites"):
+        required = _dedupe([suite for suite in suites if suite != "interview"])
+    else:
+        required = _required_suites_for_role(config, role)
+    ready = all(bool(suite_results.get(name, {}).get("ok")) for name in required)
+    
+    report["suites"] = suite_results
+    report["usage"] = usage_total
+    report["final"] = {
+        "ready": ready,
+        "grade": "PASS" if ready else "FAIL",
+        "next_action": "ready" if ready else "adjust_profile_or_model",
+    }
+    
+    _write_report(settings, cache_root, run_id, report, transcript_entries)
+    _update_index(settings, cache_root, role, report)
+    _emit_event(events_path, "llm_test.complete", role, run_id, report["final"])
+    
+    emit("complete", report)
     return report
 
 

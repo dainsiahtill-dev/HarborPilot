@@ -205,6 +205,7 @@ class MiniMaxProvider(BaseProvider):
 
                 if is_streaming:
                     output_parts = []
+                    thinking_parts = []
                     full_response = []
 
                     for line in response.iter_lines():
@@ -224,17 +225,23 @@ class MiniMaxProvider(BaseProvider):
                                     content = delta.get("content", "")
                                     if content:
                                         output_parts.append(content)
+                                    reasoning = delta.get("reasoning_content", "")
+                                    if reasoning:
+                                        thinking_parts.append(reasoning)
                             except json.JSONDecodeError:
                                 continue
 
                     output = self._clean_content(''.join(output_parts))
+                    thinking = self._clean_content(''.join(thinking_parts)) if thinking_parts else None
                     if output:
                         return InvokeResult(
                             ok=True,
                             output=output,
                             latency_ms=latency_ms,
                             usage=estimate_usage(prompt, output),
-                            raw={"chunks": full_response}
+                            raw={"chunks": full_response},
+                            streaming=True,
+                            thinking=thinking
                         )
                     else:
                         return InvokeResult(
@@ -269,6 +276,7 @@ class MiniMaxProvider(BaseProvider):
                     )
 
                 output = ""
+                thinking = None
                 if isinstance(data, dict):
                     choices = data.get("choices")
                     if choices and isinstance(choices, list) and len(choices) > 0:
@@ -277,6 +285,8 @@ class MiniMaxProvider(BaseProvider):
                             message = first_choice.get("message", {})
                             content = message.get("content", "")
                             output = self._clean_content(content)
+                            reasoning = message.get("reasoning_content", "")
+                            thinking = self._clean_content(reasoning) if reasoning else None
 
                 if not output:
                     return InvokeResult(
@@ -294,7 +304,8 @@ class MiniMaxProvider(BaseProvider):
                     output=output.strip(),
                     latency_ms=latency_ms,
                     usage=usage,
-                    raw=data
+                    raw=data,
+                    thinking=thinking
                 )
 
             except Exception as exc:

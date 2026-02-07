@@ -26,6 +26,7 @@ class InvokeResult:
     error: Optional[str] = None
     raw: Optional[Dict[str, Any]] = None
     streaming: bool = False
+    thinking: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         payload = {
@@ -39,6 +40,8 @@ class InvokeResult:
             payload["error"] = self.error
         if self.raw is not None:
             payload["raw"] = self.raw
+        if self.thinking is not None:
+            payload["thinking"] = self.thinking
         return payload
 
 
