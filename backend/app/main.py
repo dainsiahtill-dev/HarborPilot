@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from typing import List
 from .state import AppState, Auth, ConnectionState
 from .routers import (
@@ -20,6 +22,27 @@ def create_app(state: AppState, auth: Auth, cors_origins: List[str]) -> FastAPI:
     app.state.app_state = state
     app.state.auth = auth
     app.state.connection_state = ConnectionState()
+    
+    # 全局请求验证错误处理器 - 提供详细的验证错误信息
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        errors = exc.errors()
+        # 简化错误信息以便前端理解
+        simplified_errors = []
+        for error in errors:
+            simplified_errors.append({
+                "field": " -> ".join(str(loc) for loc in error.get("loc", [])),
+                "type": error.get("type", "unknown"),
+                "msg": error.get("msg", "Unknown error"),
+                "input": str(error.get("input", "N/A"))[:100]  # 限制长度
+            })
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Request validation failed",
+                "errors": simplified_errors
+            }
+        )
     
     app.include_router(system.router)
     app.include_router(files.router)

@@ -158,7 +158,7 @@ class TestMiniMaxProvider:
         config = MiniMaxProvider.get_default_config()
         assert config["base_url"] == "https://api.minimaxi.com/v1"
         assert config["temperature"] == 0.7
-        assert config["max_tokens"] == 196608  # Updated to match actual default
+        assert config["max_tokens"] == 2048  # Updated to match actual default
     
 class TestGeminiAPIProvider:
     """Test Gemini API Provider"""

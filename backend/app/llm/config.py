@@ -117,7 +117,7 @@ def build_default_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
             "timeout": 60,
             "retries": 3,
             "temperature": 0.7,
-            "max_tokens": 196608,
+            "max_tokens": 2048,
             "thinking_extraction": {
                 "enabled": True,
                 "patterns": [

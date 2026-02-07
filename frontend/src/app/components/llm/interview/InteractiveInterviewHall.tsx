@@ -95,16 +95,17 @@ interface InteractiveInterviewHallProps {
   onAskQuestion: (payload: {
     roleId: RoleId;
     providerId: string;
+    model: string;
     question: string;
     expectedCriteria?: string[];
     expectsThinking?: boolean;
     sessionId?: string | null;
     context?: Array<{ question: string; answer: string }>;
-    debug?: boolean;
   }) => Promise<InteractiveInterviewAnswer | null>;
   onSaveReport: (payload: {
     roleId: RoleId;
     providerId: string;
+    model: string | null;
     report: InteractiveInterviewReport;
   }) => Promise<{ saved: boolean; report_path?: string } | null>;
   resolveEnvOverrides?: (providerId: string) => Promise<Record<string, string> | null>;
@@ -275,7 +276,6 @@ export function InteractiveInterviewHall({
   const { events: sessionEvents, addEvent: addSessionEvent, resetEvents: resetSessionEvents } = useTestEvents();
   const [thinkingEvents, setThinkingEvents] = useState<RealtimeThinkingEvent[]>([]);
   const [tagEvents, setTagEvents] = useState<StreamingTagEvent[]>([]);
-  const [debugMode, setDebugMode] = useState(false);
   const [useStreamingMode, setUseStreamingMode] = useState(true); // Enable streaming by default
   const handleThinkingEvent = useCallback((event: RealtimeThinkingEvent) => {
     setThinkingEvents((prev) => {
@@ -402,7 +402,7 @@ export function InteractiveInterviewHall({
     }
     return pairs;
   }, [messages]);
-  const thinkingEnabled = debugMode && useStreamingMode;
+  const thinkingEnabled = useStreamingMode;
   const showThinkingPanel = thinkingEnabled || thinkingEvents.length > 0;
   const hasPendingEvaluation = answerMessages.some(
     (message) => !message.evaluation || message.evaluation.userRating === 'pending'
@@ -427,7 +427,7 @@ export function InteractiveInterviewHall({
     setSessionStatus('idle');
     resetSessionEvents();
     clearThinkingEvents();
-    setDebugMode(false);
+
     setUseStreamingMode(true);
   }, [clearThinkingEvents, resetSessionEvents, selectedRole, selectedProvider, stopStream]);
 
@@ -508,7 +508,7 @@ export function InteractiveInterviewHall({
     setResponding(true);
     
     // Use streaming mode if enabled (for real-time output)
-    if (useStreamingMode && debugMode) {
+    if (useStreamingMode) {
       pushSessionEvent({
         type: 'stdout',
         timestamp: new Date().toISOString(),
@@ -548,12 +548,12 @@ export function InteractiveInterviewHall({
       const response = await onAskQuestion({
         roleId: selectedRole,
         providerId: selectedProvider,
+        model: selectedModel || '',
         question,
         expectedCriteria: template?.expectedCriteria,
         expectsThinking: template ? template.difficulty !== 'basic' : undefined,
         sessionId,
-        context: buildContext(),
-        debug: debugMode
+        context: buildContext()
       });
       if (!response) {
         setResponding(false);
@@ -573,72 +573,7 @@ export function InteractiveInterviewHall({
         timestamp: new Date().toISOString(),
         content: stringifyEventPayload(response)
       });
-      const debugPayload = response.debug;
-      if (debugMode && debugPayload?.prompt) {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: `PROMPT\\n${debugPayload.prompt}`
-        });
-      }
-      if (debugMode && typeof debugPayload?.cli_send_prompt === 'boolean') {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: `PROMPT MODE\\n${debugPayload.cli_send_prompt ? 'stdin' : 'argv'}`
-        });
-      }
-      if (debugMode && debugPayload?.cli_command) {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: `CLI COMMAND\\n${debugPayload.cli_command}`
-        });
-      }
-      if (debugMode && debugPayload?.cli_args && debugPayload.cli_args.length > 0) {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: `CLI ARGS\\n${JSON.stringify(debugPayload.cli_args)}`
-        });
-      }
-      if (debugMode && debugPayload?.stdin_prompt) {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: `STDIN PROMPT\\n${debugPayload.stdin_prompt}`
-        });
-      }
-      // Show detailed execution steps
-      if (debugMode && debugPayload?.debug_steps && Array.isArray(debugPayload.debug_steps)) {
-        debugPayload.debug_steps.forEach((step: string) => {
-          pushSessionEvent({
-            type: 'stdout',
-            timestamp: new Date().toISOString(),
-            content: `STEP: ${step}`
-          });
-        });
-      }
-      // Show streaming output (real-time CLI output)
-      if (debugMode && debugPayload?.debug_stream_output && Array.isArray(debugPayload.debug_stream_output)) {
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: '--- STREAM OUTPUT START ---'
-        });
-        debugPayload.debug_stream_output.forEach((line: string) => {
-          pushSessionEvent({
-            type: 'stdout',
-            timestamp: new Date().toISOString(),
-            content: line
-          });
-        });
-        pushSessionEvent({
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          content: '--- STREAM OUTPUT END ---'
-        });
-      }
+      // Debug output removed - streaming mode unified
       const answerMessage: InterviewMessage = {
         id: createMessageId(),
         type: 'answer',
@@ -792,6 +727,7 @@ export function InteractiveInterviewHall({
       const result = await onSaveReport({
         roleId: selectedRole,
         providerId: selectedProvider,
+        model: selectedModel,
         report: nextReport
       });
       if (result?.report_path) {
@@ -828,7 +764,7 @@ export function InteractiveInterviewHall({
     setQuickQuestion('');
     setUserNotes('');
     setSessionStatus('idle');
-    setDebugMode(false);
+
     setUseStreamingMode(true);
     resetSessionEvents();
     clearThinkingEvents();
@@ -1280,15 +1216,6 @@ export function InteractiveInterviewHall({
                 ) : null}
               </div>
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1 text-[10px] text-text-dim">
-                  <input
-                    type="checkbox"
-                    checked={debugMode}
-                    onChange={(event) => setDebugMode(event.target.checked)}
-                    className="h-3 w-3 rounded border-white/10 bg-black/40"
-                  />
-                  Debug 模式
-                </label>
                 <label className="flex items-center gap-1 text-[10px] text-text-dim">
                   <input
                     type="checkbox"

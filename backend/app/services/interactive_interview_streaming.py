@@ -588,7 +588,7 @@ async def _run_standard_streaming(
     run_id: str,
     question: str,
 ) -> Dict[str, Any]:
-    """Run standard (non-Codex) provider with streaming"""
+    """Run standard (non-Codex) provider with true streaming support"""
     # Import here to avoid circular imports
     from ..llm.providers.provider_registry import provider_manager
     
@@ -601,11 +601,98 @@ async def _run_standard_streaming(
     
     await output_queue.put({
         "type": "stdout",
-        "data": {"line": "Running standard provider with streaming..."}
+        "data": {"line": "Running provider with streaming..."}
     })
     
+    if not provider_instance:
+        latency_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
+        return {
+            "session_id": run_id,
+            "timestamp": _utc_now(),
+            "question": question,
+            "output": "",
+            "answer": "",
+            "thinking": "",
+            "format": "",
+            "usage": estimate_usage(prompt, "").to_dict(),
+            "latency_ms": latency_ms,
+            "ok": False,
+            "error": f"Unknown provider type: {provider_type}",
+            "answer_quality": {"direct_answer": False, "has_forbidden_phrases": False, "content_length": 0},
+            "retry_attempts": 0,
+        }
+    
     try:
-        if provider_instance:
+        # Check if provider supports true streaming (has invoke_stream method)
+        # DIAGNOSTIC: Log detailed streaming support info
+        has_invoke_stream_attr = hasattr(provider_instance, 'invoke_stream')
+        is_override = 'invoke_stream' in provider_instance.__class__.__dict__
+        provider_class = provider_instance.__class__.__name__
+        
+        await output_queue.put({
+            "type": "stdout",
+            "data": {"line": f"[DIAG] Provider: {provider_class}, hasattr(invoke_stream)={has_invoke_stream_attr}, is_override={is_override}"}
+        })
+        
+        # FIXED: Check if provider actually overrides invoke_stream (true streaming)
+        # BaseProvider has default implementation that just simulates streaming
+        supports_true_streaming = is_override
+        
+        if supports_true_streaming:
+            # Use true streaming
+            await output_queue.put({
+                "type": "stdout",
+                "data": {"line": "Using true streaming mode..."}
+            })
+            
+            parser = create_tag_parser(flush_threshold=5)
+            full_output = ""
+            error = None
+            ok = True
+            
+            try:
+                async for token in provider_instance.invoke_stream(prompt, model, merged_cfg):
+                    if token.startswith("Error:"):
+                        error = token
+                        ok = False
+                        await output_queue.put({"type": "error", "data": {"error": token}})
+                        break
+                    
+                    full_output += token
+                    
+                    # Real-time tag parsing
+                    events = parser.process_chunk(token)
+                    for event in events:
+                        await output_queue.put(event.to_dict())
+                    
+                    # Small delay to avoid overwhelming the queue
+                    await asyncio.sleep(0.001)
+                
+                # Flush any pending events
+                pending_events = parser.flush()
+                for event in pending_events:
+                    await output_queue.put(event.to_dict())
+                    
+            except Exception as exc:
+                error = str(exc)
+                ok = False
+                await output_queue.put({"type": "error", "data": {"error": error}})
+            
+            output = full_output
+            
+        else:
+            # Fall back to simulated streaming
+            await output_queue.put({
+                "type": "stdout",
+                "data": {"line": "Using simulated streaming mode (fallback)..."}
+            })
+            
+            # Show progress indicator
+            await output_queue.put({
+                "type": "stdout",
+                "data": {"line": "⏳ Waiting for response..."}
+            })
+            
             result_obj = provider_instance.invoke(prompt, model, merged_cfg)
             output = result_obj.output
             error = result_obj.error
@@ -618,34 +705,32 @@ async def _run_standard_streaming(
                     "data": {"text": result_obj.thinking}
                 })
             
-            # Stream the output content
+            # Stream the output content with smaller chunks for better UX
             if output:
-                parser = create_tag_parser(flush_threshold=20)
+                parser = create_tag_parser(flush_threshold=5)  # Reduced from 20
 
                 if parser.detect_tag_mode(output):
-                    chunk_size = 10
+                    # Tag mode: smaller chunks for tag parsing
+                    chunk_size = 5  # Reduced from 10
                     for i in range(0, len(output), chunk_size):
                         chunk = output[i : i + chunk_size]
                         events = parser.process_chunk(chunk)
                         for event in events:
                             await output_queue.put(event.to_dict())
-                        await asyncio.sleep(0.01)
+                        await asyncio.sleep(0.015)  # Slightly longer for readability
 
                     pending_events = parser.flush()
                     for event in pending_events:
                         await output_queue.put(event.to_dict())
                 else:
-                    chunk_size = 50
+                    # Regular mode: much smaller chunks for smoother streaming
+                    chunk_size = 5  # Reduced from 50 for smoother visual effect
                     for i in range(0, len(output), chunk_size):
                         chunk = output[i : i + chunk_size]
                         await output_queue.put(
                             {"type": "token", "data": {"token": chunk}}
                         )
-                        await asyncio.sleep(0.01)
-        else:
-            output = ""
-            error = f"Unknown provider type: {provider_type}"
-            ok = False
+                        await asyncio.sleep(0.015)  # Slightly longer for readability
         
         latency_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
         thinking_text, answer_text, fmt = _split_thinking_output(output)

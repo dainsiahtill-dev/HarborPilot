@@ -1474,7 +1474,6 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
     expectsThinking?: boolean;
     sessionId?: string | null;
     context?: Array<{ question: string; answer: string }>;
-    debug?: boolean;
   }): Promise<{
     sessionId: string;
     answer: string;
@@ -1511,8 +1510,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
         criteria: payload.expectedCriteria,
         session_id: payload.sessionId,
         api_key: apiKey,
-        env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined,
-        debug: payload.debug
+        env_overrides: envResult?.env && Object.keys(envResult.env).length > 0 ? envResult.env : undefined
       })
     });
     if (!res.ok) {

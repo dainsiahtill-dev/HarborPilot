@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from ..types import HealthResult, InvokeResult, ModelListResult
 
@@ -87,6 +87,34 @@ class BaseProvider(ABC):
     def invoke(self, prompt: str, model: str, config: Dict[str, Any]) -> InvokeResult:
         """Invoke the LLM with the given prompt and model"""
         pass
+    
+    async def invoke_stream(
+        self, prompt: str, model: str, config: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream invoke the LLM with the given prompt and model.
+        
+        Yields tokens/chunks as they arrive from the LLM.
+        Override this method to implement true streaming for a provider.
+        Default implementation falls back to non-streaming invoke.
+        
+        Args:
+            prompt: The prompt to send
+            model: The model name
+            config: Provider configuration
+            
+        Yields:
+            Text tokens/chunks from the LLM response
+        """
+        # Default fallback: run invoke and yield entire output
+        result = self.invoke(prompt, model, config)
+        if result.ok and result.output:
+            # Simulate streaming by yielding characters in chunks
+            chunk_size = 10
+            for i in range(0, len(result.output), chunk_size):
+                yield result.output[i:i + chunk_size]
+        elif result.error:
+            yield f"Error: {result.error}"
     
     @classmethod
     def extract_thinking_support(cls, response: Dict[str, Any]) -> ThinkingInfo:

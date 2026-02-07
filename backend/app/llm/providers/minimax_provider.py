@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import aiohttp
 import requests
 import re
 
@@ -48,7 +50,7 @@ class MiniMaxProvider(BaseProvider):
             "timeout": 60,
             "retries": 3,
             "temperature": 0.7,
-            "max_tokens": 196608
+            "max_tokens": 2048
         }
 
     @classmethod
@@ -192,7 +194,7 @@ class MiniMaxProvider(BaseProvider):
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": float(config.get("temperature") or 0.7),
-            "max_tokens": int(config.get("max_tokens") or 204800),
+            "max_tokens": int(config.get("max_tokens") or 2048),
             "stream": bool(config.get("streaming", False)),
         }
 
@@ -455,3 +457,131 @@ class MiniMaxProvider(BaseProvider):
             )
 
         return estimate_usage(prompt, output)
+
+    async def invoke_stream(
+        self, prompt: str, model: str, config: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream invoke the MiniMax LLM with true async streaming.
+        
+        Uses aiohttp for async HTTP requests and yields tokens as they arrive
+        from the MiniMax SSE stream.
+        
+        Args:
+            prompt: The prompt to send
+            model: The model name (e.g., "MiniMax-M2.1")
+            config: Provider configuration including api_key, base_url, etc.
+            
+        Yields:
+            Text tokens/chunks from the LLM response as they arrive
+        """
+        base = self._base_url(config)
+        timeout = int(config.get("timeout") or 60)
+        api_path = str(config.get("api_path", "/text/chatcompletion_v2")).strip()
+        url = f"{base}{api_path}"
+        
+        # If model not provided, use config default
+        if not model:
+            model = str(config.get("model") or "MiniMax-M2.1").strip()
+        
+        api_key = config.get("api_key")
+        if not api_key:
+            yield "Error: API key is required"
+            return
+        
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": float(config.get("temperature") or 0.7),
+            "max_tokens": int(config.get("max_tokens") or 2048),
+            "stream": True,  # Enable streaming
+        }
+        
+        headers = self._headers(config, api_key, streaming=True)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout if timeout > 0 else None),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        yield f"Error: HTTP {response.status}: {error_text[:500]}"
+                        return
+                    
+                    # Process SSE stream
+                    content_type = response.headers.get('Content-Type', '')
+                    
+                    # MiniMax may return JSON instead of SSE in some cases
+                    if 'application/json' in content_type:
+                        # Non-streaming JSON response - yield all at once
+                        json_data = await response.json()
+                        choices = json_data.get("choices", [])
+                        if choices and len(choices) > 0:
+                            message = choices[0].get("message", {})
+                            content = message.get("content", "")
+                            if content:
+                                # Simulate streaming by yielding word by word
+                                words = content.split(' ')
+                                for word in words:
+                                    yield word + ' '
+                        return
+                    
+                    # Process SSE stream line by line
+                    buffer = ""
+                    async for line in response.content:
+                        line_str = line.decode('utf-8').strip()
+                        
+                        if not line_str:
+                            continue
+                            
+                        if line_str.startswith('data: '):
+                            data_str = line_str[6:]
+                            
+                            if data_str.strip() == '[DONE]':
+                                break
+                            
+                            try:
+                                chunk_data = json.loads(data_str)
+                                choices = chunk_data.get("choices", [])
+                                
+                                if choices and isinstance(choices, list) and len(choices) > 0:
+                                    choice = choices[0]
+                                    
+                                    # Try delta format (OpenAI compatible)
+                                    delta = choice.get("delta", {})
+                                    if delta:
+                                        content = delta.get("content", "")
+                                        if content:
+                                            yield content
+                                        continue
+                                    
+                                    # Try message format (MiniMax specific)
+                                    message = choice.get("message", {})
+                                    if message:
+                                        content = message.get("content", "")
+                                        if content and content != buffer:
+                                            # Only yield new content
+                                            new_content = content[len(buffer):]
+                                            if new_content:
+                                                yield new_content
+                                            buffer = content
+                                        continue
+                                    
+                                    # Try direct text format
+                                    text = choice.get("text", "")
+                                    if text:
+                                        yield text
+                                        
+                            except json.JSONDecodeError:
+                                continue
+                            except Exception:
+                                continue
+                                
+        except asyncio.TimeoutError:
+            yield "Error: Request timeout"
+        except Exception as exc:
+            yield f"Error: {str(exc)}"

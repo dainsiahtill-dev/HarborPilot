@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
+import asyncio
+import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import aiohttp
 import requests
 
 from ..types import HealthResult, InvokeResult, ModelInfo, ModelListResult, Usage, estimate_usage
@@ -239,6 +242,78 @@ class OpenAICompatProvider(BaseProvider):
                     usage = estimate_usage(prompt, "")
                     return InvokeResult(ok=False, output="", latency_ms=latency_ms, usage=usage, error=str(exc))
                 time.sleep(0.5)
+
+    async def invoke_stream(
+        self, prompt: str, model: str, config: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
+        """
+        True streaming invoke for OpenAI-compatible API.
+        
+        Sends request with stream=True and yields tokens as they arrive.
+        """
+        base = normalize_base_url(str(config.get("base_url") or ""))
+        timeout = int(config.get("timeout") or 60)
+        api_path = str(config.get("api_path") or DEFAULT_CHAT_PATH).strip()
+        url = join_url(base, api_path, strip_prefixes=["/v1"])
+        
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": float(config.get("temperature") or 0.2),
+            "stream": True,  # Enable streaming
+        }
+        
+        max_tokens = config.get("max_tokens")
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
+        
+        api_key = config.get("api_key")
+        headers = _headers(config, api_key)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        yield f"Error: HTTP {response.status} - {error_text}"
+                        return
+                    
+                    async for line in response.content:
+                        line = line.decode("utf-8").strip()
+                        if not line:
+                            continue
+                        
+                        # SSE format: data: {...}
+                        if line.startswith("data: "):
+                            data = line[6:]  # Remove "data: " prefix
+                            
+                            if data == "[DONE]":
+                                break
+                            
+                            try:
+                                json_data = json.loads(data)
+                                choices = json_data.get("choices", [])
+                                if choices and isinstance(choices, list):
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        yield content
+                            except json.JSONDecodeError:
+                                continue
+                            except Exception:
+                                continue
+                                
+        except asyncio.TimeoutError:
+            yield "Error: Request timeout"
+        except aiohttp.ClientError as exc:
+            yield f"Error: Connection failed - {str(exc)}"
+        except Exception as exc:
+            yield f"Error: {str(exc)}"
 
 
 _provider = OpenAICompatProvider()

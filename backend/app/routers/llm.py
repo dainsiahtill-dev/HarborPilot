@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from ..config import Settings
 from ..state import AppState, Auth
@@ -83,9 +83,37 @@ class InterviewAskPayload(BaseModel):
     criteria: Optional[list[str]] = None
     session_id: Optional[str] = None
     api_key: Optional[str] = None
-    headers: Optional[Dict[str, str]] = None
-    env_overrides: Optional[Dict[str, str]] = None
+    # 使用空字典作为默认值，避免 None vs {} 的兼容性问题
+    headers: Optional[Dict[str, str]] = Field(default_factory=dict)
+    env_overrides: Optional[Dict[str, str]] = Field(default_factory=dict)
     debug: Optional[bool] = None
+    
+    @field_validator('session_id', mode='before')
+    @classmethod
+    def normalize_session_id(cls, v):
+        """将空字符串或None统一处理为None"""
+        if v == '' or v is None:
+            return None
+        return v
+    
+    @field_validator('context', mode='before')
+    @classmethod
+    def normalize_context(cls, v):
+        """确保context是列表或None"""
+        if v is None or v == []:
+            return None
+        return v
+    
+    @field_validator('criteria', mode='before')
+    @classmethod
+    def normalize_criteria(cls, v):
+        """确保criteria是字符串列表或None"""
+        if v is None or v == []:
+            return None
+        # 过滤掉非字符串项
+        if isinstance(v, list):
+            return [str(item) for item in v if item is not None]
+        return v
 
 
 class InterviewCancelPayload(BaseModel):

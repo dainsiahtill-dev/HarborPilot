@@ -140,7 +140,6 @@ interface LLMSettingsTabProps {
     expectsThinking?: boolean;
     sessionId?: string | null;
     context?: Array<{ question: string; answer: string }>;
-    debug?: boolean;
   }) => Promise<InteractiveInterviewAnswer | null>;
   onSaveInteractiveInterview: (payload: {
     roleId: RoleId;
