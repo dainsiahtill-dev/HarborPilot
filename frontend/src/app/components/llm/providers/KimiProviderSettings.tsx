@@ -79,58 +79,19 @@ export function KimiProviderSettings({
     setFieldValue(field as keyof ProviderConfig, value);
   }, [setFieldValue]);
 
+  // 注意：由于 Kimi API 不再提供 /models 端点，我们使用固定的模型列表
+  // 这些是 Kimi 官方支持的标准模型
   const fetchModels = useCallback(async () => {
     setIsLoadingModels(true);
     setFetchError(null);
 
     try {
-      const baseUrl = provider.base_url || 'https://api.moonshot.cn/v1';
-      const modelsPath = provider.models_path || '/v1/models';
-      const apiKey = provider.api_key;
-
-      if (!apiKey) {
-        setFetchError('请先配置 API Key');
-        return;
-      }
-
-      const response = await fetch(`${baseUrl}${modelsPath}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      let models: ModelInfo[] = [];
-      if (data.data && Array.isArray(data.data)) {
-        models = data.data.map((item: any) => ({
-          id: item.id || String(item),
-          name: item.id || String(item),
-          description: item.description || '',
-          context: item.context_window ? `${item.context_window / 1000}K` : ''
-        }));
-      } else if (data.model_list && Array.isArray(data.model_list)) {
-        models = data.model_list.map((item: any) => ({
-          id: item.id || item.model_name || String(item),
-          name: item.id || item.model_name || String(item),
-          description: item.description || '',
-          context: item.context_window ? `${item.context_window / 1000}K` : ''
-        }));
-      }
-
-      if (models.length === 0) {
-        models = [
-          { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
-          { id: 'moonshot-v1-32k', name: 'moonshot-v1-32k', description: '长上下文模型', context: '32K' },
-          { id: 'moonshot-v1-128k', name: 'moonshot-v1-128k', description: '超长上下文模型', context: '128K' }
-        ];
-      }
+      // 使用固定的模型列表（不再调用 /models API）
+      const models = [
+        { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
+        { id: 'moonshot-v1-32k', name: 'moonshot-v1-32k', description: '长上下文模型', context: '32K' },
+        { id: 'moonshot-v1-128k', name: 'moonshot-v1-128k', description: '超长上下文模型', context: '128K' }
+      ];
 
       setAvailableModels(models);
       
@@ -144,7 +105,7 @@ export function KimiProviderSettings({
     } finally {
       setIsLoadingModels(false);
     }
-  }, [provider.base_url, provider.models_path, provider.api_key, provider.model, provider.default_model, handleFieldChange]);
+  }, [provider.model, provider.default_model, handleFieldChange]);
 
   return (
     <BaseProviderSettings provider={provider} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
@@ -183,19 +144,6 @@ export function KimiProviderSettings({
             className={`${cyberInputClasses} font-mono`}
           />
           <p className="text-[9px] text-text-dim mt-1">对话补全 API 路径（OpenAI 兼容格式）</p>
-        </div>
-
-        {/* Models Path */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">模型列表路径</label>
-          <input
-            type="text"
-            value={provider.models_path || ''}
-            onChange={(e) => setFieldValue('models_path', e.target.value)}
-            placeholder="/v1/models"
-            className={`${cyberInputClasses} font-mono`}
-          />
-          <p className="text-[9px] text-text-dim mt-1">获取可用模型列表的 API 路径</p>
         </div>
 
         {/* Model Selection with Fetch Button */}

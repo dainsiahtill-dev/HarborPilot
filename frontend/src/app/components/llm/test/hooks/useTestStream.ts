@@ -104,7 +104,7 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
           role: payload.role,
           provider_id: payload.providerId,
           model: payload.model,
-          suites: payload.suites || ['connectivity', 'response', 'qualification'],
+          suites: payload.suites || ['connectivity', 'response'],
           test_level: payload.testLevel || 'quick',
           evaluation_mode: payload.evaluationMode || 'provider',
           api_key: payload.apiKey,

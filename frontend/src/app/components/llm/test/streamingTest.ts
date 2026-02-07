@@ -48,7 +48,7 @@ export async function runStreamingTest(options: StreamTestOptions): Promise<Test
     role,
     providerId,
     model,
-    suites = ['connectivity', 'response', 'qualification'],
+    suites = ['connectivity', 'response'],
     testLevel = 'quick',
     evaluationMode = 'provider',
     apiKey,

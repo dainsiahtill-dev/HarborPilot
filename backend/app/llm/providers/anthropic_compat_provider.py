@@ -64,7 +64,6 @@ class AnthropicCompatProvider(BaseProvider):
         return {
             "base_url": "",
             "api_path": DEFAULT_MESSAGES_PATH,
-            "models_path": DEFAULT_MODELS_PATH,
             "anthropic_version": DEFAULT_ANTHROPIC_VERSION,
             "timeout": 60,
             "retries": 0,
@@ -90,12 +89,6 @@ class AnthropicCompatProvider(BaseProvider):
             normalized["api_path"] = api_path
             if not base_url and not api_path.startswith(("http://", "https://")):
                 warnings.append("base_url is empty; api_path should be absolute")
-
-        models_path = str(config.get("models_path") or DEFAULT_MODELS_PATH).strip()
-        if not models_path:
-            warnings.append("models_path is empty; model listing may fail")
-        else:
-            normalized["models_path"] = models_path
 
         timeout = config.get("timeout", 60)
         if not isinstance(timeout, (int, float)) or timeout <= 0:
@@ -130,21 +123,49 @@ class AnthropicCompatProvider(BaseProvider):
         )
 
     def health(self, config: Dict[str, Any]) -> HealthResult:
+        """Health check using messages API instead of /models endpoint"""
         base = normalize_base_url(str(config.get("base_url") or ""))
-        models_path = str(config.get("models_path") or DEFAULT_MODELS_PATH).strip()
-        url = join_url(base, models_path, strip_prefixes=["/v1"])
-        timeout = int(config.get("timeout") or 10)
+        api_path = str(config.get("api_path") or DEFAULT_MESSAGES_PATH).strip()
+        url = join_url(base, api_path, strip_prefixes=["/v1"])
+        timeout = int(config.get("timeout") or 30)
         api_key = config.get("api_key")
+        
+        # Anthropic uses a different message format
+        test_payload = {
+            "model": config.get("model") or "claude-3-haiku-20240307",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        }
+        
         start = time.time()
         try:
-            response = requests.get(
+            response = requests.post(
                 url,
                 headers=_headers(config, api_key),
+                json=test_payload,
                 timeout=timeout if timeout > 0 else None,
             )
-            response.raise_for_status()
             latency_ms = int((time.time() - start) * 1000)
+            
+            if response.status_code == 401:
+                return HealthResult(ok=False, latency_ms=latency_ms, error="Authentication failed: please check your API key")
+            elif response.status_code == 404:
+                return HealthResult(ok=False, latency_ms=latency_ms, error="API endpoint not found: please check api_path configuration")
+            
+            response.raise_for_status()
+            
+            # Validate response format
+            data = response.json()
+            if isinstance(data, dict) and ("content" in data or "messages" in data):
+                return HealthResult(ok=True, latency_ms=latency_ms)
+            
             return HealthResult(ok=True, latency_ms=latency_ms)
+        except requests.exceptions.ConnectionError:
+            latency_ms = int((time.time() - start) * 1000)
+            return HealthResult(ok=False, latency_ms=latency_ms, error="Network connection failed: please check your network and base_url")
+        except requests.exceptions.Timeout:
+            latency_ms = int((time.time() - start) * 1000)
+            return HealthResult(ok=False, latency_ms=latency_ms, error="Request timeout: the server took too long to respond")
         except Exception as exc:
             latency_ms = int((time.time() - start) * 1000)
             return HealthResult(ok=False, latency_ms=latency_ms, error=str(exc))

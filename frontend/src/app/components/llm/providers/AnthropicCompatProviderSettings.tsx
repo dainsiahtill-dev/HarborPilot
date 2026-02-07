@@ -37,21 +37,12 @@ export function AnthropicCompatProviderSettings({
             placeholder="/v1/messages"
             className={cyberInputClasses}
           />
+          <p className="text-[9px] text-text-dim mt-1">
+            Messages API endpoint for connectivity testing
+          </p>
         </div>
 
-        {/* Models Path */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Models Path</label>
-          <input
-            type="text"
-            value={provider.models_path || '/v1/models'}
-            onChange={(e) => handleFieldChange('models_path', e.target.value)}
-            placeholder="/v1/models"
-            className={cyberInputClasses}
-          />
-        </div>
-
-        {/* API Version */}
+        {/* API Version -->
         <div>
           <label className="block text-xs text-text-muted mb-1">API Version</label>
           <input

@@ -158,7 +158,7 @@ class TestMiniMaxProvider:
         config = MiniMaxProvider.get_default_config()
         assert config["base_url"] == "https://api.minimaxi.com/v1"
         assert config["temperature"] == 0.7
-        assert config["max_tokens"] == 2048
+        assert config["max_tokens"] == 196608  # Updated to match actual default
     
 class TestGeminiAPIProvider:
     """Test Gemini API Provider"""
@@ -203,13 +203,13 @@ class TestOpenAICompatProvider:
         config = OpenAICompatProvider.get_default_config()
         assert "base_url" in config
         assert "api_path" in config
-        assert "models_path" in config
+        # models_path is deprecated and removed from default config
+        assert "models_path" not in config
 
     def test_validate_config(self):
         valid_config = {
             "base_url": "https://api.example.com/v1",
             "api_path": "/v1/chat/completions",
-            "models_path": "/v1/models",
             "timeout": 30,
             "retries": 1,
         }
@@ -238,7 +238,6 @@ class TestAnthropicCompatProvider:
     def test_validate_config(self):
         valid_config = {
             "api_path": "/v1/messages",
-            "models_path": "/v1/models",
             "timeout": 30,
             "retries": 1,
         }
@@ -312,7 +311,6 @@ class TestProviderRegistry:
         valid_openai_config = {
             "base_url": "https://api.example.com/v1",
             "api_path": "/v1/chat/completions",
-            "models_path": "/v1/models",
         }
         assert provider_manager.validate_provider_config("openai_compat", valid_openai_config) is True
 

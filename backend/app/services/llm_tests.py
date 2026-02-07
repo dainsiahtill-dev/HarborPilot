@@ -505,7 +505,11 @@ def _run_connectivity_suite(
     api_key: Optional[str],
     emit: Optional[Callable[[str, Any], None]] = None,
 ) -> Dict[str, Any]:
-    """Run connectivity suite with detailed HTTP request/response logging"""
+    """Run connectivity suite with simplified health check using chat completion API
+    
+    This simplified approach directly tests the chat completion API endpoint
+    instead of relying on /models endpoint which may not be available for all providers.
+    """
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
     
     # 发送调试信息
@@ -516,35 +520,16 @@ def _run_connectivity_suite(
     _emit_debug(f"🔍 开始连通性测试 - 提供商类型: {provider_type}")
     _emit_debug(f"📋 配置信息: base_url={provider_cfg.get('base_url')}, model={model}")
     
-    # 执行健康检查并记录详细信息
-    health = _provider_health_with_logging(provider_type, provider_cfg, api_key, _emit_debug)
+    # 执行健康检查（使用对话接口而非/models端点）
+    health = _provider_health_with_logging(provider_type, provider_cfg, api_key, model, _emit_debug)
     
-    model_available = {"ok": True, "supported": False, "models": []}
-    if health.get("ok"):
-        _emit_debug("✅ 健康检查通过，正在获取模型列表...")
-        listing = _provider_list_models_with_logging(provider_type, provider_cfg, api_key, _emit_debug)
-        model_available = listing.to_dict()
-        if listing.supported and listing.ok:
-            model_available["has_model"] = any(m.id == model for m in listing.models)
-            if model_available["has_model"]:
-                _emit_debug(f"✅ 找到指定模型: {model}")
-            else:
-                _emit_debug(f"⚠️ 未找到指定模型: {model}")
-        elif listing.supported:
-            model_available["has_model"] = False
-            _emit_debug("⚠️ 无法获取模型列表")
-    else:
-        _emit_debug(f"❌ 健康检查失败: {health.get('error', 'Unknown error')}")
-    
-    ok = bool(health.get("ok")) and (not model_available.get("supported") or model_available.get("has_model", False))
-    
+    ok = bool(health.get("ok"))
     _emit_debug(f"{'✅' if ok else '❌'} 连通性测试结果: {'通过' if ok else '失败'}")
     
     return {
         "ok": ok,
         "details": {
             "health": health,
-            "model_available": model_available,
         },
     }
 
@@ -553,46 +538,47 @@ def _provider_health_with_logging(
     provider_type: str, 
     provider_cfg: Dict[str, Any], 
     api_key: Optional[str],
+    model: str,
     emit_debug: Callable[[str], None],
 ) -> Dict[str, Any]:
-    """Provider health check with detailed HTTP logging"""
+    """Provider health check using chat completion API instead of /models endpoint
+    
+    This simplified approach sends a minimal test message to verify API connectivity,
+    which works for all providers regardless of whether they support /models endpoint.
+    """
     import requests
     import time
     
     # 获取配置
     base_url = str(provider_cfg.get("base_url") or "").strip().rstrip(",").rstrip("/")
-    models_path = str(provider_cfg.get("models_path") or "/v1/models").strip()
+    api_path = str(provider_cfg.get("api_path") or "/v1/chat/completions").strip()
     
     # 清理 base_url 末尾的非法字符（如逗号、空格等）
     base_url = base_url.rstrip(" ,;。")
-    timeout = int(provider_cfg.get("timeout") or 10)
+    timeout = int(provider_cfg.get("timeout") or 30)
     
-    # 构建 URL - 防止 /v1/ 路径重复
-    # 如果 base_url 以 /v1 结尾且 models_path 以 /v1/ 开头，去掉 models_path 的 /v1 前缀
-    if base_url.endswith("/v1") and models_path.startswith("/v1/"):
-        models_path = models_path[3:]
-    # 如果 base_url 包含 /v1/ (中间) 且 models_path 以 /v1/ 开头
-    elif "/v1/" in base_url and models_path.startswith("/v1/"):
-        models_path = models_path.replace("/v1/", "/", 1)
-    # 如果 base_url 没有 v1 且 models_path 也没有 v1 (且不是完整path)，尝试添加
-    elif "/v1" not in base_url and models_path.startswith("/models"):
-        models_path = "/v1" + models_path
+    # 构建完整URL（使用对话API路径）
+    url = base_url.rstrip("/") + (api_path if api_path.startswith("/") else "/" + api_path)
     
-    url = base_url + models_path
-    
-    emit_debug(f"🌐 健康检查请求: GET {url}")
+    emit_debug(f"🌐 健康检查请求: POST {url}")
+    emit_debug(f"📋 使用模型: {model}")
     
     # 构建 headers
-    headers = {}
+    headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     emit_debug(f"📤 Request Headers: {json.dumps(headers, ensure_ascii=False)}")
     
+    # 构建测试用的最小payload（根据提供商类型调整）
+    test_payload = _get_health_check_payload(provider_type, provider_cfg, model)
+    emit_debug(f"📤 Request Payload: {json.dumps(test_payload, ensure_ascii=False)}")
+    
     start = time.time()
     try:
-        response = requests.get(
+        response = requests.post(
             url,
             headers=headers,
+            json=test_payload,
             timeout=timeout if timeout > 0 else None,
         )
         latency_ms = int((time.time() - start) * 1000)
@@ -602,12 +588,98 @@ def _provider_health_with_logging(
         emit_debug(f"📥 Response Body (前500字符): {response.text[:500]}")
         emit_debug(f"⏱️ 延迟: {latency_ms}ms")
         
+        # 检查HTTP状态码
+        if response.status_code == 401:
+            emit_debug("❌ 认证失败: 请检查API密钥是否正确")
+            return {"ok": False, "latency_ms": latency_ms, "error": "Authentication failed: please check your API key"}
+        elif response.status_code == 404:
+            emit_debug("❌ API路径不存在: 请检查api_path配置")
+            return {"ok": False, "latency_ms": latency_ms, "error": "API endpoint not found: please check api_path configuration"}
+        elif response.status_code >= 500:
+            emit_debug(f"❌ 服务器错误: {response.status_code}")
+            return {"ok": False, "latency_ms": latency_ms, "error": f"Server error: {response.status_code}"}
+        
         response.raise_for_status()
+        
+        # 验证响应格式
+        try:
+            data = response.json()
+            # 检查关键字段
+            if isinstance(data, dict):
+                if "choices" in data or "output" in data or "message" in data or "content" in data:
+                    emit_debug("✅ 响应格式验证通过")
+                    return {"ok": True, "latency_ms": latency_ms}
+                elif "base_resp" in data:  # MiniMax format
+                    base_resp = data.get("base_resp", {})
+                    if isinstance(base_resp, dict) and base_resp.get("status_code") == 0:
+                        emit_debug("✅ MiniMax响应格式验证通过")
+                        return {"ok": True, "latency_ms": latency_ms}
+                    else:
+                        error_msg = base_resp.get("status_msg", "Unknown MiniMax error")
+                        emit_debug(f"❌ MiniMax API错误: {error_msg}")
+                        return {"ok": False, "latency_ms": latency_ms, "error": error_msg}
+        except json.JSONDecodeError:
+            emit_debug("⚠️ 响应不是JSON格式，但HTTP状态正常")
+            # 非JSON响应但HTTP 200，仍然认为连接成功
+            return {"ok": True, "latency_ms": latency_ms}
+        
+        emit_debug("✅ 健康检查通过")
         return {"ok": True, "latency_ms": latency_ms}
+        
+    except requests.exceptions.ConnectionError as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        emit_debug(f"❌ 网络连接失败: {str(exc)}")
+        return {"ok": False, "latency_ms": latency_ms, "error": "Network connection failed: please check your network and base_url"}
+    except requests.exceptions.Timeout as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        emit_debug(f"❌ 请求超时: {str(exc)}")
+        return {"ok": False, "latency_ms": latency_ms, "error": "Request timeout: the server took too long to respond"}
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
         emit_debug(f"❌ 请求失败: {str(exc)}")
         return {"ok": False, "latency_ms": latency_ms, "error": str(exc)}
+
+
+def _get_health_check_payload(provider_type: str, provider_cfg: Dict[str, Any], model: str) -> Dict[str, Any]:
+    """Get health check payload based on provider type
+    
+    Different providers may have slightly different requirements for the test payload.
+    """
+    # 默认使用简单的测试消息
+    base_payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "hello"}],
+        "stream": False,
+        "max_tokens": 10,
+    }
+    
+    # 根据提供商类型调整
+    provider_type = provider_type.lower()
+    
+    if provider_type == "minimax":
+        # MiniMax uses a slightly different format
+        return {
+            "model": model or "MiniMax-M2.1",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 10,
+        }
+    elif provider_type == "kimi":
+        # Kimi is OpenAI compatible
+        return {
+            "model": model or "moonshot-v1-8k",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": False,
+            "max_tokens": 10,
+        }
+    elif provider_type == "ollama":
+        # Ollama uses a different format
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": False,
+        }
+    
+    return base_payload
 
 
 def _provider_list_models_with_logging(
@@ -616,7 +688,11 @@ def _provider_list_models_with_logging(
     api_key: Optional[str],
     emit_debug: Callable[[str], None],
 ):
-    """Provider list models with detailed HTTP logging"""
+    """Provider list models with detailed HTTP logging
+    
+    DEPRECATED: This function is kept for backward compatibility but is no longer
+    used in the simplified connectivity test. Model listing is now optional.
+    """
     import requests
     import time
     from dataclasses import dataclass
@@ -642,57 +718,10 @@ def _provider_list_models_with_logging(
                 "error": self.error,
             }
     
-    # 获取配置
-    base_url = str(provider_cfg.get("base_url") or "").strip()
-    models_path = str(provider_cfg.get("models_path") or "/v1/models").strip()
-    timeout = int(provider_cfg.get("timeout") or 10)
+    emit_debug("⚠️ 模型列表获取已弃用，仅保留向后兼容")
     
-    # 构建 URL
-    if base_url.endswith("/v1") and models_path.startswith("/v1/"):
-        models_path = models_path[3:]
-    elif "/v1/" in base_url and models_path.startswith("/v1/"):
-        models_path = models_path.replace("/v1/", "/", 1)
-    elif "/v1" not in base_url and models_path.startswith("/models"):
-        models_path = "/v1/models"
-    
-    url = base_url.rstrip("/") + (models_path if models_path.startswith("/") else "/" + models_path)
-    
-    emit_debug(f"🌐 获取模型列表请求: GET {url}")
-    
-    # 构建 headers
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    
-    try:
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=timeout if timeout > 0 else None,
-        )
-        
-        emit_debug(f"📥 Response Status: {response.status_code}")
-        emit_debug(f"📥 Response Body (前1000字符): {response.text[:1000]}")
-        
-        response.raise_for_status()
-        payload = response.json()
-        models: List[ModelInfo] = []
-        items = payload.get("data") if isinstance(payload, dict) else None
-        if isinstance(items, list):
-            for item in items:
-                if isinstance(item, dict):
-                    model_id = str(item.get("id") or item.get("name") or "").strip()
-                    if model_id:
-                        models.append(ModelInfo(id=model_id, raw=item))
-        
-        emit_debug(f"📊 找到 {len(models)} 个模型")
-        if models:
-            emit_debug(f"📋 模型列表: {', '.join([m.id for m in models[:5]])}{'...' if len(models) > 5 else ''}")
-        
-        return ModelListResult(ok=True, supported=True, models=models)
-    except Exception as exc:
-        emit_debug(f"❌ 获取模型列表失败: {str(exc)}")
-        return ModelListResult(ok=False, supported=True, models=[], error=str(exc))
+    # 返回空结果（不再尝试获取模型列表）
+    return ModelListResult(ok=True, supported=False, models=[], error="Model listing is deprecated")
 
 
 def _run_response_suite(

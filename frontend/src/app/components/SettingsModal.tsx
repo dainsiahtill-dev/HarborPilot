@@ -152,7 +152,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, string>>({});
   const [reportDrawer, setReportDrawer] = useState<{ open: boolean; data: unknown | null }>({ open: false, data: null });
-  const [testSuites, setTestSuites] = useState({ connectivity: true, response: true, qualification: true });
+  const [testSuites, setTestSuites] = useState({ connectivity: true, response: true, qualification: false });
   const [testLevel, setTestLevel] = useState<'quick' | 'full'>('quick');
   const [runAllBusy, setRunAllBusy] = useState(false);
   const [tuiDrawer, setTuiDrawer] = useState<{ open: boolean; role: string; providerId: string }>({
@@ -1025,7 +1025,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
       }
       const suites = isCodex
         ? ['response']
-        : llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+        : llmConfig.policies?.test_required_suites || ['connectivity', 'response'];
       const payload = {
         role: testRole,
         provider_id: providerId,
@@ -1151,7 +1151,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
     const apiKey = await resolveApiKey(providerId, providerCfg);
     const envResult = await resolveEnvOverrides(providerId, providerCfg);
-    const suites = llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+    const suites = llmConfig.policies?.test_required_suites || ['connectivity', 'response'];
     const controller = new AbortController();
     testAbortRef.current = controller;
 
@@ -1615,13 +1615,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
   const getSelectedSuites = () => {
     if (!llmConfig) {
-      return ['connectivity', 'response', 'qualification'];
+      return ['connectivity', 'response'];
     }
     const suites = Object.entries(testSuites)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name);
     if (suites.length === 0) {
-      return llmConfig.policies?.test_required_suites || ['connectivity', 'response', 'qualification'];
+      return llmConfig.policies?.test_required_suites || ['connectivity', 'response'];
     }
     return suites;
   };

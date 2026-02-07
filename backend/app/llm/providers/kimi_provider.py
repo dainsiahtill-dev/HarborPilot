@@ -47,7 +47,6 @@ class KimiProvider(BaseProvider):
             "api_key": "",
             "api_key_ref": "keychain:kimi",
             "api_path": DEFAULT_CHAT_PATH,
-            "models_path": DEFAULT_MODELS_PATH,
             "timeout": 60,
             "retries": 3,
             "model": "moonshot-v1-8k",
@@ -82,13 +81,6 @@ class KimiProvider(BaseProvider):
             errors.append("API path is required")
         else:
             normalized["api_path"] = api_path
-
-        # Validate models path
-        models_path = str(config.get("models_path") or DEFAULT_MODELS_PATH).strip()
-        if not models_path:
-            warnings.append("Models path is empty; model listing may fail")
-        else:
-            normalized["models_path"] = models_path
 
         # Validate timeout
         timeout = config.get("timeout", 60)
@@ -140,25 +132,53 @@ class KimiProvider(BaseProvider):
         return headers
 
     def health(self, config: Dict[str, Any]) -> HealthResult:
+        """Health check using chat completion API instead of /models endpoint"""
         base = self._base_url(config)
-        models_path = str(config.get("models_path", DEFAULT_MODELS_PATH)).strip()
-        url = f"{base}{models_path}"
-        timeout = int(config.get("timeout") or 10)
+        api_path = str(config.get("api_path", DEFAULT_CHAT_PATH)).strip()
+        url = f"{base}{api_path}"
+        timeout = int(config.get("timeout") or 30)
         
         api_key = config.get("api_key")
         if not api_key:
             return HealthResult(ok=False, latency_ms=0, error="API key is required")
         
+        # Use a simple test message for health check
+        test_payload = {
+            "model": config.get("model") or "moonshot-v1-8k",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 10,
+            "stream": False,
+        }
+        
         start = time.time()
         try:
-            response = requests.get(
+            response = requests.post(
                 url,
                 headers=self._headers(config, api_key),
+                json=test_payload,
                 timeout=timeout if timeout > 0 else None,
             )
-            response.raise_for_status()
             latency_ms = int((time.time() - start) * 1000)
+            
+            if response.status_code == 401:
+                return HealthResult(ok=False, latency_ms=latency_ms, error="Authentication failed: please check your API key")
+            elif response.status_code == 404:
+                return HealthResult(ok=False, latency_ms=latency_ms, error="API endpoint not found: please check api_path configuration")
+            
+            response.raise_for_status()
+            
+            # Validate response format
+            data = response.json()
+            if isinstance(data, dict) and "choices" in data:
+                return HealthResult(ok=True, latency_ms=latency_ms)
+            
             return HealthResult(ok=True, latency_ms=latency_ms)
+        except requests.exceptions.ConnectionError:
+            latency_ms = int((time.time() - start) * 1000)
+            return HealthResult(ok=False, latency_ms=latency_ms, error="Network connection failed: please check your network and base_url")
+        except requests.exceptions.Timeout:
+            latency_ms = int((time.time() - start) * 1000)
+            return HealthResult(ok=False, latency_ms=latency_ms, error="Request timeout: the server took too long to respond")
         except Exception as exc:
             latency_ms = int((time.time() - start) * 1000)
             return HealthResult(ok=False, latency_ms=latency_ms, error=str(exc))

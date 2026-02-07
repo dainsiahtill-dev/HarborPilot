@@ -37,18 +37,9 @@ export function OpenAICompatProviderSettings({
             className={`${cyberInputClasses} font-mono`}
             placeholder="/v1/chat/completions"
           />
-        </div>
-
-        {/* Models Path */}
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Models Path</label>
-          <input
-            type="text"
-            value={provider.models_path || '/v1/models'}
-            onChange={(e) => handleFieldChange('models_path', e.target.value)}
-            className={`${cyberInputClasses} font-mono`}
-            placeholder="/v1/models"
-          />
+          <p className="text-[9px] text-text-dim mt-1">
+            Chat completion API endpoint for connectivity testing
+          </p>
         </div>
 
         {/* Custom Headers */}

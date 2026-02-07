@@ -352,7 +352,7 @@ class TestLLMConfigStandardProviders:
         assert provider.get("type") == "openai_compat", \
             f"Expected type 'openai_compat', got '{provider.get('type')}'"
         assert "api_path" in provider, "openai_compat missing api_path"
-        assert "models_path" in provider, "openai_compat missing models_path"
+        # models_path is deprecated and removed from default config
 
     def test_no_duplicate_minimax_entries(self):
         """Ensure no duplicate minimax-related entries exist."""

@@ -45,7 +45,6 @@ class MiniMaxProvider(BaseProvider):
             "name": "MiniMax",
             "base_url": "https://api.minimaxi.com/v1",
             "api_path": "/text/chatcompletion_v2",
-            "models_path": "/v1/models",
             "timeout": 60,
             "retries": 3,
             "temperature": 0.7,

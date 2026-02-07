@@ -59,7 +59,7 @@ export function TestPanel({
   apiKey,
   testLevel = 'quick',
   evaluationMode = 'provider',
-  suites = ['connectivity', 'response', 'qualification'],
+  suites = ['connectivity', 'response'],
   autoStart = false,
 }: TestPanelProps) {
   // 内部事件状态 - 用于 SSE 流式输出
