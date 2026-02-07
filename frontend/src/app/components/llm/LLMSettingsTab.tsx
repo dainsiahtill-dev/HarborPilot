@@ -445,83 +445,6 @@ export function LLMSettingsTab({
     return 'skipUiEvent' in err && Boolean((err as { skipUiEvent?: boolean }).skipUiEvent);
   };
 
-  const runSelectedTest = async () => {
-    if (!selectedTestProvider || !onTestProvider) return;
-    setTestStatus('running');
-    setTestCancelled(false);
-    resetEvents();
-    addEvent({
-      type: 'command',
-      timestamp: new Date().toISOString(),
-      content: `Preparing test for ${selectedTestProvider.name}`
-    });
-    updateProviderState(selectedTestProvider.id, { status: 'testing', lastError: undefined });
-    try {
-      const result = await onTestProvider(selectedTestProvider, (event) => {
-        addEvent(event);
-      });
-      if (!result) {
-        setTestStatus('failed');
-        const hasErrorEvent = events.some((event) => event.type === 'error');
-        const fallbackMessage = testCancelled ? '测试已取消' : '测试未返回结果';
-        if (!hasErrorEvent) {
-          addEvent({
-            type: 'error',
-            timestamp: new Date().toISOString(),
-            content: fallbackMessage
-          });
-        }
-        updateProviderState(selectedTestProvider.id, {
-          status: 'failed',
-          lastError: testCancelled ? '测试已取消' : '测试未返回结果',
-          lastTest: {
-            at: new Date().toISOString(),
-            note: testCancelled ? '测试已取消' : '测试未返回结果'
-          }
-        });
-        return;
-      }
-      const ready = result.ready ?? result.grade === 'PASS';
-      setTestStatus(ready ? 'success' : 'failed');
-      updateProviderState(selectedTestProvider.id, {
-        status: ready ? 'ready' : 'failed',
-        lastError: ready ? undefined : '测试未通过',
-        lastTest: {
-          at: new Date().toISOString(),
-          latencyMs: typeof result.latencyMs === 'number' ? Math.round(result.latencyMs) : undefined,
-          usage: {
-            totalTokens: result.usage?.totalTokens,
-            estimated: result.usage?.estimated
-          },
-          note: ready ? '测试通过' : '测试未通过'
-        }
-      });
-      addEvent({
-        type: ready ? 'result' : 'error',
-        timestamp: new Date().toISOString(),
-        content: ready ? '测试完成' : '测试未通过'
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '测试失败';
-      setTestStatus('failed');
-      if (!shouldSkipErrorEvent(err)) {
-        addEvent({
-          type: 'error',
-          timestamp: new Date().toISOString(),
-          content: message
-        });
-      }
-      updateProviderState(selectedTestProvider.id, {
-        status: 'failed',
-        lastError: message,
-        lastTest: {
-          at: new Date().toISOString(),
-          note: '测试失败'
-        }
-      });
-    }
-  };
-
   const roleRequirements = useMemo(() => buildRoleRequirements(llmConfig), [llmConfig]);
 
   const roles = useMemo(() => {
@@ -955,7 +878,6 @@ export function LLMSettingsTab({
               events={events}
               status={testStatus}
               onClose={closeTestPanel}
-              onRunTest={runSelectedTest}
               onCancel={cancelTestRun}
             />,
             panelHost

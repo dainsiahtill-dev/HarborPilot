@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config import Settings
 from ..llm import config as llm_config
@@ -218,7 +218,7 @@ def run_llm_tests(
     for suite in suites:
         suite = suite.strip().lower()
         if suite == "connectivity":
-            result = _run_connectivity_suite(provider_cfg, model, api_key)
+            result = _run_connectivity_suite(provider_cfg, model, api_key, None)
         elif suite == "response":
             result = _run_response_suite(
                 provider_cfg,
@@ -359,7 +359,7 @@ async def run_llm_tests_streaming(
         
         try:
             if suite == "connectivity":
-                result = _run_connectivity_suite(provider_cfg, model, api_key)
+                result = _run_connectivity_suite(provider_cfg, model, api_key, emit)
             elif suite == "response":
                 result = _run_response_suite(
                     provider_cfg,
@@ -499,18 +499,47 @@ def _extract_thinking_snapshot(result: Dict[str, Any]) -> Optional[Dict[str, Any
     return thinking if isinstance(thinking, dict) else None
 
 
-def _run_connectivity_suite(provider_cfg: Dict[str, Any], model: str, api_key: Optional[str]) -> Dict[str, Any]:
+def _run_connectivity_suite(
+    provider_cfg: Dict[str, Any], 
+    model: str, 
+    api_key: Optional[str],
+    emit: Optional[Callable[[str, Any], None]] = None,
+) -> Dict[str, Any]:
+    """Run connectivity suite with detailed HTTP request/response logging"""
     provider_type = str(provider_cfg.get("type") or "").strip().lower()
-    health = _provider_health(provider_type, provider_cfg, api_key)
+    
+    # 发送调试信息
+    def _emit_debug(message: str, details: Optional[Dict] = None):
+        if emit:
+            emit("debug", {"message": message, "details": details or {}})
+    
+    _emit_debug(f"🔍 开始连通性测试 - 提供商类型: {provider_type}")
+    _emit_debug(f"📋 配置信息: base_url={provider_cfg.get('base_url')}, model={model}")
+    
+    # 执行健康检查并记录详细信息
+    health = _provider_health_with_logging(provider_type, provider_cfg, api_key, _emit_debug)
+    
     model_available = {"ok": True, "supported": False, "models": []}
     if health.get("ok"):
-        listing = _provider_list_models(provider_type, provider_cfg, api_key)
+        _emit_debug("✅ 健康检查通过，正在获取模型列表...")
+        listing = _provider_list_models_with_logging(provider_type, provider_cfg, api_key, _emit_debug)
         model_available = listing.to_dict()
         if listing.supported and listing.ok:
             model_available["has_model"] = any(m.id == model for m in listing.models)
+            if model_available["has_model"]:
+                _emit_debug(f"✅ 找到指定模型: {model}")
+            else:
+                _emit_debug(f"⚠️ 未找到指定模型: {model}")
         elif listing.supported:
             model_available["has_model"] = False
+            _emit_debug("⚠️ 无法获取模型列表")
+    else:
+        _emit_debug(f"❌ 健康检查失败: {health.get('error', 'Unknown error')}")
+    
     ok = bool(health.get("ok")) and (not model_available.get("supported") or model_available.get("has_model", False))
+    
+    _emit_debug(f"{'✅' if ok else '❌'} 连通性测试结果: {'通过' if ok else '失败'}")
+    
     return {
         "ok": ok,
         "details": {
@@ -518,6 +547,152 @@ def _run_connectivity_suite(provider_cfg: Dict[str, Any], model: str, api_key: O
             "model_available": model_available,
         },
     }
+
+
+def _provider_health_with_logging(
+    provider_type: str, 
+    provider_cfg: Dict[str, Any], 
+    api_key: Optional[str],
+    emit_debug: Callable[[str], None],
+) -> Dict[str, Any]:
+    """Provider health check with detailed HTTP logging"""
+    import requests
+    import time
+    
+    # 获取配置
+    base_url = str(provider_cfg.get("base_url") or "").strip().rstrip(",").rstrip("/")
+    models_path = str(provider_cfg.get("models_path") or "/v1/models").strip()
+    
+    # 清理 base_url 末尾的非法字符（如逗号、空格等）
+    base_url = base_url.rstrip(" ,;。")
+    timeout = int(provider_cfg.get("timeout") or 10)
+    
+    # 构建 URL - 防止 /v1/ 路径重复
+    # 如果 base_url 以 /v1 结尾且 models_path 以 /v1/ 开头，去掉 models_path 的 /v1 前缀
+    if base_url.endswith("/v1") and models_path.startswith("/v1/"):
+        models_path = models_path[3:]
+    # 如果 base_url 包含 /v1/ (中间) 且 models_path 以 /v1/ 开头
+    elif "/v1/" in base_url and models_path.startswith("/v1/"):
+        models_path = models_path.replace("/v1/", "/", 1)
+    # 如果 base_url 没有 v1 且 models_path 也没有 v1 (且不是完整path)，尝试添加
+    elif "/v1" not in base_url and models_path.startswith("/models"):
+        models_path = "/v1" + models_path
+    
+    url = base_url + models_path
+    
+    emit_debug(f"🌐 健康检查请求: GET {url}")
+    
+    # 构建 headers
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    emit_debug(f"📤 Request Headers: {json.dumps(headers, ensure_ascii=False)}")
+    
+    start = time.time()
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=timeout if timeout > 0 else None,
+        )
+        latency_ms = int((time.time() - start) * 1000)
+        
+        emit_debug(f"📥 Response Status: {response.status_code}")
+        emit_debug(f"📥 Response Headers: {json.dumps(dict(response.headers), ensure_ascii=False)}")
+        emit_debug(f"📥 Response Body (前500字符): {response.text[:500]}")
+        emit_debug(f"⏱️ 延迟: {latency_ms}ms")
+        
+        response.raise_for_status()
+        return {"ok": True, "latency_ms": latency_ms}
+    except Exception as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        emit_debug(f"❌ 请求失败: {str(exc)}")
+        return {"ok": False, "latency_ms": latency_ms, "error": str(exc)}
+
+
+def _provider_list_models_with_logging(
+    provider_type: str, 
+    provider_cfg: Dict[str, Any], 
+    api_key: Optional[str],
+    emit_debug: Callable[[str], None],
+):
+    """Provider list models with detailed HTTP logging"""
+    import requests
+    import time
+    from dataclasses import dataclass
+    from typing import List
+    
+    @dataclass
+    class ModelInfo:
+        id: str
+        raw: Dict[str, Any]
+    
+    @dataclass
+    class ModelListResult:
+        ok: bool
+        supported: bool
+        models: List[ModelInfo]
+        error: str = ""
+        
+        def to_dict(self):
+            return {
+                "ok": self.ok,
+                "supported": self.supported,
+                "models": [{"id": m.id, "raw": m.raw} for m in self.models],
+                "error": self.error,
+            }
+    
+    # 获取配置
+    base_url = str(provider_cfg.get("base_url") or "").strip()
+    models_path = str(provider_cfg.get("models_path") or "/v1/models").strip()
+    timeout = int(provider_cfg.get("timeout") or 10)
+    
+    # 构建 URL
+    if base_url.endswith("/v1") and models_path.startswith("/v1/"):
+        models_path = models_path[3:]
+    elif "/v1/" in base_url and models_path.startswith("/v1/"):
+        models_path = models_path.replace("/v1/", "/", 1)
+    elif "/v1" not in base_url and models_path.startswith("/models"):
+        models_path = "/v1/models"
+    
+    url = base_url.rstrip("/") + (models_path if models_path.startswith("/") else "/" + models_path)
+    
+    emit_debug(f"🌐 获取模型列表请求: GET {url}")
+    
+    # 构建 headers
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=timeout if timeout > 0 else None,
+        )
+        
+        emit_debug(f"📥 Response Status: {response.status_code}")
+        emit_debug(f"📥 Response Body (前1000字符): {response.text[:1000]}")
+        
+        response.raise_for_status()
+        payload = response.json()
+        models: List[ModelInfo] = []
+        items = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    model_id = str(item.get("id") or item.get("name") or "").strip()
+                    if model_id:
+                        models.append(ModelInfo(id=model_id, raw=item))
+        
+        emit_debug(f"📊 找到 {len(models)} 个模型")
+        if models:
+            emit_debug(f"📋 模型列表: {', '.join([m.id for m in models[:5]])}{'...' if len(models) > 5 else ''}")
+        
+        return ModelListResult(ok=True, supported=True, models=models)
+    except Exception as exc:
+        emit_debug(f"❌ 获取模型列表失败: {str(exc)}")
+        return ModelListResult(ok=False, supported=True, models=[], error=str(exc))
 
 
 def _run_response_suite(

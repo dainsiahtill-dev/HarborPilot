@@ -740,6 +740,11 @@ export const ProviderActions = {
   }),
   cancelTest: (): ProviderAction => ({ type: 'CANCEL_TEST' }),
   
+  setProviderTestStatus: (providerId: string, status: ConnectivityStatus): ProviderAction => ({
+    type: 'SET_PROVIDER_TEST_STATUS',
+    payload: { providerId, status },
+  }),
+  
   startConnectivityTest: (key: string): ProviderAction => ({ 
     type: 'START_CONNECTIVITY_TEST', 
     payload: key 

@@ -1122,30 +1122,32 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
     const providerId = provider.id;
     const providerCfg = llmConfig.providers?.[providerId];
-    let testRole = null;
-    let testModel = provider.modelId || 'test-model';
-
-    for (const [roleId, roleCfg] of Object.entries(llmConfig.roles || {})) {
-      if (roleCfg.provider_id === providerId && roleCfg.model) {
-        testRole = roleId;
-        testModel = roleCfg.model;
-        break;
-      }
-    }
-
-    if (!testRole) {
-      const fallbackRoles = Object.keys(llmConfig.roles || {});
-      testRole = fallbackRoles.find((role) => role === 'qa') || fallbackRoles[0] || null;
-    }
-
-    if (!testRole) {
+    
+    if (!providerCfg) {
       onEvent?.({
         type: 'error',
         timestamp: new Date().toISOString(),
-        content: '未找到可用角色，请先配置角色后再测试'
+        content: `未找到提供商 "${providerId}" 的配置`
       });
       return null;
     }
+    
+    // 🔧 对于连通性测试，不需要角色配置，直接使用 provider 的 model
+    const testModel = provider.modelId || providerCfg.model || providerCfg.default_model || 'default';
+    
+    // 尝试找到一个使用此 provider 的角色（用于获取额外配置），但不是必需的
+    let testRole: string | null = null;
+    const availableRoles = Object.entries(llmConfig.roles || {});
+    for (const [roleId, roleCfg] of availableRoles) {
+      if (roleCfg.provider_id === providerId && roleCfg.model) {
+        testRole = roleId;
+        break;
+      }
+    }
+    
+    // 如果没有找到角色，使用 'connectivity' 作为虚拟角色
+    // 后端支持 role='connectivity' 或空角色进行纯连通性测试
+    const roleForTest = testRole || 'connectivity';
 
     const apiKey = await resolveApiKey(providerId, providerCfg);
     const envResult = await resolveEnvOverrides(providerId, providerCfg);
@@ -1155,7 +1157,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
 
     try {
       const report = await runStreamingTest({
-        role: testRole,
+        role: roleForTest,
         providerId,
         model: testModel,
         suites,
@@ -1553,12 +1555,42 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
   };
 
   const runConnectivityTest = async (
-    role: string,
     providerId: string,
     model: string
   ): Promise<Record<string, unknown> | null> => {
+    if (!llmConfig) return null;
+    const providerCfg = llmConfig.providers?.[providerId];
+    const apiKey = providerCfg ? await resolveApiKey(providerId, providerCfg) : null;
+    const envResult = providerCfg ? await resolveEnvOverrides(providerId, providerCfg) : null;
     const suites = ['connectivity', 'response'];
-    return (await runLlmTestStreaming(role, 'quick', suites, false, { providerId, model })) || null;
+    
+    const controller = new AbortController();
+    testAbortRef.current = controller;
+
+    try {
+      const report = await runStreamingTest({
+        role: 'connectivity',
+        providerId,
+        model,
+        suites,
+        testLevel: 'quick',
+        evaluationMode: 'provider',
+        apiKey,
+        envOverrides: envResult?.env,
+        signal: controller.signal
+      });
+
+      return report || null;
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setLlmError(err.message);
+      }
+      return null;
+    } finally {
+      if (testAbortRef.current === controller) {
+        testAbortRef.current = null;
+      }
+    }
   };
 
   const resolveProviderEnvOverrides = async (providerId: string) => {

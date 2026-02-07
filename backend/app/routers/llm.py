@@ -56,7 +56,7 @@ def require_auth(request: Request):
 
 
 class LlmTestPayload(BaseModel):
-    role: str
+    role: Optional[str] = None
     provider_id: Optional[str] = None
     model: Optional[str] = None
     suites: Optional[list[str]] = None
@@ -187,18 +187,31 @@ def llm_test(request: Request, payload: LlmTestPayload) -> Dict[str, Any]:
     state = get_state(request)
     cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
     config = llm_config.load_llm_config(state.settings.workspace, cache_root, settings=state.settings)
-    role = payload.role.strip().lower()
-    role_cfg = config.get("roles", {}).get(role)
-    if not isinstance(role_cfg, dict):
-        raise HTTPException(status_code=404, detail="role not configured")
-    provider_id = payload.provider_id or role_cfg.get("provider_id")
-    model = payload.model or role_cfg.get("model")
-    if not provider_id or not model:
-        raise HTTPException(status_code=400, detail="provider_id/model required")
-    suites = payload.suites or config.get("policies", {}).get("test_required_suites") or []
+    
+    role = payload.role.strip().lower() if payload.role else ""
+    is_connectivity_test = role == "connectivity" or not role
+    
+    provider_id = payload.provider_id
+    model = payload.model
+    
+    if is_connectivity_test:
+        if not provider_id or not model:
+            raise HTTPException(status_code=400, detail="连通性测试需要提供 provider_id 和 model")
+    else:
+        role_cfg = config.get("roles", {}).get(role)
+        if not isinstance(role_cfg, dict):
+            raise HTTPException(status_code=404, detail=f"角色 '{role}' 未配置")
+        if not provider_id:
+            provider_id = role_cfg.get("provider_id")
+        if not model:
+            model = role_cfg.get("model")
+        if not provider_id or not model:
+            raise HTTPException(status_code=400, detail="provider_id/model required")
+    
+    suites = payload.suites or ["connectivity", "response"]
     report = run_llm_tests(
         state.settings,
-        role,
+        role or "connectivity",
         str(provider_id),
         str(model),
         list(suites),
@@ -218,20 +231,33 @@ async def llm_test_stream(request: Request, payload: LlmTestPayload):
     
     This endpoint provides real-time output from LLM tests as they execute,
     allowing the client to see progress for each test suite as it completes.
+    Supports connectivity-only tests without role dependency when role='connectivity'.
     """
     state = get_state(request)
     cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
     config = llm_config.load_llm_config(state.settings.workspace, cache_root, settings=state.settings)
-    role = payload.role.strip().lower()
-    role_cfg = config.get("roles", {}).get(role)
-    if not isinstance(role_cfg, dict):
-        raise HTTPException(status_code=404, detail="role not configured")
-    provider_id = payload.provider_id or role_cfg.get("provider_id")
-    model = payload.model or role_cfg.get("model")
-    if not provider_id or not model:
-        raise HTTPException(status_code=400, detail="provider_id/model required")
-    suites = payload.suites or config.get("policies", {}).get("test_required_suites") or []
     
+    role = payload.role.strip().lower() if payload.role else ""
+    is_connectivity_test = role == "connectivity" or not role
+    
+    provider_id = payload.provider_id
+    model = payload.model
+    
+    if is_connectivity_test:
+        if not provider_id or not model:
+            raise HTTPException(status_code=400, detail="连通性测试需要提供 provider_id 和 model")
+    else:
+        role_cfg = config.get("roles", {}).get(role)
+        if not isinstance(role_cfg, dict):
+            raise HTTPException(status_code=404, detail=f"角色 '{role}' 未配置")
+        if not provider_id:
+            provider_id = role_cfg.get("provider_id")
+        if not model:
+            model = role_cfg.get("model")
+        if not provider_id or not model:
+            raise HTTPException(status_code=400, detail="provider_id/model required")
+    
+    suites = payload.suites or ["connectivity", "response"]
     run_id = f"test-{uuid4().hex[:12]}"
     
     async def event_generator():
@@ -241,7 +267,7 @@ async def llm_test_stream(request: Request, payload: LlmTestPayload):
             try:
                 result = await run_llm_tests_streaming(
                     state.settings,
-                    role,
+                    role or "connectivity",
                     str(provider_id),
                     str(model),
                     list(suites),

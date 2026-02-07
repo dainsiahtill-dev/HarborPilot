@@ -347,6 +347,37 @@ export class UnifiedLlmDataManagerV2 {
     });
   }
 
+  /** Update connectivity test results */
+  updateConnectivityResult(key: string, result: import('./canonicalState').ConnectivityResult): void {
+    this.applyUpdates({
+      connectivity: {
+        ...this.state.connectivity,
+        results: {
+          ...this.state.connectivity.results,
+          [key]: result,
+        },
+        lastTestedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  /** Get connectivity result by key */
+  getConnectivityResult(key: string): import('./canonicalState').ConnectivityResult | undefined {
+    return this.state.connectivity.results[key];
+  }
+
+  /** Clear connectivity result by key */
+  clearConnectivityResult(key: string): void {
+    const results = { ...this.state.connectivity.results };
+    delete results[key];
+    this.applyUpdates({
+      connectivity: {
+        ...this.state.connectivity,
+        results,
+      },
+    });
+  }
+
   // === Provider Operations ===
 
   addProvider(entity: ProviderEntity): void {

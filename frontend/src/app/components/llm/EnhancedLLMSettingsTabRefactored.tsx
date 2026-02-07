@@ -684,7 +684,6 @@ function EnhancedLLMSettingsTabInner({
             events={events}
             status={testPanel.status}
             onClose={closeTestPanel}
-            onRunTest={() => handleTestProvider(testPanel.selectedProviderId!)}
             onCancel={onCancelTestProvider || (() => {})}
           />,
           panelHostRef.current

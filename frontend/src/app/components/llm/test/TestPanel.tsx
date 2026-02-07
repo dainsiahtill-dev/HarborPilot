@@ -1,18 +1,28 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Loader2, PlayCircle } from 'lucide-react';
 import type { SimpleProvider } from '../types';
 import type { TestEvent, TestEventType } from './types';
 import { TerminalOutput } from './TerminalOutput';
 import { TestPanelHeader } from './TestPanelHeader';
+import { useTestStream } from './hooks/useTestStream';
 
 interface TestPanelProps {
   provider: SimpleProvider;
-  events: TestEvent[];
-  status: 'idle' | 'running' | 'success' | 'failed';
+  events?: TestEvent[]; // 静态事件数组（可选，用于兼容性）
+  status?: 'idle' | 'running' | 'success' | 'failed';
   onClose: () => void;
-  onRunTest: () => void;
   onCancel?: () => void;
+  // 测试完成回调（包含结果）
+  onTestComplete?: (result: { success: boolean; events: TestEvent[] }) => void;
+  // 用于 SSE 流式测试的配置
+  role?: string;
+  apiKey?: string | null;
+  testLevel?: string;
+  evaluationMode?: string;
+  suites?: string[];
+  // 是否自动开始测试（默认 false，需要用户手动点击）
+  autoStart?: boolean;
 }
 
 const EVENT_PREFIX: Record<TestEventType, string> = {
@@ -40,12 +50,36 @@ const sanitizeFilename = (value: string) => (value || 'session').replace(/[^A-Za
 
 export function TestPanel({
   provider,
-  events,
-  status,
+  events: externalEvents = [],
+  status: externalStatus,
   onClose,
-  onRunTest,
-  onCancel,
+  onCancel: externalOnCancel,
+  onTestComplete,
+  role = 'connectivity',
+  apiKey,
+  testLevel = 'quick',
+  evaluationMode = 'provider',
+  suites = ['connectivity', 'response', 'qualification'],
+  autoStart = false,
 }: TestPanelProps) {
+  // 内部事件状态 - 用于 SSE 流式输出
+  const [events, setEvents] = useState<TestEvent[]>(externalEvents);
+  const [internalStatus, setInternalStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
+
+  // Sync external events when they change (for external test control)
+  useEffect(() => {
+    if (externalEvents.length > 0) {
+      setEvents(externalEvents);
+    } else if (externalStatus === 'idle' && internalStatus === 'idle') {
+      // Only reset if both are idle (new session)
+      setEvents([]);
+    }
+  }, [externalEvents, externalStatus, internalStatus]);
+  
+  // 状态优先级：内部流式状态 > 外部控制状态
+  // 当流式测试完成时，使用内部状态；否则使用外部状态
+  const hasInternalResult = internalStatus === 'success' || internalStatus === 'failed';
+  const status = hasInternalResult ? internalStatus : (externalStatus ?? internalStatus);
   const running = status === 'running';
   const statusLabel =
     status === 'idle'
@@ -55,6 +89,96 @@ export function TestPanel({
         : status === 'success'
           ? '成功'
           : '失败';
+  
+  // SSE 流式测试回调 - 使用 useCallback 保持稳定引用
+  const handleEvent = useCallback((event: TestEvent) => {
+    console.log('[TestPanel] handleEvent:', event);
+    setEvents((prev) => [...prev, event]);
+  }, []);
+  
+  const handleSuiteStart = useCallback((suite: string) => {
+    console.log(`Starting suite: ${suite}`);
+  }, []);
+  
+  const handleSuiteComplete = useCallback((suite: string, result: { ok: boolean }) => {
+    console.log(`Suite ${suite}: ${result.ok ? 'PASS' : 'FAIL'}`);
+  }, []);
+  
+  const handleComplete = useCallback(() => {
+    setInternalStatus('success');
+    onTestComplete?.({ success: true, events });
+  }, [events, onTestComplete]);
+  
+  const handleError = useCallback(() => {
+    setInternalStatus('failed');
+    onTestComplete?.({ success: false, events });
+  }, [events, onTestComplete]);
+  
+  // SSE 流式测试 Hook
+  const { isStreaming, startStream, stopStream } = useTestStream({
+    onEvent: handleEvent,
+    onSuiteStart: handleSuiteStart,
+    onSuiteComplete: handleSuiteComplete,
+    onComplete: handleComplete,
+    onError: handleError,
+  });
+
+
+
+  // 处理测试启动
+  const handleRunTest = useCallback(() => {
+    console.log('[TestPanel] handleRunTest called');
+    // 清空之前的事件
+    setEvents([]);
+    setInternalStatus('running');
+    
+    // 🚀 立即添加启动事件，给用户即时反馈
+    const now = new Date().toISOString();
+    setEvents([
+      {
+        type: 'stdout',
+        timestamp: now,
+        content: `🚀 正在启动对 ${provider.name} 的测试...`,
+      },
+      {
+        type: 'stdout',
+        timestamp: now,
+        content: `📡 正在连接到测试服务器...`,
+      },
+    ]);
+    
+    // 启动 SSE 流式测试（使用 useTestStream hook 处理所有事件）
+    console.log('[TestPanel] Calling startStream');
+    startStream({
+      role,
+      providerId: provider.id,
+      model: provider.modelId || 'default',
+      suites,
+      testLevel,
+      evaluationMode,
+      apiKey,
+    });
+    
+    // 注意：不调用 externalOnRunTest，避免双重请求
+    // useTestStream 会通过 onEvent 回调更新 events 状态
+  }, [provider, role, suites, testLevel, evaluationMode, apiKey, startStream]);
+
+  // autoStart 控制是否自动开始测试
+  // 当 autoStart 从 false 变为 true 时，自动触发测试
+  useEffect(() => {
+    if (autoStart && internalStatus === 'idle') {
+      console.log('[TestPanel] autoStart triggered, starting test...');
+      handleRunTest();
+    }
+  }, [autoStart, internalStatus, handleRunTest]);
+
+  // 处理取消
+  const handleCancel = useCallback(() => {
+    stopStream();
+    setInternalStatus('idle');
+    externalOnCancel?.();
+  }, [stopStream, externalOnCancel]);
+  
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -190,8 +314,8 @@ export function TestPanel({
             <button
               type="button"
               onClick={() => {
-                if (running && onCancel) {
-                  onCancel();
+                if (running) {
+                  handleCancel();
                 } else {
                   onClose();
                 }
@@ -203,7 +327,7 @@ export function TestPanel({
             </button>
             <button
               type="button"
-              onClick={onRunTest}
+              onClick={handleRunTest}
               disabled={running}
               className="px-4 py-2 text-xs bg-emerald-500/80 hover:bg-emerald-500 text-white rounded disabled:opacity-60 flex items-center gap-1"
             >

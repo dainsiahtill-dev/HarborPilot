@@ -31,6 +31,10 @@ export type {
   UIState,
   AsyncOperationState,
   
+  // Connectivity types
+  ConnectivityResult,
+  ConnectivityState,
+  
   // Canonical state
   LlmSettingsState,
 } from './canonicalState';

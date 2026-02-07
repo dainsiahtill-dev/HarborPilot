@@ -2,7 +2,7 @@ import { getBackendInfo } from '../../../../api';
 import type { TestEvent } from '../test/types';
 
 interface StreamTestOptions {
-  role: string;
+  role?: string | null;
   providerId: string;
   model: string;
   suites?: string[];
@@ -81,7 +81,7 @@ export async function runStreamingTest(options: StreamTestOptions): Promise<Test
         ...(backendInfo.token ? { Authorization: `Bearer ${backendInfo.token}` } : {}),
       },
       body: JSON.stringify({
-        role,
+        role: role || 'connectivity',
         provider_id: providerId,
         model,
         suites,

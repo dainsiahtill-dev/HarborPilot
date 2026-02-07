@@ -10,6 +10,7 @@ import type { ConnectivityStatus } from '../state';
 import { useProviderContext, useIsProviderExpanded } from '../state';
 import type { SimpleProviderStrict } from '../types/strict';
 import { isCLIProviderType, requiresApiKey } from '../types';
+import { CyberpunkCard, CyberpunkGlitchText } from '../visual/CyberpunkTestAnimation';
 
 interface ProviderCardProps {
   providerId: string;
@@ -142,29 +143,26 @@ export function ProviderCard({
   const testDisabled = actionsDisabled;
 
   return (
-    <div
-      className={`rounded-xl p-4 border transition-all ${statusStyles.border} ${statusStyles.bg} ${statusStyles.glow}`}
-    >
+    <CyberpunkCard status={connectivityStatus} className="p-4">
       {/* Compact View */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`size-2 rounded-full ${statusStyles.dot} animate-pulse`} />
-          <div>
-            <h4 className="text-sm font-semibold text-text-main">
-              {provider.name || providerInfo?.name || providerId}
-            </h4>
-            <div className="flex items-center gap-2 text-[10px] text-text-dim">
-              <span className="font-mono">{provider.model || 'default'}</span>
-              <span className={`${
-                costClass.toLowerCase() === 'local' 
-                  ? 'text-green-400' 
-                  : costClass.toLowerCase() === 'fixed' 
-                    ? 'text-blue-400' 
-                    : 'text-purple-400'
-              }`}>
-                {costClass}
-              </span>
-            </div>
+          <CyberpunkGlitchText 
+            text={provider.name || providerInfo?.name || providerId} 
+            status={connectivityStatus}
+            className="text-sm font-semibold"
+          />
+          <div className="flex items-center gap-2 text-[10px] text-text-dim">
+            <span className="font-mono">{provider.model || 'default'}</span>
+            <span className={`${
+              costClass.toLowerCase() === 'local' 
+                ? 'text-green-400' 
+                : costClass.toLowerCase() === 'fixed' 
+                  ? 'text-blue-400' 
+                  : 'text-purple-400'
+            }`}>
+              {costClass}
+            </span>
           </div>
         </div>
 
@@ -189,8 +187,7 @@ export function ProviderCard({
 
           {/* Connectivity Status Badge */}
           <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${statusStyles.border} bg-white/5`}>
-            <span className={`size-1.5 rounded-full ${statusStyles.dot}`} />
-            <span className={`text-[10px] ${statusStyles.text}`}>{connectivityLabel}</span>
+            <CyberpunkGlitchText text={connectivityLabel} status={connectivityStatus} className="text-[10px]" />
           </div>
 
           <button
@@ -305,6 +302,6 @@ export function ProviderCard({
           />
         </div>
       )}
-    </div>
+    </CyberpunkCard>
   );
 }

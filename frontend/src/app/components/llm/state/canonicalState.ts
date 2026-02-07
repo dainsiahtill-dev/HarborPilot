@@ -145,6 +145,31 @@ export interface AsyncOperationState {
 }
 
 // ============================================================================
+// Connectivity Test Results (Persisted)
+// ============================================================================
+
+/** Connectivity test result */
+export interface ConnectivityResult {
+  ok: boolean;
+  timestamp: string;
+  latencyMs?: number;
+  error?: string;
+  model?: string;
+  sourceRole?: string;
+  thinking?: {
+    supportsThinking?: boolean;
+    confidence?: number;
+    format?: string;
+  };
+}
+
+/** Connectivity results storage - keyed by "role:providerId" */
+export interface ConnectivityState {
+  results: Record<string, ConnectivityResult>;
+  lastTestedAt?: string;
+}
+
+// ============================================================================
 // Canonical State - Single Source of Truth
 // ============================================================================
 
@@ -171,6 +196,9 @@ export interface LlmSettingsState {
   
   // === Async Operations (Transient) ===
   asyncOps: AsyncOperationState;
+  
+  // === Connectivity Results (Persisted) ===
+  connectivity: ConnectivityState;
   
   // === System ===
   version: number; // State schema version for migrations
@@ -210,6 +238,9 @@ export function createInitialState(): LlmSettingsState {
       isSaving: false,
     },
     asyncOps: {},
+    connectivity: {
+      results: {},
+    },
     version: 1,
     lastUpdated: new Date().toISOString(),
   };
@@ -252,6 +283,28 @@ export const canonicalSelectors = {
   
   getVisualViewport: (state: LlmSettingsState): VisualViewport =>
     state.visualGraph.viewport,
+  
+  // Connectivity selectors
+  getConnectivityResult: (state: LlmSettingsState, key: string): ConnectivityResult | undefined =>
+    state.connectivity.results[key],
+  
+  getAllConnectivityResults: (state: LlmSettingsState): Record<string, ConnectivityResult> =>
+    state.connectivity.results,
+  
+  getConnectivityResultForProvider: (state: LlmSettingsState, providerId: string, roleId?: string): ConnectivityResult | undefined => {
+    // Try role-specific key first
+    if (roleId) {
+      const roleResult = state.connectivity.results[`${roleId}:${providerId}`];
+      if (roleResult) return roleResult;
+    }
+    // Fall back to any key with this provider
+    for (const [key, result] of Object.entries(state.connectivity.results)) {
+      if (key.endsWith(`:${providerId}`)) {
+        return result;
+      }
+    }
+    return undefined;
+  },
 };
 
 // ============================================================================

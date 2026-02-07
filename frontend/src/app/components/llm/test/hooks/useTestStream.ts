@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getBackendInfo } from '../../../../api';
+import { getBackendInfo } from '@/api';
 import type { TestEvent } from '../../test/types';
 
 export interface TestStreamEvent {
@@ -65,9 +65,20 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
     apiKey?: string | null;
     envOverrides?: Record<string, string>;
   }) => {
-    if (isStreaming) return;
+    if (isStreaming) {
+      console.log('[useTestStream] Already streaming, ignoring');
+      return;
+    }
 
+    console.log('[useTestStream] Starting stream', payload);
     setIsStreaming(true);
+
+    // 立即通知开始
+    onEvent?.({
+      type: 'stdout',
+      timestamp: new Date().toISOString(),
+      content: '🔌 正在建立流式连接...',
+    });
 
     abortControllerRef.current = new AbortController();
 
@@ -76,6 +87,12 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
       if (!backendInfo.baseUrl) {
         throw new Error('Backend baseUrl missing');
       }
+
+      onEvent?.({
+        type: 'stdout',
+        timestamp: new Date().toISOString(),
+        content: `📍 服务器: ${backendInfo.baseUrl}`,
+      });
 
       const response = await fetch(`${backendInfo.baseUrl}/llm/test/stream`, {
         method: 'POST',
@@ -101,6 +118,12 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
         throw new Error(errorText || `HTTP ${response.status}`);
       }
 
+      onEvent?.({
+        type: 'stdout',
+        timestamp: new Date().toISOString(),
+        content: '✅ 连接成功，接收数据中...',
+      });
+
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error('No response body');
@@ -112,11 +135,16 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
       while (true) {
         const { done, value } = await reader.read();
 
-        if (done) break;
+        if (done) {
+          console.log('[useTestStream] Stream done');
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        console.log('[useTestStream] Chunk:', chunk);
+        buffer += chunk;
 
-        const lines = buffer.split('\n');
+        const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() || '';
 
         let currentEvent: string | null = null;
@@ -130,6 +158,7 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
           } else if (line === '' && currentEvent) {
             try {
               const data = JSON.parse(currentData);
+              console.log('[useTestStream] Event:', currentEvent, data);
 
               switch (currentEvent) {
                 case 'start':
@@ -193,6 +222,17 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
                   onError?.(data.error || 'Unknown error');
                   break;
 
+                case 'debug':
+                  if (data.message) {
+                    onEvent?.({
+                      type: 'stdout',
+                      timestamp: new Date().toISOString(),
+                      content: `[DEBUG] ${data.message}`,
+                      details: data.details,
+                    });
+                  }
+                  break;
+
                 case 'ping':
                   break;
 
@@ -203,8 +243,8 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
                     content: `[${currentEvent}] ${JSON.stringify(data)}`,
                   });
               }
-            } catch {
-              // Invalid JSON, ignore
+            } catch (parseError) {
+              console.log('[useTestStream] Parse error:', parseError);
             }
 
             currentEvent = null;
@@ -217,7 +257,7 @@ export function useTestStream(options: UseTestStreamOptions = {}) {
         onEvent?.({
           type: 'error',
           timestamp: new Date().toISOString(),
-          content: error.message,
+          content: `❌ ${error.message}`,
         });
         onError?.(error.message);
       }

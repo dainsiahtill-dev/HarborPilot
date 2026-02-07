@@ -3,22 +3,124 @@
  * 提供统一的状态管理和 actions
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { 
-  ProviderState, 
-  ProviderAction, 
+import type {
+  ProviderState,
+  ProviderAction,
   ConnectivityResultStrict,
   TestStatus,
   ConnectivityStatus,
 } from './providerReducer';
 import type { RoleIdStrict, InterviewSuiteReportStrict } from '../types/strict';
-import { 
-  providerReducer, 
-  initialProviderState, 
-  ProviderActions 
+import {
+  providerReducer,
+  initialProviderState,
+  ProviderActions
 } from './providerReducer';
 import type { ProviderConfig, UnifiedLlmConfig } from '../types';
+
+// ============================================================================
+// Persistence Constants
+// ============================================================================
+
+const STORAGE_KEYS = {
+  PROVIDER_TEST_STATUS: 'llm_provider_test_status',
+  CONNECTIVITY_RESULTS: 'llm_connectivity_results',
+} as const;
+
+const PROVIDER_STATUS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CONNECTIVITY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface PersistedProviderStatus {
+  status: 'success' | 'failed';
+  timestamp: number;
+  model?: string;
+}
+
+// ============================================================================
+// Persistence Utilities
+// ============================================================================
+
+function restoreProviderTestStatus(): Record<string, ConnectivityStatus> {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.PROVIDER_TEST_STATUS);
+    if (!stored) return {};
+
+    const parsed: Record<string, PersistedProviderStatus> = JSON.parse(stored);
+    const now = Date.now();
+    const restored: Record<string, ConnectivityStatus> = {};
+
+    Object.entries(parsed).forEach(([providerId, data]) => {
+      if (now - data.timestamp <= PROVIDER_STATUS_TTL_MS) {
+        restored[providerId] = data.status;
+      }
+    });
+
+    return restored;
+  } catch {
+    return {};
+  }
+}
+
+function restoreConnectivityResults(): Map<string, ConnectivityResultStrict> {
+  if (typeof window === 'undefined') return new Map();
+
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.CONNECTIVITY_RESULTS);
+    if (!stored) return new Map();
+
+    const parsed: Record<string, ConnectivityResultStrict> = JSON.parse(stored);
+    const now = Date.now();
+    const restored = new Map<string, ConnectivityResultStrict>();
+
+    Object.entries(parsed).forEach(([key, result]) => {
+      const timestamp = new Date(result.timestamp).getTime();
+      if (now - timestamp <= CONNECTIVITY_TTL_MS) {
+        restored.set(key, result);
+      }
+    });
+
+    return restored;
+  } catch {
+    return new Map();
+  }
+}
+
+function persistProviderTestStatus(status: Record<string, ConnectivityStatus>): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const toPersist: Record<string, PersistedProviderStatus> = {};
+    Object.entries(status).forEach(([providerId, status]) => {
+      if (status === 'success' || status === 'failed') {
+        toPersist[providerId] = {
+          status,
+          timestamp: Date.now(),
+        };
+      }
+    });
+    localStorage.setItem(STORAGE_KEYS.PROVIDER_TEST_STATUS, JSON.stringify(toPersist));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function persistConnectivityResults(results: Map<string, ConnectivityResultStrict>): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const toPersist: Record<string, ConnectivityResultStrict> = {};
+    results.forEach((value, key) => {
+      toPersist[key] = value;
+    });
+    localStorage.setItem(STORAGE_KEYS.CONNECTIVITY_RESULTS, JSON.stringify(toPersist));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 // ============================================================================
 // Context Type
@@ -88,7 +190,10 @@ interface ProviderContextValue {
 
   // Actions - Unified Config
   updateUnifiedConfig: (config: UnifiedLlmConfig) => void;
-  
+
+  // Actions - Persistence
+  clearPersistedStatus: () => void;
+
   // Direct dispatch (for complex cases)
   dispatch: React.Dispatch<ProviderAction>;
 }
@@ -108,14 +213,27 @@ interface ProviderContextProviderProps {
   initialState?: Partial<ProviderState>;
 }
 
-export function ProviderContextProvider({ 
-  children, 
-  initialState 
+export function ProviderContextProvider({
+  children,
+  initialState
 }: ProviderContextProviderProps) {
+  const restoredStatus = useMemo(() => restoreProviderTestStatus(), []);
+  const restoredConnectivity = useMemo(() => restoreConnectivityResults(), []);
+
   const [state, dispatch] = useReducer(
     providerReducer,
-    { ...initialProviderState, ...initialState }
+    {
+      ...initialProviderState,
+      ...initialState,
+      providerTestStatus: restoredStatus,
+      connectivityResults: restoredConnectivity,
+    }
   );
+
+  useEffect(() => {
+    persistProviderTestStatus(state.providerTestStatus);
+    persistConnectivityResults(state.connectivityResults);
+  }, [state.providerTestStatus, state.connectivityResults]);
 
   // ==========================================================================
   // Selection Actions
@@ -285,6 +403,19 @@ export function ProviderContextProvider({
   }, []);
 
   // ==========================================================================
+  // Persistence Actions
+  // ==========================================================================
+  const clearPersistedStatus = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(STORAGE_KEYS.PROVIDER_TEST_STATUS);
+      localStorage.removeItem(STORAGE_KEYS.CONNECTIVITY_RESULTS);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // ==========================================================================
   // Memoized Value
   // ==========================================================================
   const value = useMemo<ProviderContextValue>(
@@ -326,6 +457,7 @@ export function ProviderContextProvider({
       setError,
       clearError,
       updateUnifiedConfig,
+      clearPersistedStatus,
       dispatch,
     }),
     [
@@ -366,6 +498,7 @@ export function ProviderContextProvider({
       setError,
       clearError,
       updateUnifiedConfig,
+      clearPersistedStatus,
       dispatch,
     ]
   );
@@ -466,3 +599,5 @@ export function useGlobalPendingChangesCount(): number {
   const { state } = useProviderContext();
   return state.pendingChanges.size;
 }
+
+export { ProviderActions };

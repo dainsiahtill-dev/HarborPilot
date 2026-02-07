@@ -139,10 +139,18 @@ function mapCanonicalToLegacyState(
   const providers = canonicalSelectors.getAllProviders(canonical);
   const roleAssignments = canonicalSelectors.getAllRoleAssignments(canonical);
   
-  // Build provider test status map
+  // Build provider test status map from canonical state
+  // Priority: 1. Connectivity results, 2. Provider entity status, 3. 'unknown'
   const providerTestStatus: Record<string, ConnectivityStatus> = {};
   providers.forEach(p => {
-    providerTestStatus[p.id] = p.status as ConnectivityStatus;
+    // Check connectivity results first (more specific, includes role)
+    const connResult = canonicalSelectors.getConnectivityResultForProvider(canonical, p.id);
+    if (connResult) {
+      providerTestStatus[p.id] = connResult.ok ? 'success' : 'failed';
+    } else {
+      // Fall back to provider entity status
+      providerTestStatus[p.id] = (p.status as ConnectivityStatus) || 'unknown';
+    }
   });
   
   // Build expanded providers set from UI state
@@ -178,7 +186,14 @@ function mapCanonicalToLegacyState(
     
     // Status maps
     providerTestStatus,
-    connectivityResults: legacyState?.connectivityResults || new Map(),
+    connectivityResults: (() => {
+      // Convert canonical connectivity results to Map format for legacy compatibility
+      const map = new Map<string, ConnectivityResultStrict>();
+      Object.entries(canonical.connectivity.results).forEach(([key, result]) => {
+        map.set(key, result as ConnectivityResultStrict);
+      });
+      return map;
+    })(),
     connectivityRunning: !!canonical.asyncOps.testingProviderId,
     connectivityRunningKey: canonical.asyncOps.testingProviderId || null,
     
@@ -374,6 +389,7 @@ export function CanonicalBridgeProvider({
   const completeConnectivityTest = useCallback((key: string, result: ConnectivityResultStrict) => {
     const providerId = key.split(':')[0];
     if (providerId) {
+      // Update provider entity status
       manager.updateProvider(providerId, { 
         status: result.ok ? 'ready' : 'failed',
         lastError: result.error,
@@ -381,6 +397,16 @@ export function CanonicalBridgeProvider({
           at: new Date().toISOString(),
           latencyMs: result.latencyMs,
         }
+      });
+      // Also save to canonical connectivity state for persistence
+      manager.updateConnectivityResult(key, {
+        ok: result.ok,
+        timestamp: result.timestamp,
+        latencyMs: result.latencyMs,
+        error: result.error,
+        model: result.model,
+        sourceRole: result.sourceRole,
+        thinking: result.thinking,
       });
     }
   }, [manager]);

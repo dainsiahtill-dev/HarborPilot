@@ -21,7 +21,7 @@ import type { RoleIdStrict, InterviewSuiteReportStrict } from './types/strict';
 import type { TestEvent, TestResult } from './test/types';
 import type { VisualGraphConfig, VisualGraphStatus } from './visual/types/visual';
 import { UnifiedLlmDataManager } from './state/UnifiedLlmDataManager';
-import { useProviderContext } from './state/ProviderContext';
+import { useProviderContext, ProviderActions } from './state/ProviderContext';
 import type { ListViewData, ListViewState } from './adapters/ListViewAdapter';
 import type { VisualViewData, VisualViewState } from './adapters/VisualViewAdapter';
 import type { DeepTestViewData, DeepTestViewState } from './adapters/DeepTestViewAdapter';
@@ -158,7 +158,6 @@ interface EnhancedLLMSettingsTabProps {
     onEvent?: (event: TestEvent) => void
   ) => Promise<Record<string, unknown> | null>;
   onRunConnectivityTest: (
-    role: RoleId,
     providerId: string,
     model: string
   ) => Promise<Record<string, unknown> | null>;
@@ -507,7 +506,8 @@ export function EnhancedLLMSettingsTab({
     completeInterview,
     failInterview,
     startConnectivityTest,
-    completeConnectivityTest
+    completeConnectivityTest,
+    dispatch
   } = useProviderContext();
 
   // Unified Data Manager
@@ -549,7 +549,6 @@ export function EnhancedLLMSettingsTab({
   const [selectedTestProviderId, setSelectedTestProviderId] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testCancelled, setTestCancelled] = useState(false);
-  const [providerTestStatus, setProviderTestStatus] = useState<Record<string, ConnectivityStatus>>({});
   const [interviewPanelOpen, setInterviewPanelOpen] = useState(false);
   const [interviewPanelStatus, setInterviewPanelStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const interviewCancelledRef = useRef(false);
@@ -880,7 +879,7 @@ export function EnhancedLLMSettingsTab({
     }
     setTestCancelled(true);
     if (selectedTestProviderId) {
-      setProviderTestStatus((prev) => ({ ...prev, [selectedTestProviderId]: 'unknown' }));
+      dispatch(ProviderActions.setProviderTestStatus(selectedTestProviderId, 'unknown'));
     }
     addEvent({
       type: 'error',
@@ -922,7 +921,7 @@ export function EnhancedLLMSettingsTab({
 
   const runSelectedTest = async () => {
     if (!selectedTestProvider || !onTestProvider) return;
-    setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: 'running' }));
+    dispatch(ProviderActions.setProviderTestStatus(selectedTestProvider.id, 'running'));
     setTestStatus('running');
     setTestCancelled(false);
     resetEvents();
@@ -936,10 +935,7 @@ export function EnhancedLLMSettingsTab({
         addEvent(event);
       });
       if (!result) {
-        setProviderTestStatus((prev) => ({
-          ...prev,
-          [selectedTestProvider.id]: testCancelled ? 'unknown' : 'failed'
-        }));
+        dispatch(ProviderActions.setProviderTestStatus(selectedTestProvider.id, testCancelled ? 'unknown' : 'failed'));
         setTestStatus('failed');
         const hasErrorEvent = events.some((event) => event.type === 'error');
         const fallbackMessage = testCancelled ? '测试已取消' : '测试未返回结果';
@@ -961,17 +957,10 @@ export function EnhancedLLMSettingsTab({
         : ready
           ? 'success'
           : 'failed';
-      setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: connectivityStatus }));
-      
-      // Enhanced persistence: Save success status to multiple storage mechanisms
+      dispatch(ProviderActions.setProviderTestStatus(selectedTestProvider.id, connectivityStatus));
+
+      // Status is now persisted automatically by ProviderContext
       if (ready) {
-        // 1. Update immediate cache for current session
-        previousValidStatus.current = {
-          ...previousValidStatus.current,
-          [selectedTestProvider.id]: 'success'
-        };
-        
-        // 2. Save to connectivity results for persistence
         const key = `${selectedRole}::${selectedTestProvider.id}`;
         const modelId = resolveModelForSelection(selectedRole, selectedTestProvider.id);
         const connectivityResult: ConnectivityResult = {
@@ -979,20 +968,8 @@ export function EnhancedLLMSettingsTab({
           timestamp: new Date().toISOString(),
           model: modelId || 'unknown'
         };
-        
+
         completeConnectivityTest(key, connectivityResult);
-        
-        // 3. Save to localStorage for cross-session persistence
-        try {
-          const storageKey = `llm_provider_status_${selectedTestProvider.id}`;
-          localStorage.setItem(storageKey, JSON.stringify({
-            status: 'success',
-            timestamp: Date.now(),
-            model: modelId
-          }));
-        } catch (e) {
-          console.warn('Failed to persist provider status to localStorage:', e);
-        }
       }
       setTestStatus(ready ? 'success' : 'failed');
       addEvent({
@@ -1003,7 +980,7 @@ export function EnhancedLLMSettingsTab({
     } catch (err) {
       const message = err instanceof Error ? err.message : '测试失败';
       if (selectedTestProvider) {
-        setProviderTestStatus((prev) => ({ ...prev, [selectedTestProvider.id]: 'failed' }));
+        dispatch(ProviderActions.setProviderTestStatus(selectedTestProvider.id, 'failed'));
       }
       setTestStatus('failed');
       if (!shouldSkipErrorEvent(err)) {
@@ -1016,58 +993,23 @@ export function EnhancedLLMSettingsTab({
     }
   };
 
-  // Cache previous valid statuses to prevent flickering to 'unknown' during transient updates
-  const previousValidStatus = useRef<Record<string, ConnectivityStatus>>({});
-
-  // Restore persisted statuses from localStorage on component mount
-  useEffect(() => {
-    if (!llmConfig) return;
-    
-    const restored: Record<string, ConnectivityStatus> = {};
-    const providers = llmConfig.providers || {};
-    
-    Object.keys(providers).forEach(providerId => {
-      const storageKey = `llm_provider_status_${providerId}`;
-      const stored = localStorage.getItem(storageKey);
-      
-      if (stored) {
-        try {
-          const data = JSON.parse(stored);
-          // Only restore statuses from the last 24 hours
-          if (Date.now() - data.timestamp < 24 * 60 * 60 * 1000) {
-            restored[providerId] = data.status;
-          } else {
-            // Clean up old entries
-            localStorage.removeItem(storageKey);
-          }
-        } catch (e) {
-          console.warn(`Failed to restore status for provider ${providerId}:`, e);
-          localStorage.removeItem(storageKey);
-        }
-      }
-    });
-    
-    // Update cache with restored statuses
-    previousValidStatus.current = { ...previousValidStatus.current, ...restored };
-  }, [llmConfig]);
-
   const providerConnectivityStatus = useMemo(() => {
     const status: Record<string, ConnectivityStatus> = {};
     const providersStatus = llmStatus?.providers;
-    
+
     // 简化状态计算：直接从后端状态获取连通状态
     if (providersStatus) {
       Object.entries(providersStatus).forEach(([providerId, providerStatus]) => {
         if (!providerStatus || typeof providerStatus !== 'object') {
           return;
         }
-        
+
         // 优先使用connectivity.ok，其次使用ready
         const suites = providerStatus.suites as Record<string, unknown> | undefined;
         const connectivity = suites?.connectivity as Record<string, unknown> | undefined;
-        
+
         let finalStatus: ConnectivityStatus = 'unknown';
-        
+
         // 方法1: 从connectivity.suites获取
         if (connectivity && typeof connectivity.ok === 'boolean') {
           finalStatus = connectivity.ok ? 'success' : 'failed';
@@ -1076,49 +1018,13 @@ export function EnhancedLLMSettingsTab({
         else if (typeof providerStatus.ready === 'boolean') {
           finalStatus = providerStatus.ready ? 'success' : 'failed';
         }
-        
-        // 直接设置状态，不依赖复杂的缓存逻辑
+
         status[providerId] = finalStatus;
       });
     }
 
-    // 简化的缓存合并：只保留当前有效的状态
-    Object.entries(status).forEach(([providerId, newStatus]) => {
-      if (newStatus !== 'unknown') {
-        previousValidStatus.current[providerId] = newStatus;
-      }
-    });
-
-    // 返回合并后的状态（当前状态 + 缓存的有效状态）
-    return { ...previousValidStatus.current, ...status };
+    return status;
   }, [llmStatus]);
-
-  // Add state change monitoring for debugging
-  useEffect(() => {
-    console.log('=== 连通状态调试信息 ===', {
-      timestamp: new Date().toISOString(),
-      providerConnectivityStatus,
-      providerTestStatus,
-      llmStatusProviders: llmStatus?.providers,
-      previousValidStatus: previousValidStatus.current
-    });
-    
-    // 详细分析每个提供商的状态
-    Object.entries(providerConnectivityStatus).forEach(([providerId, status]) => {
-      const localStatus = providerTestStatus[providerId];
-      const backendProvider = llmStatus?.providers?.[providerId];
-      const connectivity = backendProvider?.suites?.connectivity as any;
-      const ready = backendProvider?.ready;
-      
-      console.log(`提供商 ${providerId} 状态分析:`, {
-        finalStatus: status,
-        localTestStatus: localStatus,
-        backendConnectivityOk: connectivity?.ok,
-        backendReady: ready,
-        backendProvider: backendProvider
-      });
-    });
-  }, [providerConnectivityStatus, providerTestStatus, llmStatus]);
 
   // Monitor for status loss during config saves
   useEffect(() => {
@@ -1134,7 +1040,6 @@ export function EnhancedLLMSettingsTab({
     
     if (lostStatusProviders.length > 0) {
       console.warn('Detected lost provider statuses after llmStatus update:', lostStatusProviders);
-      // Status cache will preserve these lost statuses
     }
   }, [llmStatus, providerConnectivityStatus]);
 
@@ -1506,7 +1411,7 @@ export function EnhancedLLMSettingsTab({
     startConnectivityTest(key);
     
     try {
-      const report = await onRunConnectivityTest(roleId, providerId, model);
+      const report = await onRunConnectivityTest(providerId, model);
       const suites = report?.suites as Record<string, unknown> | undefined;
       const reportTimestamp = typeof report?.timestamp === 'string' ? report.timestamp : new Date().toISOString();
       const result =
@@ -1529,30 +1434,29 @@ export function EnhancedLLMSettingsTab({
       };
       completeConnectivityTest(key, result);
     }
-    // finally block is not needed as completeConnectivityTest handles cleanup in reducer
   };
 
   // Helper function to determine connectivity state (简化版)
   const determineConnectivityState = useCallback((providerId: string) => {
-    const localStatus = providerTestStatus[providerId];
+    const contextStatus = providerState.providerTestStatus[providerId];
     const persistedStatus = providerConnectivityStatus[providerId];
-    
-    // 简化优先级：测试中 > 后端状态 > 本地状态
-    if (localStatus === 'running') return 'running';
-    
+
+    // 简化优先级：测试中 > 后端状态 > Context状态
+    if (contextStatus === 'running') return 'running';
+
     // 优先使用后端计算的状态（更可靠）
     if (persistedStatus && persistedStatus !== 'unknown') {
       return persistedStatus;
     }
-    
-    // 其次使用本地测试状态
-    if (localStatus && localStatus !== 'unknown') {
-      return localStatus;
+
+    // 其次使用 Context 测试状态
+    if (contextStatus && contextStatus !== 'unknown') {
+      return contextStatus;
     }
-    
+
     // 最后才fallback到unknown
     return 'unknown';
-  }, [providerTestStatus, providerConnectivityStatus]);
+  }, [providerState.providerTestStatus, providerConnectivityStatus]);
 
   const renderProviderCard = (providerId: string, provider: ProviderConfig) => {
     const providerInfo = getProviderInfo(provider.type || '');
@@ -2223,7 +2127,6 @@ export function EnhancedLLMSettingsTab({
               events={events}
               status={testStatus}
               onClose={closeTestPanel}
-              onRunTest={runSelectedTest}
               onCancel={cancelTestRun}
             />,
             panelHost
@@ -2237,11 +2140,6 @@ export function EnhancedLLMSettingsTab({
               events={interviewEvents}
               status={interviewPanelStatus}
               onClose={closeInterviewPanel}
-              onRunTest={() => {
-                if (selectedRole && selectedProviderId) {
-                  handleStartInterview(selectedRole, selectedProviderId);
-                }
-              }}
               onCancel={cancelInterviewRun}
             />,
             panelHost
