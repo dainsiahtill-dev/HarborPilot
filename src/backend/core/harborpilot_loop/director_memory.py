@@ -87,7 +87,7 @@ def _extract_summary_next(
 def invoke_lancedb_store(db_dir: str, json_path: str, log_path: str) -> Optional[str]:
     if not db_dir or not json_path:
         return "LANCEDB_STORE_MISSING_PATH"
-    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "lancedb_store.py")
+    script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "lancedb_store.py")
     if not os.path.exists(script_path):
         write_loop_warning(log_path, f"LanceDB store script missing: {script_path}")
         return "LANCEDB_STORE_SCRIPT_MISSING"

@@ -1,19 +1,37 @@
-# General
+# =============================================================================
+# HarborPilot .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# General (OS & Editor)
+# -----------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
 *.log
+*.swp
+*.swo
+*~
 
+# -----------------------------------------------------------------------------
 # Environments & Security
+# -----------------------------------------------------------------------------
 .env
+.env.local
+.env.*.local
 .venv/
 env/
 venv/
 langchain_env/
 site-packages/
 
+# -----------------------------------------------------------------------------
 # Python
+# -----------------------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 coverage/
 .coverage
 htmlcov/
@@ -21,34 +39,81 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 
-# Node / JS
-node_modules/
-npm-debug.log
-yarn-error.log
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
+# Python distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# IDEs
+# -----------------------------------------------------------------------------
+# Node / JavaScript
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Frontend (src/frontend/)
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/.vite/
+src/frontend/.turbo/
+
+# -----------------------------------------------------------------------------
+# Electron
+# -----------------------------------------------------------------------------
+src/electron/dist/
+src/electron/out/
+
+# -----------------------------------------------------------------------------
+# IDEs & Tools
+# -----------------------------------------------------------------------------
 .vscode/
 .idea/
 .windsurf/
 .cursor/
 .trae/
 .codex/
+*.sublime-*
 
-# Project Specific
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+playwright-report/
+test-results/
+coverage/
+.nyc_output/
+
+# -----------------------------------------------------------------------------
+# Project Specific - HarborPilot
+# -----------------------------------------------------------------------------
+
+# Agent & Runtime
 .agent/
 .ai-agent/
 .harborpilot/
-# State outputs
+
+# Cache directories
 .*_cache/
+
+# Build outputs
 reports/
-playwright-report/
-test-results/
-docs/temp/
-docs/fixes/
 screenshots/
 
-.env
+# Temporary docs (plan/fixes are ephemeral)
+docs/temp/
+docs/fixes/
 
+# Infrastructure Python cache
+infrastructure/**/__pycache__/
+infrastructure/**/*.pyc
+
+# Backend Python cache (in src/)
+src/backend/**/__pycache__/
+src/backend/**/*.pyc
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.local

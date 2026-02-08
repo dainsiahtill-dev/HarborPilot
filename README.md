@@ -146,10 +146,10 @@ HarborPilot 是一款**单人工具**：
 
 ```bash
 # Windows
-setup_venv.bat
+infrastructure/setup/setup_venv.bat
 
 # macOS / Linux
-bash setup_venv.sh
+bash infrastructure/setup/setup_venv.sh
 ```
 
 > 如果启动时提示缺少 .venv，请先执行上述脚本。
@@ -182,17 +182,17 @@ npm run build
 
 ```bash
 # PM：生成任务合约
-.venv/bin/python backend/scripts/loop-pm.py --workspace /path/to/repo
+.venv/bin/python src/backend/scripts/loop-pm.py --workspace /path/to/repo
 
 # Director：执行任务
-.venv/bin/python backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
+.venv/bin/python src/backend/scripts/loop-director.py --workspace /path/to/repo --iterations 1
 ```
 
 > Windows 请使用 `.venv\\Scripts\\python.exe`。
 
 ### 🧰 故障排除（虚拟环境）
 
-- 启动时提示缺少 `.venv`：先运行 `setup_venv.bat` / `setup_venv.sh`
+- 启动时提示缺少 `.venv`：先运行 `infrastructure/setup/setup_venv.bat` / `infrastructure/setup/setup_venv.sh`
 - 依赖不完整警告：重新执行脚本以补装依赖
 - 想使用系统 Python：设置 `HARBORPILOT_PYTHON` 指向自定义解释器
 
@@ -261,6 +261,38 @@ graph LR
 
 ---
 
+## 📁 项目目录结构
+
+```
+HarborPilot/
+├── docs/                      # 集中式文档
+│   ├── agents/               # Agent 行为规范 (AGENTS_V*.md)
+│   ├── agent/                # Agent 架构与实现文档
+│   ├── architecture/         # 设计文档 (design_system_v2.md)
+│   ├── testing/              # 测试指南 (GUIDE.md)
+│   ├── human/                # 面向用户的文档
+│   ├── product/              # 产品规格与需求
+│   └── temp/                 # 临时计划文档
+├── infrastructure/            # 基础设施与脚本
+│   ├── agent_core/           # Agent 核心工具 (atomic_commit, precision_editor)
+│   ├── scripts/              # 运行脚本 (run-electron.js)
+│   ├── setup/                # 环境设置脚本
+│   └── tools/                # CLI 工具集
+├── src/                       # 源代码
+│   ├── backend/              # FastAPI Python 后端
+│   │   ├── app/              # FastAPI 应用 (routers, services)
+│   │   ├── core/             # 核心逻辑 (harborpilot_loop)
+│   │   ├── scripts/          # 脚本 (loop-pm.py, loop-director.py)
+│   │   ├── services/         # 业务服务
+│   │   └── lancedb_store.py  # LanceDB 记忆存储
+│   ├── frontend/             # React + Vite 前端
+│   │   └── src/              # 前端源代码
+│   └── electron/             # Electron 主进程
+├── tests/                     # 测试套件
+├── package.json               # 项目配置
+└── README.md                  # 本文件
+```
+
 ## 📁 产物与目录结构
 
 默认运行产物输出到（建议可指向 RAMDISK）：`.harborpilot/runtime/`
@@ -283,7 +315,7 @@ graph LR
 
 ## ⚖️ 系统不变量（v2：核心 6 + 修正案 3）
 
-> 这组不变量是 HarborPilot 的"**系统宪法**"。详见 [完整文档](docs/agent/invariants.md)。
+> 这组不变量是 HarborPilot 的"**系统宪法**"。详见 [完整文档](docs/agent/invariants.md) 和 [Agent 行为规范](docs/agents/AGENTS_V25.md)。
 
 | #   | 不变量                       | 一句话说明                                                  |
 | --- | ---------------------------- | ----------------------------------------------------------- |
@@ -642,7 +674,7 @@ MiniMax（Anthropic-compatible）配置示例：
 | [🧠 拟人化设计](docs/agent/anthropomorphic_design.md) | Memory/Reflection/Persona/Glass Mind   | 工程师 |
 | [📖 参考手册](docs/agent/reference.md)                | CLI 参数、工具清单、环境变量、产物索引 | 开发者 |
 | [📄 产品说明书](docs/product/product_spec.md)         | 产品定位、核心优势、行业对比           | 所有人 |
-| [🧪 测试指南](TESTING.md)                             | 测试环境搭建、运行命令                 | 测试   |
+| [🧪 测试指南](docs/testing/GUIDE.md)                  | 测试环境搭建、运行命令                 | 测试   |
 
 ---
 

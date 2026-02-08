@@ -2,8 +2,8 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-const repoRoot = path.join(__dirname, "..");
-const electronMain = path.join(repoRoot, "electron", "main.cjs");
+const repoRoot = path.join(__dirname, "..", "..");
+const electronMain = path.join(repoRoot, "src", "electron", "main.cjs");
 
 function resolveVenvPython() {
   const venvRoot = path.join(repoRoot, ".venv");

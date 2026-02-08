@@ -7,13 +7,13 @@ export default defineConfig({
     test: {
         globals: true,
         environment: 'jsdom',
-        setupFiles: './frontend/src/test/setup.ts',
+        setupFiles: './src/frontend/src/test/setup.ts',
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],
             exclude: [
                 'node_modules/',
-                'frontend/src/test/',
+                'src/frontend/src/test/',
                 '**/*.test.{ts,tsx}',
                 '**/*.spec.{ts,tsx}',
             ],
@@ -21,7 +21,7 @@ export default defineConfig({
     },
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, './frontend/src'),
+            '@': path.resolve(__dirname, './src/frontend/src'),
         },
     },
 });

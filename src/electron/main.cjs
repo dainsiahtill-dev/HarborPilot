@@ -29,7 +29,7 @@ if (process.env.ELECTRON_RUN_AS_NODE) {
   delete process.env.ELECTRON_RUN_AS_NODE;
 }
 
-const repoRoot = path.join(__dirname, "..");
+const repoRoot = path.join(__dirname, "..", "..");
 const backendScript = path.join(__dirname, "..", "backend", "server.py");
 const frontendDist = path.join(__dirname, "..", "frontend", "dist", "index.html");
 
