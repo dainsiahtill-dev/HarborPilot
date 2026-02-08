@@ -667,7 +667,12 @@ function LLMSettingsTabInner({
               llmStatus={llmStatus}
               isSaving={llmSaving}
               deletingProviders={deletingProviders}
-              getProviderInfo={(type) => getProviderInfo(type)}
+              getProviderInfo={(type) => {
+                const info = getProviderInfo(type);
+                const defaults = getProviderDefaultConfig(type);
+                if (!info || !defaults) return undefined;
+                return { info, defaults };
+              }}
               getProviderComponent={getProviderComponent}
               getCostClass={getCostClass}
               onAddProvider={onAddProvider || (() => {})}

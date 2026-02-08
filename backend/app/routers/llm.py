@@ -753,3 +753,129 @@ def _runtime_supported(role: str, provider_id: Optional[str], provider_cfg: Dict
     if role == "director":
         return provider_type == "ollama"
     return True
+
+
+# ============================================================================
+# Runtime Status API
+# ============================================================================
+
+@router.get("/llm/runtime-status", dependencies=[Depends(require_auth)])
+def get_runtime_status(request: Request) -> Dict[str, Any]:
+    """Get runtime execution status for all roles"""
+    state = get_state(request)
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
+    runtime_dir = os.path.join(cache_root, ".harborpilot", "runtime")
+    
+    status = {}
+    
+    for role_id in ['pm', 'director', 'qa', 'docs']:
+        role_status = {
+            'running': False,
+            'lastRun': None,
+            'config': {
+                'provider_id': None,
+                'model': None,
+            }
+        }
+        
+        # Check if role is running (lock file exists)
+        lock_file = os.path.join(runtime_dir, f"{role_id}.lock")
+        if os.path.exists(lock_file):
+            try:
+                with open(lock_file, 'r') as f:
+                    lock_data = json.load(f)
+                    role_status['running'] = True
+                    role_status['startedAt'] = lock_data.get('startedAt')
+            except:
+                role_status['running'] = True
+        
+        # Get last run time
+        status_file = os.path.join(runtime_dir, f"{role_id}_status.json")
+        if os.path.exists(status_file):
+            try:
+                with open(status_file, 'r') as f:
+                    status_data = json.load(f)
+                    role_status['lastRun'] = status_data.get('lastRun')
+                    role_status['lastStatus'] = status_data.get('status')
+            except:
+                pass
+        
+        # Get role configuration
+        try:
+            from ..llm.runtime_config import runtime_config
+            role_config = runtime_config.get_role_config(role_id)
+            if role_config:
+                role_status['config'] = {
+                    'provider_id': role_config.provider_id,
+                    'model': role_config.model,
+                    'profile': role_config.profile
+                }
+        except Exception as e:
+            print(f"[RuntimeStatus] Failed to get config for {role_id}: {e}")
+        
+        status[role_id] = role_status
+    
+    return {
+        'roles': status,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.get("/llm/runtime-status/{role_id}", dependencies=[Depends(require_auth)])
+def get_role_runtime_status(request: Request, role_id: str) -> Dict[str, Any]:
+    """Get runtime status for a specific role"""
+    if role_id not in ['pm', 'director', 'qa', 'docs']:
+        raise HTTPException(status_code=400, detail="invalid role_id")
+    
+    state = get_state(request)
+    cache_root = build_cache_root(state.settings.ramdisk_root or "", state.settings.workspace)
+    runtime_dir = os.path.join(cache_root, ".harborpilot", "runtime")
+    
+    role_status = {
+        'roleId': role_id,
+        'running': False,
+        'lastRun': None,
+        'config': {
+            'provider_id': None,
+            'model': None,
+        }
+    }
+    
+    # Check if running
+    lock_file = os.path.join(runtime_dir, f"{role_id}.lock")
+    if os.path.exists(lock_file):
+        role_status['running'] = True
+        try:
+            with open(lock_file, 'r') as f:
+                lock_data = json.load(f)
+                role_status['startedAt'] = lock_data.get('startedAt')
+                role_status['pid'] = lock_data.get('pid')
+        except:
+            pass
+    
+    # Get last run
+    status_file = os.path.join(runtime_dir, f"{role_id}_status.json")
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                status_data = json.load(f)
+                role_status['lastRun'] = status_data.get('lastRun')
+                role_status['lastStatus'] = status_data.get('status')
+                role_status['lastError'] = status_data.get('error')
+        except:
+            pass
+    
+    # Get config
+    try:
+        from ..llm.runtime_config import runtime_config
+        role_config = runtime_config.get_role_config(role_id)
+        if role_config:
+            role_status['config'] = {
+                'provider_id': role_config.provider_id,
+                'model': role_config.model,
+                'profile': role_config.profile
+            }
+    except Exception as e:
+        print(f"[RuntimeStatus] Failed to get config for {role_id}: {e}")
+    
+    return role_status

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { RefreshCw, AlertCircle, Key } from 'lucide-react';
+import { Key } from 'lucide-react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { type ProviderConfig, type ProviderValidateFn } from '../types';
 
@@ -9,16 +9,17 @@ interface KimiProviderSettingsProps {
   onValidate: ProviderValidateFn;
 }
 
-interface ModelInfo {
-  id: string;
-  name?: string;
-  description?: string;
-  context?: string;
-}
-
 const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
 
-const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
+// Predefined Kimi models for quick selection
+const KIMI_MODELS = [
+  { id: 'kimi-k2.5', context: '256k', description: 'Kimi 迄今最智能的模型，在 Agent、代码、视觉理解及一系列通用智能任务上取得开源 SoTA 表现。同时 Kimi K2.5 也是 Kimi 迄今最全能的模型，原生的多模态架构设计，同时支持视觉与文本输入、思考与非思考模式、对话与 Agent 任务。' },
+  { id: 'kimi-k2-0905-preview', context: '256k', description: '在 0711 版本基础上增强了 Agentic Coding 能力、前端代码美观度和实用性、以及上下文理解能力' },
+  { id: 'kimi-k2-0711-preview', context: '128k', description: 'MoE 架构基础模型，总参数 1T，激活参数 32B。具备超强代码和 Agent 能力。' },
+  { id: 'kimi-k2-turbo-preview', context: '256k', description: 'K2 的高速版本，对标最新版本(0905)。输出速度提升至每秒 60-100 tokens' },
+  { id: 'kimi-k2-thinking', context: '256k', description: 'K2 长思考模型，支持  上下文，支持多步工具调用与思考，擅长解决更复杂的问题' },
+  { id: 'kimi-k2-thinking-turbo', context: '256k', description: 'K2 长思考模型的高速版本，擅长深度推理，输出速度提升至每秒 60-100 tokens' }
+];
 
 function KimiApiKeyInput({ 
   value, 
@@ -67,45 +68,12 @@ export function KimiProviderSettings({
     [onUpdate]
   );
 
-  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([
-    { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
-    { id: 'moonshot-v1-32k', name: 'moonshot-v1-32k', description: '长上下文模型', context: '32K' },
-    { id: 'moonshot-v1-128k', name: 'moonshot-v1-128k', description: '超长上下文模型', context: '128K' }
-  ]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
   const handleFieldChange = useCallback((field: string, value: any) => {
     setFieldValue(field as keyof ProviderConfig, value);
   }, [setFieldValue]);
 
-  // 注意：由于 Kimi API 不再提供 /models 端点，我们使用固定的模型列表
-  // 这些是 Kimi 官方支持的标准模型
-  const fetchModels = useCallback(async () => {
-    setIsLoadingModels(true);
-    setFetchError(null);
-
-    try {
-      // 使用固定的模型列表（不再调用 /models API）
-      const models = [
-        { id: 'moonshot-v1-8k', name: 'moonshot-v1-8k', description: '标准模型', context: '8K' },
-        { id: 'moonshot-v1-32k', name: 'moonshot-v1-32k', description: '长上下文模型', context: '32K' },
-        { id: 'moonshot-v1-128k', name: 'moonshot-v1-128k', description: '超长上下文模型', context: '128K' }
-      ];
-
-      setAvailableModels(models);
-      
-      const currentModel = provider.model || provider.default_model || 'moonshot-v1-8k';
-      if (!models.find(m => m.id === currentModel) && models.length > 0) {
-        handleFieldChange('model', models[0].id);
-      }
-    } catch (error) {
-      console.error('Failed to fetch models:', error);
-      setFetchError(error instanceof Error ? error.message : '获取模型列表失败');
-    } finally {
-      setIsLoadingModels(false);
-    }
-  }, [provider.model, provider.default_model, handleFieldChange]);
+  // Get current model value
+  const currentModel = provider.model || provider.default_model || 'kimi-k2-thinking';
 
   return (
     <BaseProviderSettings provider={provider} onUpdate={onUpdate} onValidate={onValidate} hideApiKey hideBaseUrl>
@@ -146,38 +114,37 @@ export function KimiProviderSettings({
           <p className="text-[9px] text-text-dim mt-1">对话补全 API 路径（OpenAI 兼容格式）</p>
         </div>
 
-        {/* Model Selection with Fetch Button */}
+        {/* Model Input with Quick Selection */}
         <div>
           <label className="block text-xs text-text-muted mb-1">模型</label>
-          <div className="flex items-center gap-2">
-            <select
-              value={provider.model || provider.default_model || "moonshot-v1-8k"}
-              onChange={(e) => handleFieldChange('model', e.target.value)}
-              className={cyberSelectClasses}
-            >
-              {availableModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name || model.id}{model.context ? ` (${model.context})` : ''}{model.description ? ` - ${model.description}` : ''}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={fetchModels}
-              disabled={isLoadingModels}
-              className="px-3 py-2 rounded border border-cyan-500/30 hover:border-cyan-500/60 text-cyan-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 bg-black/40"
-              title="获取可用模型列表"
-            >
-              <RefreshCw className={`size-3.5 ${isLoadingModels ? 'animate-spin' : ''}`} />
-              <span className="text-xs">获取</span>
-            </button>
+          <input
+            type="text"
+            value={currentModel}
+            onChange={(e) => handleFieldChange('model', e.target.value)}
+            placeholder="kimi-k2-thinking"
+            className={`${cyberInputClasses} font-mono`}
+          />
+          
+          {/* Quick Selection Buttons */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {KIMI_MODELS.map((model) => (
+              <button
+                key={model.id}
+                type="button"
+                onClick={() => handleFieldChange('model', model.id)}
+                className={`text-[9px] px-2 py-1 rounded border transition-colors ${
+                  currentModel === model.id
+                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-200'
+                    : 'bg-black/30 border-white/10 hover:border-white/20 text-text-dim'
+                }`}
+              >
+                {model.id}
+                <span className="ml-1 opacity-70">({model.context})</span>
+              </button>
+            ))}
           </div>
-          {fetchError && (
-            <div className="mt-2 flex items-center gap-1.5 text-[10px] text-red-400">
-              <AlertCircle className="size-3" />
-              <span>{fetchError}</span>
-            </div>
-          )}
-          <p className="text-[9px] text-text-dim mt-1">
+          
+          <p className="text-[9px] text-text-dim mt-2">
             支持多轮对话、流式输出、多模态输入（文本、图片、视频）
           </p>
         </div>
@@ -263,9 +230,12 @@ export function KimiProviderSettings({
             </div>
             
             <div className="space-y-2 text-text-dim">
-              <p>• moonshot-v1-8k：标准模型，支持8K上下文窗口</p>
-              <p>• moonshot-v1-32k：长上下文模型，支持32K上下文窗口</p>
-              <p>• moonshot-v1-128k：超长上下文模型，支持128K上下文窗口</p>
+              <p>Kimi 是 Moonshot AI 推出的系列大语言模型，具备强大的通用智能能力和超大上下文窗口，适用于对话、代码生成、视觉理解等多种任务。</p>
+              <p>• kimi-k2.5：Kimi 迄今最智能的模型，在 Agent、代码、视觉理解及一系列通用智能任务上取得开源 SoTA 表现。同时 Kimi K2.5 也是 Kimi 迄今最全能的模型，原生的多模态架构设计，同时支持视觉与文本输入、思考与非思考模式、对话与 Agent 任务。</p>
+              <p>• kimi-k2-0905-preview：在 0711 版本基础上增强了 Agentic Coding 能力、前端代码美观度和实用性、以及上下文理解能力</p>
+              <p>• kimi-k2-0711-preview：MoE 架构基础模型，总参数 1T，激活参数 32B。具备超强代码和 Agent 能力。</p>
+              <p>• kimi-k2-thinking：K2 长思考模型，支持 256K 上下文窗口</p>
+              <p>• kimi-k2-turbo-preview：K2 的高速版本，支持 256K 上下文窗口</p>
               <p>• 支持多轮对话、流式输出、多模态输入</p>
             </div>
             

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Background,
   Controls,
@@ -14,9 +14,10 @@ import { Trash2, Unplug, Play, CheckCircle, Activity, ExternalLink, LayoutGrid, 
 import '@xyflow/react/dist/style.css';
 import { useVisualLLMConfig } from './hooks/useVisualLLMConfig';
 import { nodeTypes, edgeTypes } from './utils/nodeTypes';
-import { isValidVisualConnection } from './utils/validation';
+import { isValidVisualConnection, validateVisualGraph } from './utils/validation';
 import { extractNodePositions, extractNodeStates } from './utils/configConverter';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
+import { ValidationPanel, ValidationBadge } from './components/ValidationPanel';
 import type { VisualGraphConfig, VisualGraphStatus, VisualNodeData, VisualProviderNodeData, VisualModelNodeData, VisualRoleNodeData } from './types/visual';
 
 interface LLMVisualEditorProps {
@@ -27,6 +28,12 @@ interface LLMVisualEditorProps {
 }
 
 export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMVisualEditorProps) {
+  // Validation
+  const validation = useMemo(() => {
+    if (!config) return { valid: true, issues: [] };
+    return validateVisualGraph(config);
+  }, [config]);
+
   const {
     nodes,
     edges,
@@ -40,6 +47,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     deleteNode,
     deleteEdge,
     setNodes,
+    runtimeStatus,
   } = useVisualLLMConfig({ config, status, onConfigChange });
 
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<Node<VisualNodeData>, Edge> | null>(null);
@@ -53,6 +61,7 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
     type: 'node' | 'edge';
     data: any;
   } | null>(null);
+  const [showValidationPanel, setShowValidationPanel] = useState(true);
 
   const providers = useMemo(() => Object.entries(config?.providers || {}), [config]);
 
@@ -91,6 +100,13 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
+
+  const focusNode = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (node && rfInstance) {
+      rfInstance.setCenter(node.position.x, node.position.y, { zoom: 1.2, duration: 400 });
+    }
+  }, [nodes, rfInstance]);
 
   const handleAutoLayout = useCallback(() => {
     const updates: Node<VisualNodeData>[] = [];
@@ -316,6 +332,15 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
               保存配置
             </button>
           ) : null}
+          {validation.issues.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowValidationPanel(v => !v)}
+              className="ml-2"
+            >
+              <ValidationBadge count={validation.issues.length} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -389,6 +414,14 @@ export function LLMVisualEditor({ config, status, onConfigChange, onSave }: LLMV
           items={getContextMenuItems().items}
           title={getContextMenuItems().title}
           onClose={closeContextMenu}
+        />
+      )}
+
+      {showValidationPanel && validation.issues.length > 0 && (
+        <ValidationPanel
+          issues={validation.issues}
+          onIssueClick={(issue) => focusNode(issue.nodeId)}
+          onClose={() => setShowValidationPanel(false)}
         />
       )}
     </div>

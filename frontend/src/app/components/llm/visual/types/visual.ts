@@ -13,6 +13,16 @@ export interface VisualRoleNodeData {
     ready?: boolean;
     grade?: string;
   };
+  runtimeStatus?: {
+    running: boolean;
+    startedAt?: string;
+    lastRun?: string;
+    lastStatus?: string;
+    config: {
+      provider_id?: string;
+      model?: string;
+    };
+  };
   [key: string]: unknown;
 }
 
@@ -101,4 +111,39 @@ export interface VisualGraphConfig {
 
 export interface VisualGraphStatus {
   roles?: Record<string, { ready?: boolean; grade?: string } | undefined>;
+}
+
+// ============================================================================
+// Runtime Configuration Types
+// ============================================================================
+
+export interface RoleAssignment {
+  roleId: VisualRoleId;
+  providerId: string;
+  model: string;
+  profile?: string;
+}
+
+export interface RuntimeLLMConfig {
+  providers: Record<string, unknown>;
+  roleAssignments: RoleAssignment[];
+  version: string;
+  generatedAt: string;
+}
+
+// ============================================================================
+// Validation Types
+// ============================================================================
+
+export type ValidationIssueType = 
+  | 'MISSING_MODEL' 
+  | 'INVALID_PROVIDER' 
+  | 'DISCONNECTED_ROLE' 
+  | 'MODEL_NOT_FOUND';
+
+export interface ValidationIssue {
+  type: ValidationIssueType;
+  nodeId: string;
+  message: string;
+  suggestion?: string;
 }

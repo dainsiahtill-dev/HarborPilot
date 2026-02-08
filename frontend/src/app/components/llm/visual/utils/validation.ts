@@ -1,5 +1,5 @@
-﻿import type { Connection, Node } from '@xyflow/react';
-import type { VisualNodeData } from '../types/visual';
+import type { Connection, Node } from '@xyflow/react';
+import type { VisualGraphConfig, ValidationIssue, VisualNodeData, VisualRoleId } from '../types/visual';
 
 export const isValidVisualConnection = (
   connection: Connection,
@@ -28,4 +28,80 @@ export const isValidVisualConnection = (
   }
 
   return false;
+};
+
+// ============================================================================
+// Enhanced Validation
+// ============================================================================
+
+export const validateVisualGraph = (
+  config: VisualGraphConfig
+): { valid: boolean; issues: ValidationIssue[] } => {
+  const issues: ValidationIssue[] = [];
+
+  // Check each role has valid configuration
+  const roleIds: VisualRoleId[] = ['pm', 'director', 'qa', 'docs'];
+
+  roleIds.forEach((roleId) => {
+    const roleCfg = config.roles?.[roleId];
+
+    if (!roleCfg?.provider_id) {
+      issues.push({
+        type: 'DISCONNECTED_ROLE',
+        nodeId: `role:${roleId}`,
+        message: `角色 ${getRoleLabel(roleId)} 未连接到Provider`,
+        suggestion: '请从Provider拖拽连线到该角色',
+      });
+    } else if (!roleCfg?.model) {
+      issues.push({
+        type: 'MISSING_MODEL',
+        nodeId: `role:${roleId}`,
+        message: `角色 ${getRoleLabel(roleId)} 未配置模型`,
+        suggestion: '请为该角色选择一个模型',
+      });
+    }
+  });
+
+  // Check if Provider exists
+  Object.entries(config.roles || {}).forEach(([roleId, roleCfg]) => {
+    if (roleCfg?.provider_id) {
+      const provider = config.providers?.[roleCfg.provider_id];
+      if (!provider) {
+        issues.push({
+          type: 'INVALID_PROVIDER',
+          nodeId: `role:${roleId}`,
+          message: `角色 ${getRoleLabel(roleId as VisualRoleId)} 配置的Provider不存在`,
+          suggestion: '请重新配置Provider',
+        });
+      }
+    }
+  });
+
+  return {
+    valid: issues.length === 0,
+    issues,
+  };
+};
+
+export const getRoleLabel = (roleId: VisualRoleId): string => {
+  const labels: Record<VisualRoleId, string> = {
+    pm: 'PM',
+    director: 'Director',
+    qa: 'QA',
+    docs: 'Docs',
+  };
+  return labels[roleId] || roleId;
+};
+
+export const getValidationSeverity = (issue: ValidationIssue): 'error' | 'warning' => {
+  switch (issue.type) {
+    case 'MISSING_MODEL':
+    case 'INVALID_PROVIDER':
+      return 'error';
+    case 'DISCONNECTED_ROLE':
+    case 'MODEL_NOT_FOUND':
+      return 'warning';
+    default:
+      return 'warning';
+  }
 };

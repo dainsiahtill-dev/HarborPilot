@@ -32,6 +32,24 @@ interface UseVisualLLMConfigOptions {
   onConfigChange?: (config: VisualGraphConfig) => void;
 }
 
+interface RuntimeRoleStatus {
+  running: boolean;
+  startedAt?: string;
+  lastRun?: string;
+  lastStatus?: string;
+  lastError?: string;
+  config: {
+    provider_id?: string;
+    model?: string;
+    profile?: string;
+  };
+}
+
+interface RuntimeStatus {
+  roles: Record<string, RuntimeRoleStatus>;
+  timestamp: string;
+}
+
 export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisualLLMConfigOptions) {
   const graph = useMemo(() => {
     if (!config) return { nodes: [], edges: [] };
@@ -40,6 +58,53 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
 
   const [nodes, setNodes] = useState<Node<VisualNodeData>[]>(graph.nodes);
   const [edges, setEdges] = useState<Edge<VisualEdgeData>[]>(graph.edges);
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
+
+  // Merge runtime status into role nodes
+  useEffect(() => {
+    if (!runtimeStatus?.roles) return;
+    
+    setNodes(currentNodes => 
+      currentNodes.map(node => {
+        if (node.type === 'role' && node.data.kind === 'role') {
+          const roleStatus = runtimeStatus.roles[node.data.roleId];
+          if (roleStatus) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                runtimeStatus: roleStatus
+              }
+            };
+          }
+        }
+        return node;
+      })
+    );
+  }, [runtimeStatus]);
+
+  // Fetch runtime status periodically
+  useEffect(() => {
+    const fetchRuntimeStatus = async () => {
+      try {
+        const response = await fetch('/llm/runtime-status');
+        if (response.ok) {
+          const data = await response.json();
+          setRuntimeStatus(data);
+        }
+      } catch (error) {
+        // Silently fail - runtime status is not critical
+        console.debug('Failed to fetch runtime status:', error);
+      }
+    };
+
+    // Initial fetch
+    fetchRuntimeStatus();
+
+    // Poll every 5 seconds
+    const interval = setInterval(fetchRuntimeStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // 先恢复节点状态（不包括位置）
@@ -391,5 +456,6 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
     setEdges,
     deleteNode,
     deleteEdge,
+    runtimeStatus,
   };
 }

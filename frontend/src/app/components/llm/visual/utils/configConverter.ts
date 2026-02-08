@@ -450,3 +450,92 @@ export const updateVisualStates = (
     visual_viewport: viewport || config.visual_viewport,
   };
 };
+
+// ============================================================================
+// Runtime Configuration Conversion
+// ============================================================================
+
+export interface RoleAssignment {
+  roleId: VisualRoleId;
+  providerId: string;
+  model: string;
+  profile?: string;
+}
+
+export interface RuntimeLLMConfig {
+  providers: Record<string, unknown>;
+  roleAssignments: RoleAssignment[];
+  version: string;
+  generatedAt: string;
+}
+
+/**
+ * Convert VisualGraphConfig to runtime configuration format
+ * This ensures the visual configuration can be consumed by backend runtime scripts
+ */
+export const visualToRuntimeConfig = (config: VisualGraphConfig): RuntimeLLMConfig => {
+  const roleAssignments: RoleAssignment[] = [];
+
+  Object.entries(config.roles || {}).forEach(([roleId, roleCfg]) => {
+    if (roleCfg?.provider_id && roleCfg?.model) {
+      roleAssignments.push({
+        roleId: roleId as VisualRoleId,
+        providerId: roleCfg.provider_id,
+        model: roleCfg.model,
+        profile: roleCfg.profile || 'default',
+      });
+    }
+  });
+
+  return {
+    providers: config.providers,
+    roleAssignments,
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+  };
+};
+
+/**
+ * Check if all required roles have valid model assignments
+ */
+export const validateRoleAssignments = (
+  config: VisualGraphConfig
+): { valid: boolean; missing: VisualRoleId[]; incomplete: VisualRoleId[] } => {
+  const requiredRoles: VisualRoleId[] = ['pm', 'director', 'qa', 'docs'];
+  const missing: VisualRoleId[] = [];
+  const incomplete: VisualRoleId[] = [];
+
+  requiredRoles.forEach((roleId) => {
+    const roleCfg = config.roles?.[roleId];
+    if (!roleCfg) {
+      missing.push(roleId);
+    } else if (!roleCfg.provider_id || !roleCfg.model) {
+      incomplete.push(roleId);
+    }
+  });
+
+  return {
+    valid: missing.length === 0 && incomplete.length === 0,
+    missing,
+    incomplete,
+  };
+};
+
+/**
+ * Get human-readable configuration summary
+ */
+export const getConfigSummary = (config: VisualGraphConfig): string => {
+  const assignments: string[] = [];
+
+  const roleOrder: VisualRoleId[] = ['pm', 'director', 'qa', 'docs'];
+  roleOrder.forEach((roleId) => {
+    const roleCfg = config.roles?.[roleId];
+    if (roleCfg?.provider_id && roleCfg?.model) {
+      assignments.push(`${roleId}: ${roleCfg.provider_id}/${roleCfg.model}`);
+    } else {
+      assignments.push(`${roleId}: [未配置]`);
+    }
+  });
+
+  return assignments.join('\n');
+};

@@ -49,7 +49,7 @@ class KimiProvider(BaseProvider):
             "api_path": DEFAULT_CHAT_PATH,
             "timeout": 60,
             "retries": 3,
-            "model": "moonshot-v1-8k",
+            "model": "kimi-k2-thinking-turbo",
             "temperature": 0.7,
             "top_p": 1.0,
             "max_tokens": 2048,
@@ -223,9 +223,11 @@ class KimiProvider(BaseProvider):
             # Fallback to known Kimi models if API doesn't return list
             if not models:
                 known_models = [
-                    ("moonshot-v1-8k", "8K context"),
-                    ("moonshot-v1-32k", "32K context"),
-                    ("moonshot-v1-128k", "128K context"),
+                    ("kimi-k2.5", "256K context"),
+                    ("kimi-k2-0905-preview", "256K context"),
+                    ("kimi-k2-0711-preview", "128K context"),
+                    ("kimi-k2-thinking", "256K context"),
+                    ("kimi-k2-turbo-preview", "256K context"),
                 ]
                 for model_id, context in known_models:
                     models.append(ModelInfo(id=model_id, label=f"{model_id} ({context})"))

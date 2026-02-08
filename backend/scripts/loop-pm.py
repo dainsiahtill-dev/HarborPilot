@@ -129,6 +129,38 @@ except ImportError as e:
     sys.exit(1)
 
 
+# ============================================================================
+# Role Model Configuration
+# ============================================================================
+
+def load_pm_model_config() -> Tuple[str, str]:
+    """Load PM role model configuration from visual config"""
+    try:
+        # Add project root to path for importing runtime_config
+        if PROJECT_ROOT not in sys.path:
+            sys.path.insert(0, PROJECT_ROOT)
+        
+        from app.llm.runtime_config import get_role_model
+        provider_id, model = get_role_model('pm')
+        
+        # Set environment variables for downstream use
+        os.environ['HARBORPILOT_PM_PROVIDER'] = provider_id
+        os.environ['HARBORPILOT_PM_MODEL'] = model
+        
+        return provider_id, model
+    except Exception as e:
+        print(f"[PM Loop] Warning: Failed to load visual config: {e}")
+        # Fallback to environment variables or defaults
+        provider_id = os.environ.get('HARBORPILOT_PM_PROVIDER', 'openai')
+        model = os.environ.get('HARBORPILOT_PM_MODEL', 'gpt-4')
+        return provider_id, model
+
+
+# Load PM configuration at module load time
+_PM_PROVIDER_ID, _PM_MODEL = load_pm_model_config()
+print(f"[PM Loop] Configuration loaded: provider={_PM_PROVIDER_ID}, model={_PM_MODEL}")
+
+
 def format_json_for_prompt(payload: Any, max_chars: int = 2000) -> str:
     if payload is None:
         return "none"

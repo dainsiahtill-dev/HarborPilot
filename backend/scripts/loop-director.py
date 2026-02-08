@@ -164,6 +164,39 @@ except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)
 
+
+# ============================================================================
+# Role Model Configuration
+# ============================================================================
+
+def load_director_model_config() -> Tuple[str, str]:
+    """Load Director role model configuration from visual config"""
+    try:
+        # Add project root to path for importing runtime_config
+        if PROJECT_ROOT not in sys.path:
+            sys.path.insert(0, PROJECT_ROOT)
+        
+        from app.llm.runtime_config import get_role_model
+        provider_id, model = get_role_model('director')
+        
+        # Set environment variables for downstream use
+        os.environ['HARBORPILOT_DIRECTOR_PROVIDER'] = provider_id
+        os.environ['HARBORPILOT_DIRECTOR_MODEL'] = model
+        
+        return provider_id, model
+    except Exception as e:
+        print(f"[Director Loop] Warning: Failed to load visual config: {e}")
+        # Fallback to environment variables or defaults
+        provider_id = os.environ.get('HARBORPILOT_DIRECTOR_PROVIDER', 'openai')
+        model = os.environ.get('HARBORPILOT_DIRECTOR_MODEL', 'gpt-4')
+        return provider_id, model
+
+
+# Load Director configuration at module load time
+_DIRECTOR_PROVIDER_ID, _DIRECTOR_MODEL = load_director_model_config()
+print(f"[Director Loop] Configuration loaded: provider={_DIRECTOR_PROVIDER_ID}, model={_DIRECTOR_MODEL}")
+
+
 @dataclass
 class State:
     """State container for the loop execution."""
