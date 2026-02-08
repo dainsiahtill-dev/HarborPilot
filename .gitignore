@@ -49,3 +49,6 @@ test-results/
 docs/temp/
 docs/fixes/
 screenshots/
+
+.env
+
