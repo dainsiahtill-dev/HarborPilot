@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { ProgressMode } from '../../../types';
+import type { ProgressMode } from '../../types/project';
 
 interface ProgressBarProps {
     progress: number;

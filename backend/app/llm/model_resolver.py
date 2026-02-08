@@ -33,7 +33,7 @@ MODEL_FALLBACKS: Dict[str, str] = {
     'anthropic_compat': 'claude-3-sonnet-20240229',
     'kimi': 'kimi-k2-thinking-turbo',
     'minimax': 'abab6.5-chat',
-    'gemini_api': 'gimei-1.5-pro',
+    'gemini_api': 'gemini-1.5-pro',
     'ollama': 'llama2',
     'codex_cli': 'gpt-4-codex',
     'codex_sdk': 'gpt-4',

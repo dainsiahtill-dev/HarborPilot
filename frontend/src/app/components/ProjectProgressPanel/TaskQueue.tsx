@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { TaskQueueItem } from '../../../types';
+import type { TaskQueueItem } from '../../../types/project';
 
 interface TaskQueueProps {
     queueItems: TaskQueueItem[];

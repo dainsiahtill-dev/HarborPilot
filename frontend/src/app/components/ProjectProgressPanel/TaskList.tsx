@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle, Clock } from 'lucide-react';
-import type { PmTask } from '../../../types';
+import type { PmTask } from '../../../types/project';
 
 interface TaskListProps {
     tasks: PmTask[];

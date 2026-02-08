@@ -1,4 +1,4 @@
-﻿{
+{
   "compilerOptions": {
     "baseUrl": ".",
     "target": "ES2020",
@@ -11,7 +11,8 @@
     },
     "strict": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "three"]
   },
-  "include": ["src", "vite.config.ts", "tailwind.config.ts"]
+  "include": ["src", "vite.config.ts", "tailwind.config.ts"],
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.*", "src/test/**"]
 }

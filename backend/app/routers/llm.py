@@ -786,7 +786,7 @@ def get_runtime_status(request: Request) -> Dict[str, Any]:
                     lock_data = json.load(f)
                     role_status['running'] = True
                     role_status['startedAt'] = lock_data.get('startedAt')
-            except:
+            except (IOError, OSError, json.JSONDecodeError):
                 role_status['running'] = True
         
         # Get last run time
@@ -797,7 +797,7 @@ def get_runtime_status(request: Request) -> Dict[str, Any]:
                     status_data = json.load(f)
                     role_status['lastRun'] = status_data.get('lastRun')
                     role_status['lastStatus'] = status_data.get('status')
-            except:
+            except (IOError, OSError, json.JSONDecodeError):
                 pass
         
         # Get role configuration
@@ -850,7 +850,7 @@ def get_role_runtime_status(request: Request, role_id: str) -> Dict[str, Any]:
                 lock_data = json.load(f)
                 role_status['startedAt'] = lock_data.get('startedAt')
                 role_status['pid'] = lock_data.get('pid')
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             pass
     
     # Get last run
@@ -862,7 +862,7 @@ def get_role_runtime_status(request: Request, role_id: str) -> Dict[str, Any]:
                 role_status['lastRun'] = status_data.get('lastRun')
                 role_status['lastStatus'] = status_data.get('status')
                 role_status['lastError'] = status_data.get('error')
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             pass
     
     # Get config

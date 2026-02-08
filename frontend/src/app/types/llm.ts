@@ -11,7 +11,7 @@
  * - InterviewCancelPayload
  */
 
-import type { InteractiveInterviewReport } from '../components/llm/interview/types';
+import type { InteractiveInterviewReport } from '../components/llm/interview/InteractiveInterviewHall';
 
 // ============================================================================
 // Role Types
