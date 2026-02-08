@@ -1,7 +1,7 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { VisualRoleNodeData } from '../types/visual';
 
-export function VisualRoleNode({ data }: NodeProps<VisualRoleNodeData>) {
+export function VisualRoleNode({ data }: NodeProps<Node<VisualRoleNodeData>>) {
   const readiness = data.readiness;
   const runtimeStatus = data.runtimeStatus;
   

@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle, Clock } from 'lucide-react';
-import type { PmTask } from '../../../types/project';
+import type { PmTask } from '../../types/project';
 
 interface TaskListProps {
     tasks: PmTask[];
@@ -76,7 +76,7 @@ export function TaskList({
                             </div>
                             {acceptance.length > 0 ? (
                                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-text-muted">
-                                    {acceptance.map((item: { description: string }, idx: number) => (
+                                    {acceptance.map((item, idx) => (
                                         <span
                                             key={`${key}-acc-${idx}`}
                                             className="rounded-full bg-bg-surface/50 px-2 py-0.5 border border-white/5"

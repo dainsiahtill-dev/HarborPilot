@@ -334,12 +334,15 @@ export function fromLegacyProviderConfig(
   config: ProviderConfig
 ): ProviderEntity {
   const now = new Date().toISOString();
+  const conn: ProviderConnection = config.conn 
+    ? { kind: 'http', baseUrl: config.base_url || '', ...config.conn } as ProviderConnection
+    : { kind: 'http' as const, baseUrl: config.base_url || '' };
   return {
     id,
     name: config.name || id,
     kind: (config.type as ProviderKind) || 'openai_compat',
-    type: config.type || 'openai_compat',
-    conn: config.conn || { kind: 'http', baseUrl: config.base_url || '' },
+    type: config.type || '',
+    conn,
     cliMode: config.cli_mode,
     modelId: config.model || config.default_model || '',
     status: 'untested',

@@ -20,6 +20,7 @@ import { ProviderListManager } from './providers';
 import type {
   ProviderConfig,
   ProviderKind,
+  ProviderConnection,
   SimpleProvider,
 } from './types';
 import { PROVIDER_KINDS, isCLIProviderType } from './types';
@@ -63,6 +64,9 @@ interface LlmConfig {
       error_message?: string;
     }>;
   };
+  visual_layout?: Record<string, unknown>;
+  visual_node_states?: Record<string, unknown>;
+  visual_viewport?: Record<string, unknown>;
 }
 
 interface LlmStatus {
@@ -170,15 +174,15 @@ function buildSimpleProvider(
   const kind = (provider.type || PROVIDER_KINDS.OPENAI_COMPAT) as ProviderKind;
   const isCli = isCLIProviderType(provider.type) || Boolean(provider.command);
   
-  const conn = isCli
+  const conn: ProviderConnection = isCli
     ? {
-        kind: kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli' as const,
-        command: provider.command || (kind === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
+        kind: provider.type === PROVIDER_KINDS.GEMINI_CLI ? 'gemini_cli' : 'codex_cli',
+        command: provider.command || (provider.type === PROVIDER_KINDS.GEMINI_CLI ? 'gemini' : 'codex'),
         args: provider.args || [],
         env: provider.env || {},
       }
     : {
-        kind: 'http' as const,
+        kind: 'http',
         baseUrl: provider.base_url || '',
         apiKey: provider.api_key,
       };
@@ -426,7 +430,7 @@ function DeepTestPanel({
             providers={providers}
             selectedRole={selectedRole}
             selectedProvider={selectedProviderId}
-            selectedModel={resolveModelForSelection(selectedRole, selectedProviderId, llmConfig, providers)}
+            selectedModel={resolveModelForSelection(selectedRole, selectedProviderId ?? '', llmConfig, providers) ?? null}
             onSelectRole={selectRole}
             onSelectProvider={selectProvider}
             onAskQuestion={onAskInteractiveInterview}
@@ -569,8 +573,8 @@ function LLMSettingsTabInner({
     onUpdateConfig({
       ...llmConfig,
       visual_layout: nextConfig.visual_layout,
-      visual_node_states: (nextConfig as unknown as Record<string, unknown>).visual_node_states,
-      visual_viewport: (nextConfig as unknown as Record<string, unknown>).visual_viewport,
+      visual_node_states: nextConfig.visual_node_states,
+      visual_viewport: nextConfig.visual_viewport,
     });
   }, [llmConfig, onUpdateConfig]);
 
@@ -654,12 +658,15 @@ function LLMSettingsTabInner({
               isSaving={llmSaving}
               deletingProviders={deletingProviders}
               getProviderInfo={(type) => {
-                const info = getProviderInfo(type);
+                const entry = getProviderInfo(type);
+                if (!entry) return undefined;
                 const defaults = getProviderDefaultConfig(type);
-                if (!info || !defaults) return undefined;
-                return { info, defaults };
+                if (!defaults) return undefined;
+                const component = getProviderComponent(type);
+                if (!component) return undefined;
+                return { info: entry, defaultConfig: defaults, component };
               }}
-              getProviderComponent={getProviderComponent}
+              getProviderComponent={(type) => getProviderComponent(type) ?? null}
               getCostClass={getCostClass}
               onAddProvider={onAddProvider || (() => {})}
               onUpdateProvider={onUpdateProvider || (() => {})}

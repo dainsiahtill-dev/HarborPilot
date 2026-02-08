@@ -1,21 +1,51 @@
+# General
+.DS_Store
+Thumbs.db
+*.log
+
+# Environments & Security
+.env
+.venv/
+env/
+venv/
+langchain_env/
+site-packages/
+
+# Python
 __pycache__/
 *.pyc
-.trae/
-.codex/
-.*_cache/
-.venv/
-.agent
-# State outputs
-.harborpilot/
-.windsurf/
-.cursor/
+coverage/
+.coverage
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
+# Node / JS
+node_modules/
+npm-debug.log
+yarn-error.log
+frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-frontend/node_modules/
-*.log
-node_modules
+
+# IDEs
+.vscode/
+.idea/
+.windsurf/
+.cursor/
+.trae/
+.codex/
+
+# Project Specific
+.agent/
+.ai-agent/
+.harborpilot/
+# State outputs
+.*_cache/
+reports/
 playwright-report/
 test-results/
-docs/temp
-docs/fixes
+docs/temp/
+docs/fixes/
+screenshots/

@@ -5,7 +5,7 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { Loader2, Settings, ChevronDown, ChevronUp, Zap, Key, Shield, HelpCircle, Clock, UserCheck, UserX, PlayCircle } from 'lucide-react';
-import type { ProviderConfig } from '../types';
+import type { ProviderConfig, ProviderSettingsProps } from '../types';
 import type { ConnectivityStatus } from '../state';
 import { useProviderContext, useIsProviderExpanded } from '../state';
 import type { SimpleProviderStrict } from '../types/strict';
@@ -20,12 +20,7 @@ interface ProviderCardProps {
     type: string;
     supported_features: string[];
   } | null;
-  ProviderComponent: React.ComponentType<{
-    providerId?: string;
-    provider: ProviderConfig;
-    onUpdate: (updates: Partial<ProviderConfig>) => void;
-    onValidate: () => { valid: boolean; errors: string[]; warnings: string[] };
-  }> | null;
+  ProviderComponent: React.ComponentType<ProviderSettingsProps> | null;
   connectivityStatus: ConnectivityStatus;
   costClass: string;
   isDeleting?: boolean;
@@ -296,7 +291,7 @@ export function ProviderCard({
         <div className="mt-4 pt-4 border-t border-white/10">
           <ProviderComponent
             providerId={providerId}
-            provider={provider}
+            provider={{ ...provider, type: provider.type || 'openai_compat', name: provider.name || 'Unknown Provider' }}
             onUpdate={handleUpdate}
             onValidate={() => ({ valid: true, errors: [], warnings: [] })}
           />

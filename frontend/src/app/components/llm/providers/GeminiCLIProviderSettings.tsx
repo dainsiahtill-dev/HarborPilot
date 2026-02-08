@@ -21,6 +21,7 @@ export function GeminiCLIProviderSettings({
     onUpdate({ [field]: value });
   };
 
+  const geminiProvider = provider as ProviderConfig & { health_args?: string[]; list_args?: string[] };
   const env = provider.env || {};
   const cliMode: CLIMode =
     provider.cli_mode === CLI_MODES.TUI || provider.cli_mode === CLI_MODES.HEADLESS
@@ -138,7 +139,7 @@ export function GeminiCLIProviderSettings({
           <label className="block text-xs text-text-muted mb-1">Health Check Arguments</label>
           <input
             type="text"
-            value={provider.health_args || 'version'}
+            value={geminiProvider.health_args?.join(' ') || 'version'}
             onChange={(e) => handleFieldChange('health_args', e.target.value.split(' ').filter(arg => arg.trim()))}
             className={`${cyberInputClasses} font-mono`}
             placeholder="version"
@@ -153,7 +154,7 @@ export function GeminiCLIProviderSettings({
           <label className="block text-xs text-text-muted mb-1">Model Listing Arguments</label>
           <input
             type="text"
-            value={provider.list_args || 'models list'}
+            value={geminiProvider.list_args?.join(' ') || 'models list'}
             onChange={(e) => handleFieldChange('list_args', e.target.value.split(' ').filter(arg => arg.trim()))}
             className={`${cyberInputClasses} font-mono`}
             placeholder="models list"

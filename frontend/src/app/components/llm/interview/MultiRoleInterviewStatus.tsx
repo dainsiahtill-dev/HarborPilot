@@ -24,8 +24,10 @@ export const RoleBadge: React.FC<{ roleId: RoleId; result: InterviewResultDetail
 
 export const MultiRoleInterviewStatus: React.FC<{ provider: InterviewProviderSummary; compact?: boolean }> = ({ provider, compact = false }) => {
   const results = provider.interviewResults || {};
-  const passedCount = Object.values(results).filter(r => r.status === 'passed').length;
-  const failedCount = Object.values(results).filter(r => r.status === 'failed').length;
+  const resultValues = Object.values(results) as InterviewResultDetail[];
+  const resultEntries = Object.entries(results) as [string, InterviewResultDetail][];
+  const passedCount = resultValues.filter((r: InterviewResultDetail) => r.status === 'passed').length;
+  const failedCount = resultValues.filter((r: InterviewResultDetail) => r.status === 'failed').length;
   
   if (passedCount === 0 && failedCount === 0) {
     if (provider.interviewStatus && provider.interviewStatus !== 'none') {
@@ -42,7 +44,7 @@ export const MultiRoleInterviewStatus: React.FC<{ provider: InterviewProviderSum
           <div className="flex items-center gap-1">
             <span className="text-[8px] text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded">+{passedCount}</span>
             <div className="flex -space-x-1">
-              {Object.entries(results).filter(([_, r]) => r.status === 'passed').map(([roleId]) => (
+              {resultEntries.filter(([_, r]) => r.status === 'passed').map(([roleId]) => (
                 <div key={roleId} className={`w-3 h-3 rounded-full border border-white/20 ${ROLE_META[roleId as RoleId].badge}`} title={ROLE_META[roleId as RoleId].label} />
               ))}
             </div>
@@ -52,7 +54,7 @@ export const MultiRoleInterviewStatus: React.FC<{ provider: InterviewProviderSum
           <div className="flex items-center gap-1">
             <span className="text-[8px] text-rose-300 bg-rose-500/10 px-1.5 py-0.5 rounded">-{failedCount}</span>
             <div className="flex -space-x-1 opacity-50">
-              {Object.entries(results).filter(([_, r]) => r.status === 'failed').map(([roleId]) => (
+              {resultEntries.filter(([_, r]) => r.status === 'failed').map(([roleId]) => (
                 <div key={roleId} className={`w-3 h-3 rounded-full border border-white/20 ${ROLE_META[roleId as RoleId].badge}`} title={ROLE_META[roleId as RoleId].label} />
               ))}
             </div>
@@ -64,7 +66,7 @@ export const MultiRoleInterviewStatus: React.FC<{ provider: InterviewProviderSum
   
   return (
     <div className="flex flex-wrap gap-1">
-      {Object.entries(results).map(([roleId, result]) => (
+      {resultEntries.map(([roleId, result]) => (
         <RoleBadge key={roleId} roleId={roleId as RoleId} result={result} />
       ))}
     </div>
@@ -73,6 +75,8 @@ export const MultiRoleInterviewStatus: React.FC<{ provider: InterviewProviderSum
 
 export const InterviewDetailsModal: React.FC<{ provider: InterviewProviderSummary; onClose: () => void }> = ({ provider, onClose }) => {
   const results = provider.interviewResults || {};
+  const resultValues = Object.values(results) as InterviewResultDetail[];
+  const resultEntries = Object.entries(results) as [string, InterviewResultDetail][];
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-black/90 border border-white/20 rounded-xl p-4 max-w-md w-full max-h-[80vh] overflow-y-auto">
@@ -89,7 +93,7 @@ export const InterviewDetailsModal: React.FC<{ provider: InterviewProviderSummar
           <div>
             <div className="text-[10px] text-text-dim mb-2">面试结果</div>
             <div className="space-y-2">
-              {Object.entries(results).map(([roleId, result]) => {
+              {resultEntries.map(([roleId, result]) => {
                 if (result.status === 'none') return null;
                 const meta = ROLE_META[roleId as RoleId];
                 const isSuccess = result.status === 'passed';
@@ -106,7 +110,7 @@ export const InterviewDetailsModal: React.FC<{ provider: InterviewProviderSummar
                   </div>
                 );
               })}
-              {Object.values(results).filter(r => r.status !== 'none').length === 0 && (
+              {resultValues.filter((r: InterviewResultDetail) => r.status !== 'none').length === 0 && (
                 <div className="text-[10px] text-text-dim text-center py-4">暂无面试记录</div>
               )}
             </div>

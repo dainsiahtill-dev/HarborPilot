@@ -21,6 +21,8 @@ export function OllamaProviderSettings({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [isCustomModel, setIsCustomModel] = useState(false);
+  
+  const ollamaProvider = provider as ProviderConfig & { gpu_layers?: number; context_size?: number };
 
   const handleFieldChange = (field: string, value: any) => {
     onUpdate({ [field]: value });
@@ -184,7 +186,7 @@ export function OllamaProviderSettings({
               <label className="block text-xs text-text-muted mb-1">GPU Layers</label>
               <input
                 type="number"
-                value={provider.gpu_layers || 0}
+                value={ollamaProvider.gpu_layers || 0}
                 onChange={(e) => handleFieldChange('gpu_layers', parseInt(e.target.value) || 0)}
                 placeholder="0"
                 className={cyberInputClasses}
@@ -194,7 +196,7 @@ export function OllamaProviderSettings({
               <label className="block text-xs text-text-muted mb-1">Context Size</label>
               <input
                 type="number"
-                value={provider.context_size || 2048}
+                value={ollamaProvider.context_size || 2048}
                 onChange={(e) => handleFieldChange('context_size', parseInt(e.target.value) || 2048)}
                 step="512"
                 className={cyberInputClasses}

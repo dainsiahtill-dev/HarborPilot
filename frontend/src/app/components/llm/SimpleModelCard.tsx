@@ -14,7 +14,8 @@ import {
   HelpCircle,
   Zap,
   Shield,
-  Key
+  Key,
+  Eye
 } from 'lucide-react';
 import { useState, type ReactNode, useMemo } from 'react';
 import {

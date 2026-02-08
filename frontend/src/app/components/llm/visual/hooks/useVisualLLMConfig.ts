@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   addEdge,
   applyEdgeChanges,
@@ -125,7 +125,7 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
 
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    setEdges((current) => applyEdgeChanges(changes, current));
+    setEdges((current) => applyEdgeChanges(changes, current) as Edge<VisualEdgeData>[]);
   }, []);
 
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -171,7 +171,7 @@ export function useVisualLLMConfig({ config, status, onConfigChange }: UseVisual
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       setNodes((current) => {
-        const nextNodes = applyNodeChanges(changes, current);
+        const nextNodes = applyNodeChanges(changes, current) as Node<VisualNodeData>[];
         
         // 实时同步位置变化 (避免依赖 stale 的 nodesRef)
         const hasPositionChange = changes.some((c) => c.type === 'position');

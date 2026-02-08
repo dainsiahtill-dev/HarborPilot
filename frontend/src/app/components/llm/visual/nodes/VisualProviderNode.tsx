@@ -1,4 +1,4 @@
-﻿import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { VisualProviderNodeData } from '../types/visual';
 
 const STATUS_STYLES: Record<string, string> = {
@@ -7,7 +7,7 @@ const STATUS_STYLES: Record<string, string> = {
   testing: 'text-cyan-300',
 };
 
-export function VisualProviderNode({ data }: NodeProps<VisualProviderNodeData>) {
+export function VisualProviderNode({ data }: NodeProps<Node<VisualProviderNodeData>>) {
   const statusClass = data.status ? STATUS_STYLES[data.status] || 'text-text-dim' : 'text-text-dim';
   return (
     <div className="min-w-[200px] rounded-xl border border-fuchsia-400/40 bg-black/70 px-3 py-2 text-text-main shadow-[0_0_14px_rgba(217,70,239,0.2)]">

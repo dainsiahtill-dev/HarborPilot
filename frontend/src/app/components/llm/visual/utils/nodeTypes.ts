@@ -1,4 +1,4 @@
-﻿import type { NodeTypes, EdgeTypes } from '@xyflow/react';
+import type { NodeTypes, EdgeTypes } from '@xyflow/react';
 import { VisualRoleNode } from '../nodes/VisualRoleNode';
 import { VisualProviderNode } from '../nodes/VisualProviderNode';
 import { VisualModelNode } from '../nodes/VisualModelNode';

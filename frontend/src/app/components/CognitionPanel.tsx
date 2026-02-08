@@ -164,7 +164,7 @@ export function CognitionPanel({ events, loading, anthroState }: CognitionPanelP
                                     const ctx = isPromptContextObj(rawContext) ? rawContext : null;
                                     if (!ctx) return null;
                                     return (
-                                        <RecallCard key={String(event.id ?? idx)} context={ctx} timestamp={event.timestamp} />
+                                        <RecallCard key={String(event.id ?? idx)} context={ctx} timestamp={event.timestamp ?? ''} />
                                     );
                                 })
                             )}

@@ -2,6 +2,7 @@ import React from 'react';
 import { BaseProviderSettings } from './BaseProviderSettings';
 import { CodexModelBrowser } from '../model-browser/CodexModelBrowser';
 import { CLI_MODES, type CLIMode, type ProviderConfig, type ProviderValidateFn } from '../types';
+import type { CodexExecConfig } from '../types/strict';
 
 const cyberInputClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 disabled:opacity-50 disabled:cursor-not-allowed";
 const cyberSelectClasses = "flex h-9 w-full min-w-0 rounded-md border border-white/10 bg-black/40 px-3 py-1 text-sm text-slate-100 transition-all duration-200 outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 focus:bg-black/60 hover:border-violet-400/30 hover:bg-black/50 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_8px_center] bg-no-repeat pr-10";
@@ -23,16 +24,23 @@ export function CodexCLIProviderSettings({
     onUpdate({ [field]: value });
   };
 
-  const codexExec = provider.codex_exec || {};
+  const codexExec = (provider.codex_exec || {}) as CodexExecConfig & Record<string, unknown>;
+  const codexExecColor = (codexExec.color || 'never') as 'never' | 'auto' | 'always';
+  const codexExecSandbox = (codexExec.sandbox || 'read-only') as 'read-only' | 'workspace-write' | 'danger-full-access';
+  const codexExecProfile = (codexExec.profile || '') as string;
+  const codexExecConfig = (codexExec.config || []) as string[];
+  const codexExecAddDirs = (codexExec.add_dirs || []) as string[];
+  const codexExecOutputSchema = (codexExec.output_schema || '') as string;
+  const codexExecOutputLastMessage = (codexExec.output_last_message || '') as string;
   const modelId = typeof provider.model === 'string' ? provider.model : '';
-  const configOverrides = Array.isArray(codexExec.config) ? codexExec.config : [];
+  const codexExecConfigArr = Array.isArray(codexExecConfig) ? codexExecConfig : [];
   const cliMode: CLIMode =
     provider.cli_mode === CLI_MODES.TUI || provider.cli_mode === CLI_MODES.HEADLESS
       ? provider.cli_mode
       : CLI_MODES.HEADLESS;
 
   const getConfigOverrideValue = (key: string): string | null => {
-    for (const entry of configOverrides) {
+    for (const entry of codexExecConfigArr) {
       const eqIndex = entry.indexOf('=');
       if (eqIndex <= 0) {
         continue;
@@ -54,8 +62,8 @@ export function CodexCLIProviderSettings({
   };
 
   const upsertConfigOverride = (key: string, value: string | null): string[] => {
-    const updated = configOverrides
-      .map((entry) => {
+    const updated = codexExecConfigArr
+      .map((entry: string) => {
         const eqIndex = entry.indexOf('=');
         if (eqIndex <= 0) {
           return entry;
@@ -68,7 +76,7 @@ export function CodexCLIProviderSettings({
       })
       .filter((entry): entry is string => Boolean(entry));
 
-    const hasKey = updated.some((entry) => entry.split('=', 1)[0].trim() === key);
+    const hasKey = updated.some((entry: string) => entry.split('=', 1)[0].trim() === key);
     if (value && !hasKey) {
       updated.push(`${key}=${value}`);
     }
@@ -292,7 +300,7 @@ export function CodexCLIProviderSettings({
         <div>
           <label className="block text-xs text-text-muted mb-1">Sandbox Strategy</label>
           <select
-            value={codexExec.sandbox || 'read-only'}
+            value={codexExecSandbox}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, sandbox: e.target.value })}
             className={cyberSelectClasses}
           >
@@ -325,7 +333,7 @@ export function CodexCLIProviderSettings({
         <div>
           <label className="block text-xs text-text-muted mb-1">Color Output</label>
           <select
-            value={codexExec.color || 'never'}
+            value={codexExecColor}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, color: e.target.value })}
             className={cyberSelectClasses}
           >
@@ -429,7 +437,7 @@ export function CodexCLIProviderSettings({
             <div>
               <label className="block text-xs text-text-muted mb-1">Manual Model Entry</label>
               <textarea
-                value={(provider.manual_models || []).join('\n')}
+                value={(provider as ProviderConfig & { manual_models?: string[] }).manual_models?.join('\n') || ''}
                 onChange={(e) =>
                   handleFieldChange(
                     'manual_models',
@@ -462,7 +470,7 @@ export function CodexCLIProviderSettings({
           <label className="block text-xs text-text-muted mb-1">Profile</label>
           <input
             type="text"
-            value={codexExec.profile || ''}
+            value={codexExecProfile}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, profile: e.target.value })}
             className={cyberInputClasses}
             placeholder="default, codex, or custom profile name"
@@ -476,7 +484,7 @@ export function CodexCLIProviderSettings({
         <div>
           <label className="block text-xs text-text-muted mb-1">Configuration Overrides (key=value)</label>
           <textarea
-            value={(codexExec.config || []).join('\n')}
+            value={codexExecConfig.join('\n')}
             onChange={(e) => handleFieldChange('codex_exec', { 
               ...codexExec, 
               config: e.target.value.split('\n').filter(config => config.trim() && config.includes('='))
@@ -494,7 +502,7 @@ export function CodexCLIProviderSettings({
         <div>
           <label className="block text-xs text-text-muted mb-1">Additional Directories</label>
           <textarea
-            value={(codexExec.add_dirs || []).join('\n')}
+            value={codexExecAddDirs.join('\n')}
             onChange={(e) => handleFieldChange('codex_exec', { 
               ...codexExec, 
               add_dirs: e.target.value.split('\n').filter(dir => dir.trim()) 
@@ -512,7 +520,7 @@ export function CodexCLIProviderSettings({
           <label className="block text-xs text-text-muted mb-1">Output Schema</label>
           <input
             type="text"
-            value={codexExec.output_schema || ''}
+            value={codexExecOutputSchema}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, output_schema: e.target.value })}
             className={`${cyberInputClasses} font-mono`}
             placeholder="/path/to/schema.json"
@@ -527,7 +535,7 @@ export function CodexCLIProviderSettings({
           <label className="block text-xs text-text-muted mb-1">Output Last Message To</label>
           <input
             type="text"
-            value={codexExec.output_last_message || ''}
+            value={codexExecOutputLastMessage}
             onChange={(e) => handleFieldChange('codex_exec', { ...codexExec, output_last_message: e.target.value })}
             className={`${cyberInputClasses} font-mono`}
             placeholder=".harborpilot/runtime/CODEX_LAST_MESSAGE.md"

@@ -465,8 +465,10 @@ export function CanonicalBridgeProvider({
           id,
           name: unifiedProvider.name || id,
           kind: (unifiedProvider.type as any) || 'openai_compat',
-          type: unifiedProvider.type || 'openai_compat',
-          conn: providerConfig?.conn || { kind: 'http', baseUrl: providerConfig?.base_url || '' },
+          type: unifiedProvider.type || '',
+          conn: providerConfig?.conn 
+            ? { kind: 'http' as const, baseUrl: providerConfig.base_url || '', ...providerConfig.conn }
+            : { kind: 'http' as const, baseUrl: providerConfig?.base_url || '' },
           modelId: providerConfig?.model || providerConfig?.default_model || '',
           status: 'untested',
           config: providerConfig || { type: unifiedProvider.type } as ProviderConfig,

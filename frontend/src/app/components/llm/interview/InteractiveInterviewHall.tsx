@@ -737,7 +737,7 @@ export function InteractiveInterviewHall({
     const { strengths, weaknesses } = analyzePerformance(answerMessages);
     const resolvedModel = resolveSelectedModel(
       selectedModel,
-      activeProvider?.type,
+      activeProvider?.providerType,
       activeProvider?.model
     );
     return {
@@ -746,7 +746,7 @@ export function InteractiveInterviewHall({
       provider: {
         id: selectedProvider || '',
         name: activeProvider?.name || selectedProvider || 'Unknown',
-        model: resolvedModel.model
+        model: resolvedModel.model as string
       },
       startTime,
       endTime,

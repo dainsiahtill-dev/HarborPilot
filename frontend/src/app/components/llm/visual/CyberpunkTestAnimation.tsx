@@ -159,7 +159,7 @@ export function CyberpunkCard({ children, status, className = '' }: CyberpunkCar
 
 interface CyberpunkGlitchTextProps {
   text: string;
-  status: 'running' | 'success' | 'failed';
+  status: 'unknown' | 'running' | 'success' | 'failed';
   className?: string;
 }
 

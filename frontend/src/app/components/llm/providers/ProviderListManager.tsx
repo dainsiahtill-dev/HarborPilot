@@ -5,19 +5,17 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { Plus, Settings, PlayCircle } from 'lucide-react';
-import type { ProviderConfig } from '../types';
+import type { ProviderConfig, ProviderSettingsProps } from '../types';
 import { useProviderContext, useConnectivityStatus } from '../state';
 import { ProviderCard } from './ProviderCard';
 import { ConnectionMethodSelector } from './ConnectionMethodSelector';
 import type { ProviderInfo } from '../types';
+import type { ProviderRegistryEntry } from '../ProviderRegistry';
 
-type ProviderEntry = {
-  info: ProviderInfo;
-  defaults: ProviderConfig;
-};
+type ProviderEntry = ProviderRegistryEntry;
 
 interface ProviderListManagerProps {
-  providers: ProviderEntry[];
+  providers: ProviderRegistryEntry[];
   configuredProviders: Record<string, ProviderConfig>;
   llmStatus?: {
     interviews?: {
@@ -31,13 +29,8 @@ interface ProviderListManagerProps {
   } | null;
   isSaving?: boolean;
   deletingProviders?: Record<string, boolean>;
-  getProviderInfo: (type: string) => ProviderEntry | undefined;
-  getProviderComponent: (type: string) => React.ComponentType<{
-    providerId?: string;
-    provider: ProviderConfig;
-    onUpdate: (updates: Partial<ProviderConfig>) => void;
-    onValidate: () => { valid: boolean; errors: string[]; warnings: string[] };
-  }> | null;
+  getProviderInfo: (type: string) => ProviderRegistryEntry | undefined;
+  getProviderComponent: (type: string) => React.ComponentType<ProviderSettingsProps> | null;
   getCostClass: (type: string) => string;
   onAddProvider: (id: string, config: ProviderConfig) => void;
   onUpdateProvider: (id: string, updates: Partial<ProviderConfig>) => void;
@@ -140,8 +133,8 @@ export function ProviderListManager({
 
     const providerId = `${providerType}-${Date.now()}`;
     const newProvider: ProviderConfig = {
-      ...providerEntry.defaults,
-      name: providerEntry.defaults.name || `${providerType} Provider`,
+      ...providerEntry.defaultConfig,
+      name: providerEntry.defaultConfig.name || `${providerType} Provider`,
       type: providerType,
     };
 
@@ -205,7 +198,7 @@ export function ProviderListManager({
                       </div>
                       {provider.info.supported_features?.length ? (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {provider.info.supported_features.slice(0, 3).map((feature) => (
+                          {provider.info.supported_features.slice(0, 3).map((feature: string) => (
                             <span key={feature} className="text-[9px] px-2 py-0.5 rounded bg-white/5 text-text-dim">
                               {feature}
                             </span>

@@ -1,7 +1,7 @@
-﻿import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { VisualModelNodeData } from '../types/visual';
 
-export function VisualModelNode({ data }: NodeProps<VisualModelNodeData>) {
+export function VisualModelNode({ data }: NodeProps<Node<VisualModelNodeData>>) {
   return (
     <div className="min-w-[200px] rounded-xl border border-cyan-300/30 bg-black/60 px-3 py-2 text-text-main shadow-[0_0_10px_rgba(34,211,238,0.12)]">
       <Handle type="target" position={Position.Left} className="!bg-cyan-200 !border-cyan-100" />

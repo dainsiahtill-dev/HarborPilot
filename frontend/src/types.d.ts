@@ -34,6 +34,7 @@ declare global {
         onExit: (handler: (payload: { id: string; exitCode?: number; signal?: number }) => void) => () => void;
       };
       windowControl?: {
+        getState: () => Promise<{ maximized: boolean } | null>;
         minimize: () => void;
         maximize: () => void;
         close: () => void;

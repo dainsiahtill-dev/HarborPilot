@@ -1,8 +1,8 @@
-﻿export type VisualRoleId = 'pm' | 'director' | 'qa' | 'docs';
+export type VisualRoleId = 'pm' | 'director' | 'qa' | 'docs';
 
 export type VisualNodeKind = 'role' | 'provider' | 'model';
 
-export interface VisualRoleNodeData {
+export interface VisualRoleNodeData extends Record<string, unknown> {
   kind: 'role';
   roleId: VisualRoleId;
   label: string;
@@ -23,10 +23,9 @@ export interface VisualRoleNodeData {
       model?: string;
     };
   };
-  [key: string]: unknown;
 }
 
-export interface VisualProviderNodeData {
+export interface VisualProviderNodeData extends Record<string, unknown> {
   kind: 'provider';
   providerId: string;
   label: string;
@@ -34,25 +33,22 @@ export interface VisualProviderNodeData {
   costClass?: string;
   status?: string;
   modelCount?: number;
-  [key: string]: unknown;
 }
 
-export interface VisualModelNodeData {
+export interface VisualModelNodeData extends Record<string, unknown> {
   kind: 'model';
   providerId: string;
   model: string;
   label: string;
   assignedRoles?: VisualRoleId[];
-  [key: string]: unknown;
 }
 
 export type VisualNodeData = VisualRoleNodeData | VisualProviderNodeData | VisualModelNodeData;
 
 export type VisualEdgeKind = 'provider-to-model' | 'model-to-role';
 
-export interface VisualEdgeData {
+export interface VisualEdgeData extends Record<string, unknown> {
   kind: VisualEdgeKind;
-  [key: string]: unknown;
 }
 
 export interface VisualNodePosition {

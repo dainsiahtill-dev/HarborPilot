@@ -1,4 +1,4 @@
-﻿import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, getBezierPath, type EdgeProps, type Edge, type Node } from '@xyflow/react';
 import type { VisualEdgeData } from '../types/visual';
 
 const EDGE_COLORS: Record<string, string> = {
@@ -6,7 +6,7 @@ const EDGE_COLORS: Record<string, string> = {
   'model-to-role': '#f472b6',
 };
 
-export function CustomEdge(props: EdgeProps<VisualEdgeData>) {
+export function CustomEdge(props: EdgeProps<Edge<VisualEdgeData>>) {
   const [edgePath] = getBezierPath({
     sourceX: props.sourceX,
     sourceY: props.sourceY,
