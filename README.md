@@ -34,6 +34,7 @@ HarborPilot 的核心不是"更花哨的 Agent"，而是**面向现实**：
 - [📁 产物与目录结构](#-产物与目录结构)
 - [⚖️ 系统不变量（v2：核心 6 + 修正案 3）](#️-系统不变量)
 - [🧠 拟人化核心与 Glass Mind](#-拟人化核心与-glass-mind)
+- [🤖 模型要求与兼容性](#🤖-模型要求与兼容性)
 - [🎛️ 模型路由与接入验证](#️-模型路由与接入验证)
 - [📊 用量与成本观测](#-用量与成本观测)
 - [🗣️ Inner Voice（自言自语）](#️-inner-voice自言自语)
@@ -329,6 +330,70 @@ UI 侧边栏展示：
 
 ---
 
+## 🤖 模型要求与兼容性
+
+HarborPilot 作为自动化编程指挥台，对接的模型必须满足以下**核心要求**：
+
+### 1. 思考过程支持（Thinking Support）
+
+**必要性**：PM 和 Director 角色需要展示推理过程，确保决策透明可追溯。
+
+**技术要求**：
+- ✅ 支持 `thinking`、`reasoning_summary` 或类似标签输出
+- ✅ 能够输出结构化的思考过程
+- ✅ 支持工具调用前的推理说明
+
+**期望的模型输出格式**：
+```
+<thinking>
+我需要分析用户需求，制定实施计划...
+1. 理解问题本质
+2. 制定解决方案
+3. 准备工具调用
+</thinking>
+
+<answer>
+具体的实施步骤和代码...
+</answer>
+```
+
+### 2. 流式实时输出（Streaming Support）
+
+**必要性**：提供实时反馈，提升用户体验，支持长时间任务的进度监控。
+
+**技术要求**：
+- ✅ 支持 Server-Sent Events (SSE) 或类似流式协议
+- ✅ 支持逐 token 输出，延迟 < 100ms
+- ✅ 兼容 OpenAI SDK 的流式接口
+- ✅ 支持中断和恢复机制
+
+### 推荐模型列表
+
+| 模型 | Provider | Thinking | Streaming | 推荐度 | 说明 |
+|------|----------|----------|-----------|--------|------|
+| **GPT-4** | OpenAI | ✅ | ✅ | ⭐⭐⭐⭐⭐ | 原生支持，最佳体验 |
+| **Claude-3** | Anthropic | ✅ | ✅ | ⭐⭐⭐⭐⭐ | 强推理能力 |
+| **Kimi-K2** | Moonshot | ✅ | ✅ | ⭐⭐⭐⭐ | OpenAI 兼容，性价比高 |
+| **MiniMax** | MiniMax | ✅ | ✅ | ⭐⭐⭐⭐ | 支持中文优化 |
+| **Codex CLI** | OpenAI | ✅ | ✅ | ⭐⭐⭐⭐⭐ | 固定成本，适合长跑 |
+| **Llama-3** | Ollama | ⚠️ | ✅ | ⭐⭐⭐ | 需要 prompt 工程 |
+| **Gemini CLI** | Google | ⚠️ | ✅ | ⭐⭐⭐ | 需要格式转换 |
+
+### Provider 开发要求
+
+```python
+class BaseProvider:
+    async def invoke_stream(self, prompt: str, model: str, config: Dict[str, Any]) -> AsyncGenerator[str, None]:
+        """必须实现流式输出"""
+        pass
+
+    def supports_thinking(self, model: str) -> bool:
+        """检查模型是否支持 thinking"""
+        pass
+```
+
+---
+
 ## 🎛️ 模型路由与接入验证
 
 > 目标：无论接入命令行 LLM、本地运行时、还是第三方 HTTPS API，都必须能在 UI 中完成**接入验证与胜任性测试**，确保"可用且胜任"。
@@ -348,11 +413,13 @@ HarborPilot 支持为不同角色选择不同模型：
 
 ### Provider 类型（统一抽象）
 
-| 类型                        | 示例                                      | 成本通道          |
-| --------------------------- | ----------------------------------------- | ----------------- |
-| **CLI Provider**            | Codex CLI、Gemini CLI                     | FIXED             |
-| **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp         | LOCAL             |
-| **Standard HTTPS Provider** | OpenAI-compatible API（OpenAI / MiniMax） | METERED（强门禁） |
+| 类型                        | 示例                                      | 成本通道          | Thinking | Streaming | 推荐度 |
+| --------------------------- | ----------------------------------------- | ---------------- |----------|-----------|--------|
+| **CLI Provider**            | Codex CLI、Gemini CLI                     | FIXED            | ✅       | ✅        | ⭐⭐⭐⭐⭐ |
+| **Local HTTP Runtime**      | Ollama、LM Studio、Jan、llama.cpp         | LOCAL            | ⚠️       | ✅        | ⭐⭐⭐ |
+| **Standard HTTPS Provider** | OpenAI-compatible API（OpenAI / MiniMax） | METERED（强门禁） | ✅       | ✅        | ⭐⭐⭐⭐ |
+
+> ⚠️ **选择 Provider 时必须确认 Thinking 和 Streaming 支持**，否则将无法通过 HarborPilot 的胜任性测试。
 
 #### Codex CLI 接入（exec 模式）
 
@@ -387,23 +454,25 @@ MiniMax（Anthropic-compatible）配置示例：
 - ✅ 能启动/连通（health）
 - ✅ model id 可用
 - ✅ 能回答一个最小问题（response 非空）
+- ✅ **流式输出测试**：能逐 token 输出，延迟 < 100ms
 - ✅ 超时/错误处理可控
 - ✅ usage/tokens：能取则取，不能取则标估算
 
 #### Layer 2：胜任性测试（Role Qualification）
 
-| 角色         | 胜任标准                         |
-| ------------ | -------------------------------- |
-| **PM**       | 能输出结构化任务与 AC            |
-| **Director** | 证据优先、计划可执行、不臆造文件 |
-| **QA**       | 严格 PASS/FAIL + 原因与证据引用  |
-| **Docs**     | 按模板生成，不编造事实           |
+| 角色 | 胜任标准 | Thinking 要求 | Streaming 要求 |
+|------|----------|---------------|----------------|
+| **PM** | 能输出结构化任务与 AC | **必须** | **必须** |
+| **Director** | 证据优先、计划可执行、不臆造文件 | **必须** | **必须** |
+| **QA** | 严格 PASS/FAIL + 原因与证据引用 | 推荐 | **必须** |
+| **Docs** | 按模板生成，不编造事实 | 推荐 | **必须** |
 
-**补充门槛（Thinking 能力）**：
+**核心能力检测**：
 
-- PM/Director 必须检测到 thinking/reasoning 信号（如 `thinking` / `reasoning_summary` / `<think>`）。
+- PM/Director 必须检测到 thinking/reasoning 信号（如 `<thinking>` / `reasoning_summary` / `<think>`）。
+- 所有角色必须支持流式输出。
 - 未满足则视为不胜任并阻止进入 READY。
-- QA/Docs 不强制，但会给出建议提示。
+- QA/Docs 的 thinking 能力不强制，但会给出建议提示。
 
 - ✅ 通过 → role **READY**
 - ❌ 未通过 → role **BLOCKED**（对应运行按钮置灰，跳转到 Test Center）

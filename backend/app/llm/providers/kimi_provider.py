@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import aiohttp
 import requests
 
 from ..types import HealthResult, InvokeResult, ModelInfo, ModelListResult, Usage, estimate_usage
@@ -223,11 +226,28 @@ class KimiProvider(BaseProvider):
             # Fallback to known Kimi models if API doesn't return list
             if not models:
                 known_models = [
+                    # K2.5 series (latest flagship)
                     ("kimi-k2.5", "256K context"),
                     ("kimi-k2-0905-preview", "256K context"),
                     ("kimi-k2-0711-preview", "128K context"),
+                    
+                    # K2 Thinking series (reasoning models)
                     ("kimi-k2-thinking", "256K context"),
+                    ("kimi-k2-thinking-turbo", "256K context"),
+                    
+                    # K2 Turbo series (fast response)
                     ("kimi-k2-turbo-preview", "256K context"),
+                    ("kimi-k2-turbo", "256K context"),
+                    
+                    # Moonshot V1 series (classic)
+                    ("moonshot-v1-8k", "8K context"),
+                    ("moonshot-v1-32k", "32K context"),
+                    ("moonshot-v1-128k", "128K context"),
+                    
+                    # Vision models
+                    ("moonshot-v1-8k-vision-preview", "8K context"),
+                    ("moonshot-v1-32k-vision-preview", "32K context"),
+                    ("moonshot-v1-128k-vision-preview", "128K context"),
                 ]
                 for model_id, context in known_models:
                     models.append(ModelInfo(id=model_id, label=f"{model_id} ({context})"))
@@ -319,3 +339,89 @@ class KimiProvider(BaseProvider):
         
         # Fallback to estimation
         return estimate_usage(prompt, output)
+
+    async def invoke_stream(
+        self, prompt: str, model: str, config: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
+        """
+        True streaming invoke for Kimi API using aiohttp.
+        
+        Kimi API is OpenAI-compatible, so we use SSE format:
+        data: {"choices":[{"delta":{"content":"hello"}}]}
+        
+        Args:
+            prompt: The prompt to send
+            model: The model name (e.g., "kimi-k2-turbo-preview")
+            config: Provider configuration
+            
+        Yields:
+            Text tokens/chunks from the LLM response
+        """
+        base = self._base_url(config)
+        timeout = int(config.get("timeout") or 60)
+        api_path = str(config.get("api_path", DEFAULT_CHAT_PATH)).strip()
+        url = f"{base}{api_path}"
+        
+        api_key = config.get("api_key")
+        if not api_key:
+            yield "Error: API key is required for Kimi provider"
+            return
+        
+        # Build streaming payload
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": float(config.get("temperature") or 0.7),
+            "top_p": float(config.get("top_p") or 1.0),
+            "max_tokens": int(config.get("max_tokens") or 2048),
+            "stream": True,  # Enable streaming
+        }
+        
+        headers = self._headers(config, api_key)
+        # Override for streaming
+        headers["Accept"] = "text/event-stream"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout if timeout > 0 else None),
+                ) as response:
+                    response.raise_for_status()
+                    
+                    # Process SSE stream
+                    async for line in response.content:
+                        line_str = line.decode('utf-8').strip()
+                        
+                        if not line_str or not line_str.startswith('data: '):
+                            continue
+                        
+                        data_str = line_str[6:]  # Remove 'data: ' prefix
+                        
+                        if data_str == '[DONE]':
+                            break
+                        
+                        try:
+                            data = json.loads(data_str)
+                            choices = data.get("choices", [])
+                            
+                            if choices and len(choices) > 0:
+                                delta = choices[0].get("delta", {})
+                                content = delta.get("content", "")
+                                
+                                if content:
+                                    yield content
+                                    
+                        except json.JSONDecodeError:
+                            continue
+                        except Exception:
+                            continue
+                            
+        except aiohttp.ClientError as e:
+            yield f"Error: Network error - {str(e)}"
+        except asyncio.TimeoutError:
+            yield "Error: Request timeout"
+        except Exception as e:
+            yield f"Error: {str(e)}"

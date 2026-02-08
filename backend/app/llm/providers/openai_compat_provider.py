@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
@@ -11,6 +11,7 @@ import requests
 from ..types import HealthResult, InvokeResult, ModelInfo, ModelListResult, Usage, estimate_usage
 from .base_provider import BaseProvider, ProviderInfo, ValidationResult
 from .http_utils import join_url, merge_headers, normalize_base_url
+from ..model_resolver import resolve_model_name, validate_model_name
 
 DEFAULT_MODELS_PATH = "/v1/models"
 DEFAULT_CHAT_PATH = "/v1/chat/completions"
@@ -206,8 +207,35 @@ class OpenAICompatProvider(BaseProvider):
         retries = int(config.get("retries") or 0)
         api_path = str(config.get("api_path") or DEFAULT_CHAT_PATH).strip()
         url = join_url(base, api_path, strip_prefixes=["/v1"])
+
+        resolved = resolve_model_name(
+            model=model,
+            default_model=config.get("default_model"),
+            provider_type="openai_compat",
+            role_model=config.get("role_model")
+        )
+
+        if not resolved.is_valid:
+            return InvokeResult(
+                ok=False,
+                output="",
+                latency_ms=0,
+                usage=estimate_usage(prompt, ""),
+                error=f"Invalid model resolution: {resolved.warning}"
+            )
+
+        validation = validate_model_name(resolved.model, "openai_compat")
+        if not validation.is_valid:
+            return InvokeResult(
+                ok=False,
+                output="",
+                latency_ms=0,
+                usage=estimate_usage(prompt, ""),
+                error=f"Invalid model name: {validation.error}"
+            )
+
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": resolved.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": float(config.get("temperature") or 0.2),
         }
@@ -248,25 +276,41 @@ class OpenAICompatProvider(BaseProvider):
     ) -> AsyncGenerator[str, None]:
         """
         True streaming invoke for OpenAI-compatible API.
-        
+
         Sends request with stream=True and yields tokens as they arrive.
         """
         base = normalize_base_url(str(config.get("base_url") or ""))
         timeout = int(config.get("timeout") or 60)
         api_path = str(config.get("api_path") or DEFAULT_CHAT_PATH).strip()
         url = join_url(base, api_path, strip_prefixes=["/v1"])
-        
+
+        resolved = resolve_model_name(
+            model=model,
+            default_model=config.get("default_model"),
+            provider_type="openai_compat",
+            role_model=config.get("role_model")
+        )
+
+        if not resolved.is_valid:
+            yield f"Error: Invalid model resolution: {resolved.warning}"
+            return
+
+        validation = validate_model_name(resolved.model, "openai_compat")
+        if not validation.is_valid:
+            yield f"Error: Invalid model name: {validation.error}"
+            return
+
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": resolved.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": float(config.get("temperature") or 0.2),
             "stream": True,  # Enable streaming
         }
-        
+
         max_tokens = config.get("max_tokens")
         if max_tokens is not None:
             payload["max_tokens"] = int(max_tokens)
-        
+
         api_key = config.get("api_key")
         headers = _headers(config, api_key)
         

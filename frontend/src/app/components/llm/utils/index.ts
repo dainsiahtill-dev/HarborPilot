@@ -22,3 +22,13 @@ export type {
   UseErrorHandlingResult,
   ErrorBoundaryFallbackProps,
 } from './errorHandling';
+
+export {
+  resolveModelName,
+  validateModelName,
+  getModelResolutionLog,
+  getDefaultModelForProvider,
+  type ModelResolutionContext,
+  type ModelResolutionResult,
+  type ModelValidationResult,
+} from './modelResolver';

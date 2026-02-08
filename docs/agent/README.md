@@ -58,10 +58,31 @@
 - **原子写入**：关键状态文件 write tmp → fsync → rename
 - **记忆必须可溯源**：memory/reflection 必须带 refs
 
+## 🤖 模型约束速查
+
+| 约束 | 要求 | 优先级 |
+|------|------|--------|
+| **Thinking 必须** | PM/Director 必须输出 `<thinking>` 标签 | P0 |
+| **Streaming 必须** | 所有角色必须支持流式输出（延迟 < 100ms） | P0 |
+| **兼容性检测** | 接入前必须验证 Thinking + Streaming 支持 | P0 |
+| **胜任性测试** | PM/Director 未通过thinking检测则 BLOCKED | P0 |
+| **推荐模型** | GPT-4、Claude-3、Codex CLI、Kimi-K2、MiniMax | P1 |
+| **部分兼容** | Llama-3（需 prompt 工程）、Gemini CLI（需格式转换） | P2 |
+| **不兼容** | 基础模型（无 thinking/streaming） | - |
+
+### 性能指标
+
+| 指标 | 要求 |
+|------|------|
+| 流式延迟 | < 100ms |
+| Thinking 解析 | < 1s |
+| Provider 接口 | 兼容 OpenAI SDK |
+
 ---
 
 ## 📝 文档更新日志
 
-| 日期       | 更新内容 |
-| ---------- | -------- |
+| 日期 | 更新内容 |
+|------|----------|
+| 2026-02-08 | 添加模型约束速查章节，明确 Thinking/Streaming 要求 |
 | 2026-02-02 | 重构为人类/Agent 双入口文档结构 |

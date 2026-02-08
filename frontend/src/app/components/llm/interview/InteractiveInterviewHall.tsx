@@ -7,8 +7,65 @@ import type { TestEvent } from '../test/types';
 import { RealtimeThinkingDisplay } from './RealtimeThinkingDisplay';
 import { StreamingTagDisplay } from './StreamingTagDisplay';
 import { useInterviewStream, type RealtimeThinkingEvent, type StreamingTagEvent } from './useInterviewStream';
+import { resolveModelName, validateModelName, type ModelResolutionContext, type ModelResolutionResult } from '../utils';
 
 type RoleId = 'pm' | 'director' | 'qa' | 'docs';
+
+const MODEL_FALLBACKS: Record<string, string> = {
+  'openai': 'gpt-4',
+  'openai_compat': 'gpt-4',
+  'anthropic': 'claude-3-sonnet-20240229',
+  'anthropic_compat': 'claude-3-sonnet-20240229',
+  'kimi': 'kimi-k2-thinking-turbo',
+  'minimax': 'abab6.5-chat',
+  'gemini_api': 'gemini-1.5-pro',
+  'ollama': 'llama2',
+  'codex_cli': 'gpt-4-codex',
+  'codex_sdk': 'gpt-4',
+  'gemini_cli': 'gemini-1.5-pro',
+  'custom_https': 'gpt-4',
+};
+
+function resolveSelectedModel(
+  selectedModel: string | null,
+  providerType?: string,
+  activeProviderModel?: string
+): ModelResolutionResult {
+  if (selectedModel && selectedModel.trim()) {
+    return {
+      model: selectedModel.trim(),
+      source: 'role_config',
+      isValid: true
+    };
+  }
+
+  if (activeProviderModel && activeProviderModel.trim()) {
+    return {
+      model: activeProviderModel.trim(),
+      source: 'provider_config',
+      isValid: true
+    };
+  }
+
+  if (providerType) {
+    const fallbackModel = MODEL_FALLBACKS[providerType];
+    if (fallbackModel) {
+      return {
+        model: fallbackModel,
+        source: 'hardcoded_fallback',
+        isValid: true,
+        warning: `使用默认模型 ${fallbackModel}`
+      };
+    }
+  }
+
+  return {
+    model: 'gpt-4',
+    source: 'hardcoded_fallback',
+    isValid: false,
+    warning: '无法确定模型，使用通用 fallback 模型'
+  };
+}
 
 export interface QuestionTemplate {
   id: string;
@@ -678,13 +735,18 @@ export function InteractiveInterviewHall({
     ).length;
     const totalQuestions = answerMessages.length || 1;
     const { strengths, weaknesses } = analyzePerformance(answerMessages);
+    const resolvedModel = resolveSelectedModel(
+      selectedModel,
+      activeProvider?.type,
+      activeProvider?.model
+    );
     return {
       id: sessionId || createMessageId(),
       role: selectedRole || 'pm',
       provider: {
         id: selectedProvider || '',
         name: activeProvider?.name || selectedProvider || 'Unknown',
-        model: selectedModel || activeProvider?.model || 'unknown'
+        model: resolvedModel.model
       },
       startTime,
       endTime,

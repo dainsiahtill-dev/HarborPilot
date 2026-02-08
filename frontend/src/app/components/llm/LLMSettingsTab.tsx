@@ -7,8 +7,8 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, CheckCircle2, AlertTriangle, PlayCircle } from 'lucide-react';
 
-import { 
-  ProviderContextProvider, 
+import {
+  ProviderContextProvider,
   useProviderContext,
   useSelectedRole,
   useConnectivityStore,
@@ -17,9 +17,9 @@ import {
 import type { ProviderState } from './state';
 import { ProviderListManager } from './providers';
 
-import type { 
-  ProviderConfig, 
-  ProviderKind, 
+import type {
+  ProviderConfig,
+  ProviderKind,
   SimpleProvider,
 } from './types';
 import { PROVIDER_KINDS, isCLIProviderType } from './types';
@@ -28,6 +28,7 @@ import { TestPanel } from './test/TestPanel';
 import { useTestEvents } from './test/hooks/useTestEvents';
 import { useProviderRegistry } from './ProviderRegistry';
 import { LLMVisualEditor } from './visual/LLMVisualEditor';
+import { resolveModelName, validateModelName, getModelResolutionLog, type ModelResolutionContext } from './utils';
 import type { VisualGraphConfig, VisualGraphStatus } from './visual/types/visual';
 
 import { 
@@ -213,48 +214,33 @@ function buildSimpleProvider(
 function resolveModelForSelection(
   roleId: RoleId,
   providerId: string,
-  config: LlmConfig | null
+  config: {
+    roles?: Record<string, { provider_id?: string; model?: string } | null>;
+    providers?: Record<string, ProviderConfig | null>;
+  } | null,
+  providers?: Array<{ id: string; type?: string; model?: string }>
 ): string {
-  if (!config) {
-    console.log('[resolveModelForSelection] config is null');
-    return '';
-  }
-  
-  const providerCfg = config.providers?.[providerId];
-  const roleCfg = config.roles?.[roleId];
-  
-  console.log('[resolveModelForSelection]', {
+  const context: ModelResolutionContext = {
     roleId,
     providerId,
-    providerCfg: providerCfg ? {
-      model: providerCfg.model,
-      model_id: providerCfg.model_id,
-      default_model: providerCfg.default_model,
-      type: providerCfg.type,
-    } : null,
-    roleCfg: roleCfg ? { provider_id: roleCfg.provider_id, model: roleCfg.model } : null,
-  });
-  
-  // 检查多个可能的model字段（与原始版本保持一致）
-  if (providerCfg?.model) {
-    console.log('[resolveModelForSelection] using providerCfg.model:', providerCfg.model);
-    return providerCfg.model;
+    llmConfig: config,
+    providers: providers as ModelResolutionContext['providers']
+  };
+
+  const result = resolveModelName(context);
+
+  console.log('[ModelResolver] ' + getModelResolutionLog(context));
+
+  if (result.warning) {
+    console.warn('[ModelResolver] 警告:', result.warning);
   }
-  if (providerCfg?.model_id) {
-    console.log('[resolveModelForSelection] using providerCfg.model_id:', providerCfg.model_id);
-    return providerCfg.model_id;
+
+  const validation = validateModelName(result.model);
+  if (!validation.isValid) {
+    console.error('[ModelResolver] 模型验证失败:', validation.error);
   }
-  if (providerCfg?.default_model) {
-    console.log('[resolveModelForSelection] using providerCfg.default_model:', providerCfg.default_model);
-    return providerCfg.default_model;
-  }
-  if (roleCfg?.provider_id === providerId && roleCfg.model) {
-    console.log('[resolveModelForSelection] using roleCfg.model:', roleCfg.model);
-    return roleCfg.model;
-  }
-  
-  console.log('[resolveModelForSelection] no model found, returning empty string');
-  return '';
+
+  return result.model;
 }
 
 // ============================================================================
@@ -440,7 +426,7 @@ function DeepTestPanel({
             providers={providers}
             selectedRole={selectedRole}
             selectedProvider={selectedProviderId}
-            selectedModel={llmConfig?.roles?.[selectedRole]?.model || ''}
+            selectedModel={resolveModelForSelection(selectedRole, selectedProviderId, llmConfig, providers)}
             onSelectRole={selectRole}
             onSelectProvider={selectProvider}
             onAskQuestion={onAskInteractiveInterview}
